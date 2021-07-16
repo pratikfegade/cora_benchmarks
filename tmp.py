@@ -1,3 +1,4 @@
+import run_utils
 import utils
 import tvm
 from tvm import tir, te
@@ -13,7 +14,7 @@ QKV_NUM = 3
 TILE=64
 RTILE=4
 
-lens = te.placeholder((BATCH_SIZE + 1,), name = 'lens', dtype = 'int32')
+lens = te.placeholder((BATCH_SIZE,), name = 'lens', dtype = 'int32')
 
 bd = Dim('bd')
 qkv = Dim('qkv')
@@ -23,6 +24,7 @@ id = Dim('id')
 od = Dim('od')
 
 def len_uf(name): return Uf(name, (0, MAX_LEN), [bd], lambda b: lens[b])
+# def len_uf(name): return Uf(name, (0, MAX_LEN), [bd], lambda b: MAX_LEN)
 
 ls =  {
     0: Uf.from_constant('bd', BATCH_SIZE),
@@ -36,11 +38,10 @@ ls =  {
 loop_ufs=[ls[0], ls[1], ls[2], ls[3], ls[4]]
 width_ufs=loop_ufs
 QKV = te.ragged_placeholder((BATCH_SIZE, MAX_LEN, NUM_HEADS, QKV_NUM, IN_SIZE), [bd, s1, qkv, md, id], loop_ufs,
-                            name='QKV', width_ufs=width_ufs)
+                            name='QKV', width_ufs=width_ufs, dtype = 'float32')
 
 loop_ufs=[ls[5], ls[4]]
-# W = te.ragged_placeholder((OUT_SIZE, IN_SIZE), [od, id], loop_ufs, name='W')
-W = te.placeholder((OUT_SIZE, IN_SIZE), name='W')
+W = te.placeholder((OUT_SIZE, IN_SIZE), name='W', dtype = 'float32')
 
 loop_ufs=[ls[0], ls[1], ls[2], ls[3], ls[5]]
 width_ufs=[loop_ufs]
@@ -92,8 +93,15 @@ s[QKVs].bind(xi, thread_x())
 
 tvm_callback_cuda_compile = tvm.register_func(utils.get_tvm_callback_cuda_compile(256))
 
-inputs = [lens, QKV, W]
+inputs = [lens, QKV, W, O]
 stmt = tvm.lower(s, inputs, simple_mode = True)
 print(stmt)
-# fadd = tvm.build(s, inputs, "cuda")
+# target = "cuda"
+# fadd = tvm.build(s, inputs, target)
 # print('-----GPU code-----\n' + fadd.imported_modules[0].get_source())
+
+# lens = [run_utils.random_lengths(BATCH_SIZE, MAX_LEN)]
+# tensors = run_utils.np_arrays([[BATCH_SIZE, MAX_LEN, NUM_HEADS, QKV_NUM, IN_SIZE],
+#                                [OUT_SIZE, IN_SIZE],
+#                                [BATCH_SIZE, MAX_LEN, NUM_HEADS, QKV_NUM, OUT_SIZE]])
+# run_utils.run(fadd, lens + tensors, target)
