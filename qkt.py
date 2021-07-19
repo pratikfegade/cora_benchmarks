@@ -49,58 +49,60 @@ O = te.ragged_compute((BATCH_SIZE, NUM_HEADS, MAX_LEN, MAX_LEN), [bd, md, s1, s2
 
 s = tvm.create_schedule([O.op])
 
-thread_x = lambda: tvm.thread_axis("threadIdx.x")
-thread_y = lambda: tvm.thread_axis("threadIdx.y")
-block_x = lambda: tvm.thread_axis("blockIdx.x")
-block_y = lambda: tvm.thread_axis("blockIdx.y")
+# thread_x = lambda: tvm.thread_axis("threadIdx.x")
+# thread_y = lambda: tvm.thread_axis("threadIdx.y")
+# block_x = lambda: tvm.thread_axis("blockIdx.x")
+# block_y = lambda: tvm.thread_axis("blockIdx.y")
 
-Ol = s.cache_write(O, "local")
-Qs = s.cache_read(Q, "shared", [Ol])
-Ks = s.cache_read(K, "shared", [Ol])
+# Ol = s.cache_write(O, "local")
+# Qs = s.cache_read(Q, "shared", [Ol])
+# Ks = s.cache_read(K, "shared", [Ol])
 
-Ql = s.cache_read(Qs, "local", [Ol])
-Kl = s.cache_read(Ks, "local", [Ol])
+# Ql = s.cache_read(Qs, "local", [Ol])
+# Kl = s.cache_read(Ks, "local", [Ol])
 
-b, h, x, y = s[O].leaf_iter_vars[0:4]
-xo, xi = s[O].split(x, factor = 64)
-yo, yi = s[O].split(y, factor = 64)
+# b, h, x, y = s[O].leaf_iter_vars[0:4]
+# xo, xi = s[O].split(x, factor = 64)
+# yo, yi = s[O].split(y, factor = 64)
 
-s[O].reorder(b, xo, yo, h, xi, yi)
-f1 = s[O].fuse(xo, yo)
-f2 = s[O].fuse(b, f1)
-f = s[O].fuse(f2, h)
-s[O].bind(f, block_x())
-s[Qs].compute_at(s[O], f)
-s[Ks].compute_at(s[O], f)
+# s[O].reorder(b, xo, yo, h, xi, yi)
+# f1 = s[O].fuse(xo, yo)
+# f2 = s[O].fuse(b, f1)
+# f = s[O].fuse(f2, h)
+# s[O].bind(f, block_x())
+# s[Qs].compute_at(s[O], f)
+# s[Ks].compute_at(s[O], f)
 
-xio, xii = s[O].split(xi, nparts = 16)
-yio, yii = s[O].split(yi, nparts = 16)
-s[O].reorder(xio, yio, xii, yii)
-s[O].bind(xio, thread_y())
-s[O].bind(yio, thread_x())
-s[Ol].compute_at(s[O], yio)
+# xio, xii = s[O].split(xi, nparts = 16)
+# yio, yii = s[O].split(yi, nparts = 16)
+# s[O].reorder(xio, yio, xii, yii)
+# s[O].bind(xio, thread_y())
+# s[O].bind(yio, thread_x())
+# s[Ol].compute_at(s[O], yio)
 
-x, y, k = s[Ol].leaf_iter_vars[2], s[Ol].leaf_iter_vars[3], s[Ol].leaf_iter_vars[4]
-s[Ol].reorder(k, x, y)
-s[Ql].compute_at(s[Ol], k)
-s[Kl].compute_at(s[Ol], k)
+# x, y, k = s[Ol].leaf_iter_vars[2], s[Ol].leaf_iter_vars[3], s[Ol].leaf_iter_vars[4]
+# s[Ol].reorder(k, x, y)
+# s[Ql].compute_at(s[Ol], k)
+# s[Kl].compute_at(s[Ol], k)
 
-x, y = s[Qs].leaf_iter_vars[2], s[Qs].leaf_iter_vars[3]
-xo, xi = s[Qs].split(x, nparts = 16)
-yo, yi = s[Qs].split(y, nparts = 16)
-s[Qs].bind(xo, thread_y())
-s[Qs].bind(yo, thread_x())
+# x, y = s[Qs].leaf_iter_vars[2], s[Qs].leaf_iter_vars[3]
+# xo, xi = s[Qs].split(x, nparts = 16)
+# yo, yi = s[Qs].split(y, nparts = 16)
+# s[Qs].bind(xo, thread_y())
+# s[Qs].bind(yo, thread_x())
 
-x, y = s[Ks].leaf_iter_vars[2], s[Ks].leaf_iter_vars[3]
-xo, xi = s[Ks].split(x, nparts = 16)
-yo, yi = s[Ks].split(y, nparts = 16)
-s[Ks].bind(xo, thread_y())
-s[Ks].bind(yo, thread_x())
+# x, y = s[Ks].leaf_iter_vars[2], s[Ks].leaf_iter_vars[3]
+# xo, xi = s[Ks].split(x, nparts = 16)
+# yo, yi = s[Ks].split(y, nparts = 16)
+# s[Ks].bind(xo, thread_y())
+# s[Ks].bind(yo, thread_x())
 
-tvm_callback_cuda_compile = tvm.register_func(utils.get_tvm_callback_cuda_compile(256))
+# tvm_callback_cuda_compile = tvm.register_func(utils.get_tvm_callback_cuda_compile(256))
 
-inputs = [lens, Q, K]
+target = "c"
+inputs = [[lens], [Q, K]]
 # stmt = tvm.lower(s, inputs, simple_mode = True)
 # print(stmt)
-fadd = tvm.build(s, inputs, "cuda")
-print('-----GPU code-----\n' + fadd.imported_modules[0].get_source())
+fadd = tvm.build(s, inputs, target)
+# print('-----GPU code-----\n' + fadd.imported_modules[0].get_source())
+print('-----GPU code-----\n' + fadd.get_source())
