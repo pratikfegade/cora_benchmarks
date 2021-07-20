@@ -11,15 +11,16 @@ def np_arrays(shape_list):
 def int_shape(expr_shape):
     return [int(i) for i in expr_shape]
 
-def create_numpy_array(t, dtype):
-    shape = None
+def get_shape(t):
     if isinstance(t, tvm.te.Tensor):
-        shape = int_shape(t.shape)
+        return int_shape(t.shape)
     elif isinstance(t, tvm.tir.Buffer):
-        shape = int_shape(t.shape.dense_shape())
+        return int_shape(t.shape.dense_shape())
     else:
         assert False
-    return np.zeros(shape, dtype)
+
+def create_numpy_array(t, dtype):
+    return np.zeros(get_shape(t), dtype)
 
 def get_ctx(target):
     ctx = None
@@ -53,6 +54,7 @@ def run(built, l_inputs, i_inputs_tensors, t_inputs_tensors, target):
     ctx = get_ctx(target)
     cpu_ctx = get_ctx("llvm")
     l_inputs = [tvm.nd.array(i, cpu_ctx) for i in l_inputs]
+    print([(t, get_shape(t)) for t in i_inputs_tensors])
     i_inputs = [tvm.nd.array(create_numpy_array(i, "int32"), ctx) for i in i_inputs_tensors]
     t_inputs = [tvm.nd.array(create_numpy_array(i, "float32"), ctx) for i in t_inputs_tensors]
     inputs = t_inputs + l_inputs + i_inputs
