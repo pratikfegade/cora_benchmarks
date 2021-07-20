@@ -130,7 +130,7 @@ TILE=64
 RTILE=4
 
 dtype = "float16"
-lens = te.placeholder((BATCH_SIZE + 1,), name = 'lens', dtype = 'int32')
+lens = te.placeholder((BATCH_SIZE,), name = 'lens', dtype = 'int32')
 
 bd = Dim('bd')
 md = Dim('md')

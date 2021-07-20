@@ -13,7 +13,7 @@ QKV_NUM = 3
 TILE=64
 RTILE=4
 
-lens = te.placeholder((BATCH_SIZE + 1,), name = 'lens', dtype = 'int32')
+lens = te.placeholder((BATCH_SIZE,), name = 'lens', dtype = 'int32')
 
 bd = Dim('bd')
 qkv = Dim('qkv')

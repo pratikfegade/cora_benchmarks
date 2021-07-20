@@ -8,6 +8,19 @@ def random_lengths(batch_size, max_seq_len):
 def np_arrays(shape_list):
     return [np.zeros(shape, "float32") for shape in shape_list]
 
+def int_shape(expr_shape):
+    return [int(i) for i in expr_shape]
+
+def create_numpy_array(t, dtype):
+    shape = None
+    if isinstance(t, tvm.te.Tensor):
+        shape = int_shape(t.shape)
+    elif isinstance(t, tvm.tir.Buffer):
+        shape = int_shape(t.shape.dense_shape())
+    else:
+        assert False
+    return np.zeros(shape, dtype)
+
 def get_ctx(target):
     ctx = None
     if target.startswith('llvm') or target == 'c':
@@ -36,8 +49,11 @@ def execute(target, built, inputs, ctx, debug = False):
         eval_result = evaluator(*inputs)
         return eval_result.mean
 
-def run(built, inputs, target):
+def run(built, l_inputs, i_inputs_tensors, t_inputs_tensors, target):
     ctx = get_ctx(target)
-    inputs = [tvm.nd.array(i, ctx) for i in inputs]
-    print([i.dtype for i in inputs])
+    cpu_ctx = get_ctx("llvm")
+    l_inputs = [tvm.nd.array(i, cpu_ctx) for i in l_inputs]
+    i_inputs = [tvm.nd.array(create_numpy_array(i, "int32"), ctx) for i in i_inputs_tensors]
+    t_inputs = [tvm.nd.array(create_numpy_array(i, "float32"), ctx) for i in t_inputs_tensors]
+    inputs = t_inputs + l_inputs + i_inputs
     execute(target, built, inputs, ctx)
