@@ -78,8 +78,8 @@ s[Asum_rf].set_scope('local')
 s[Aexp].set_scope('local')
 
 tvm_callback_cuda_compile = tvm.register_func(utils.get_tvm_callback_cuda_compile(256))
-inputs = [lens, A]
-stmt = tvm.lower(s, inputs, simple_mode = True)
-print(stmt)
-# fadd = tvm.build(s, inputs, "cuda")
-# print('-----GPU code-----\n' + fadd.imported_modules[0].get_source())
+inputs = [[lens], [A]]
+# stmt = tvm.lower(s, inputs, simple_mode = True)
+# print(stmt)
+fadd, i_bufs = tvm.build(s, inputs, "cuda")
+print('-----GPU code-----\n' + fadd.imported_modules[0].get_source())

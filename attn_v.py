@@ -5,7 +5,6 @@ from tvm.te import RangeDimension as Dim
 from tvm.tir import UninterpFun as Uf
 
 BATCH_SIZE = 32
-# MAX_LEN = te.var('max_len') - 1
 MAX_LEN = 128
 NUM_HEADS = 8
 HEAD_SIZE = 64
@@ -18,7 +17,7 @@ s1 = Dim('s1')
 s2 = Dim('s2')
 hd = Dim('hd')
 
-def len1_uf(name): return Uf(name, (64, MAX_LEN), [bd], lambda b: 64 * tvm.floordiv(lens[b] + 63, 64))
+def len1_uf(name): return Uf(name, (64, MAX_LEN), [bd], lambda b: utils.ceilmult(lens[b], 64))
 def len2_uf(name): return Uf(name, (0, MAX_LEN), [bd], lambda b: lens[b])
 
 ls =  {
@@ -29,9 +28,9 @@ ls =  {
     4: Uf.from_constant('hd', HEAD_SIZE),
 }
 
-loop_ufs=[ls[0], ls[1], ls[2], ls[3]]
+loop_ufs=[ls[0], ls[1], ls[3], ls[2]]
 width_ufs=loop_ufs
-A = te.ragged_placeholder((BATCH_SIZE, NUM_HEADS, MAX_LEN, MAX_LEN), [bd, md, s1, s2], loop_ufs,
+A = te.ragged_placeholder((BATCH_SIZE, NUM_HEADS, MAX_LEN, MAX_LEN), [bd, md, s2, s1], loop_ufs,
                           name='A', width_ufs=width_ufs)
 
 loop_ufs=[ls[0], ls[1], ls[3], ls[4]]
@@ -42,7 +41,7 @@ V = te.ragged_placeholder((BATCH_SIZE, NUM_HEADS, MAX_LEN, HEAD_SIZE), [bd, md, 
 loop_ufs=[ls[0], ls[1], ls[2], ls[4]]
 width_ufs=[loop_ufs]
 O = te.ragged_compute((BATCH_SIZE, NUM_HEADS, MAX_LEN, HEAD_SIZE), [bd, md, s1, hd], loop_ufs,
-                      lambda ds, rds: tvm.sum(A[ds[bd], ds[md], ds[s1], rds['k']] *
+                      lambda ds, rds: tvm.sum(A[ds[bd], ds[md], rds['k'], ds[s1]] *
                                               V(ds[bd], ds[md], rds['k'], ds[hd]), axis=rds['k']),
                       name = 'O', reduce_axis_ufs = [('k', len2_uf('k'))],
                       width_uf_lists=width_ufs)
@@ -64,18 +63,18 @@ Vl = s.cache_read(Vs, "local", [Ol])
 b, h, x, y = s[O].leaf_iter_vars[0:4]
 xo, xi = s[O].split(x, factor = 64)
 
-s[O].reorder(b, xo, h, y, xi)
-f1 = s[O].fuse(b, xo)
-f = s[O].fuse(f1, h)
+s[O].reorder(b, xo, h, xi, y)
+f = s[O].fuse(b, xo)
 s[O].bind(f, block_x())
-s[Ol].compute_at(s[O], f)
+s[O].bind(h, block_y())
 
-xio, xii = s[O].split(xi, nparts = 16)
-yo, yi = s[O].split(y, nparts = 16)
-s[O].reorder(xio, yo, xii, yi)
-s[O].bind(xio, thread_y())
-s[O].bind(yo, thread_x())
-s[Ol].compute_at(s[O], yo)
+xio, xii = s[O].split(xi, factor = 16)
+yo, yi = s[O].split(y, factor = 16)
+s[O].bind(xii, thread_y())
+s[O].bind(yi, thread_x())
+s[O].bind(xio, tvm.thread_axis("vthread"))
+s[O].bind(yo, tvm.thread_axis("vthread"))
+s[Ol].compute_at(s[O], yi)
 
 x, y, k = s[Ol].leaf_iter_vars[2], s[Ol].leaf_iter_vars[3], s[Ol].leaf_iter_vars[4]
 s[Ol].reorder(k, x, y)
@@ -84,24 +83,26 @@ s[As].compute_at(s[Ol], ko)
 s[Vs].compute_at(s[Ol], ko)
 s[Al].compute_at(s[Ol], ki)
 s[Vl].compute_at(s[Ol], ki)
-s[Ol].peel(ko)
+# s[Ol].peel(ko)
 
 x, y = s[As].leaf_iter_vars[2], s[As].leaf_iter_vars[3]
-xo, xi = s[As].split(x, nparts = 16)
-yo, yi = s[As].split(y, nparts = 16)
-s[As].bind(xo, thread_y())
-s[As].bind(yo, thread_x())
+f = s[As].fuse(x, y)
+fo, fi = s[As].split(f, factor = 256)
+fio, fii = s[As].split(fi, factor = 16)
+s[As].bind(fio, thread_y())
+s[As].bind(fii, thread_x())
 
 x, y = s[Vs].leaf_iter_vars[2], s[Vs].leaf_iter_vars[3]
-xo, xi = s[Vs].split(x, nparts = 16)
-yo, yi = s[Vs].split(y, nparts = 16)
-s[Vs].bind(xo, thread_y())
-s[Vs].bind(yo, thread_x())
+f = s[Vs].fuse(x, y)
+fo, fi = s[Vs].split(f, factor = 256)
+fio, fii = s[Vs].split(fi, factor = 16)
+s[Vs].bind(fio, thread_y())
+s[Vs].bind(fii, thread_x())
 
 tvm_callback_cuda_compile = tvm.register_func(utils.get_tvm_callback_cuda_compile(256))
 
-inputs = [lens, V, A]
+inputs = [[lens], [V, A]]
 # stmt = tvm.lower(s, inputs, simple_mode = True)
 # print(stmt)
-fadd = tvm.build(s, inputs, "cuda")
+fadd, i_bufs = tvm.build(s, inputs, "cuda")
 print('-----GPU code-----\n' + fadd.imported_modules[0].get_source())
