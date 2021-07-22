@@ -92,7 +92,7 @@ def read_and_chunk_lengths(batch_size, max_batches, lengths_file):
     data_lines = read_lengths(lengths_file)
     return list(chunks(data_lines, batch_size, max_batches))
 
-def run(built, l_inputs, i_inputs_tensors, t_inputs_tensors, batch_size, num_batches, dataset, datadir, target, debug):
+def run(built, i_inputs_tensors, t_inputs_tensors, batch_size, num_batches, dataset, datadir, target, debug):
     ctx = get_ctx(target)
     cpu_ctx = get_ctx("llvm")
     host_i_inputs = [tvm.nd.array(create_numpy_array(i, "int32"), cpu_ctx) for i in i_inputs_tensors[0]]

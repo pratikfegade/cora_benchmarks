@@ -72,12 +72,12 @@ if args.target == "cuda":
     block_x = lambda: tvm.thread_axis("blockIdx.x")
     block_y = lambda: tvm.thread_axis("blockIdx.y")
 
-    thread_x = lambda: tvm.thread_axis("threadIdx.x")
-    thread_y = lambda: tvm.thread_axis("threadIdx.y")
-    block_x = lambda: tvm.thread_axis("blockIdx.x")
-    block_y = lambda: tvm.thread_axis("blockIdx.y")
-
     Ol = s.cache_write(O, "local")
+    Qs = s.cache_read(Q, "shared", [Ol])
+    Ks = s.cache_read(K, "shared", [Ol])
+
+    Ql = s.cache_read(Qs, "local", [Ol])
+    Kl = s.cache_read(Ks, "local", [Ol])
 
     b, h, x, y = s[O].leaf_iter_vars[0:4]
     xo, xi = s[O].split(x, factor = 64)
@@ -92,15 +92,17 @@ if args.target == "cuda":
     f = s[O].fuse(xi, yi)
     fo, fi = s[O].split(f, factor = 256)
     fio, fii = s[O].split(fi, factor = 16)
-    # xio, xii = s[O].split(xi, factor = 16)
-    # yio, yii = s[O].split(yi, factor = 16)
-    # s[O].reorder()
+    s[O].reorder(fio, fii, fo)
     s[O].bind(fio, thread_y())
     s[O].bind(fii, thread_x())
-    s[Ol].compute_at(s[O], fo)
+    s[Ol].compute_at(s[O], fii)
+    # s[Qs].compute_at(s[O], fo)
+    # s[Ks].compute_at(s[O], fo)
 
-    # x, y, k = s[Ol].leaf_iter_vars[2], s[Ol].leaf_iter_vars[3], s[Ol].leaf_iter_vars[4]
-    # s[Ol].reorder(k, x, y)
+    x, y, k = s[Ol].leaf_iter_vars[2], s[Ol].leaf_iter_vars[3], s[Ol].leaf_iter_vars[4]
+    s[Ol].reorder(k, x, y)
+    # s[Ql].compute_at(s[Ol], k)
+    # s[Kl].compute_at(s[Ol], k)
 
 
 
