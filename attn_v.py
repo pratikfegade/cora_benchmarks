@@ -1,11 +1,28 @@
+import argparse
+import run_utils
 import utils
 import tvm
 from tvm import tir, te
 from tvm.te import RangeDimension as Dim
 from tvm.tir import UninterpFun as Uf
 
-BATCH_SIZE = 32
-MAX_LEN = 128
+parser = argparse.ArgumentParser()
+parser.add_argument('--target', nargs='?', default='llvm')
+parser.add_argument('--dtype', dest='dtype', nargs='?', default='float32')
+parser.add_argument('--max-batches', dest='max_batches', default=1, type=int)
+parser.add_argument('--batch-size', dest='batch_size', default=32, type=int)
+parser.add_argument('--peel-loops', dest='peel_loops', default=False, action='store_true')
+parser.add_argument('--unroll-loops', dest='unroll_loops', default=False, action='store_true')
+parser.add_argument('--debug', dest='debug', default=False, action='store_true')
+parser.add_argument('--debug-code', dest='debug_code', default=False, action='store_true')
+parser.add_argument('--manual-code', dest='manual_code', default=False, action='store_true')
+parser.add_argument('--dense-storage', dest='dense_storage', default=False, action='store_true')
+parser.add_argument('--dataset', nargs='?', default='random')
+parser.add_argument('--datadir', nargs='?', default='random')
+args = parser.parse_args()
+
+BATCH_SIZE = args.batch_size
+MAX_LEN = utils.ceilmult(run_utils.get_dataset_max_len(args.dataset), 64)
 NUM_HEADS = 8
 HEAD_SIZE = 64
 
@@ -83,7 +100,7 @@ s[As].compute_at(s[Ol], ko)
 s[Vs].compute_at(s[Ol], ko)
 s[Al].compute_at(s[Ol], ki)
 s[Vl].compute_at(s[Ol], ki)
-# s[Ol].peel(ko)
+s[Ol].peel(ko)
 
 x, y = s[As].leaf_iter_vars[2], s[As].leaf_iter_vars[3]
 f = s[As].fuse(x, y)
@@ -101,8 +118,17 @@ s[Vs].bind(fii, thread_x())
 
 tvm_callback_cuda_compile = tvm.register_func(utils.get_tvm_callback_cuda_compile(256))
 
-inputs = [[lens], [V, A]]
-# stmt = tvm.lower(s, inputs, simple_mode = True)
-# print(stmt)
-fadd, i_bufs = tvm.build(s, inputs, "cuda")
-print('-----GPU code-----\n' + fadd.imported_modules[0].get_source())
+inputs = [[lens], [V, A, O]]
+if args.debug_code:
+    # lowered = tvm.lower(s, inputs, simple_mode = True)
+    # print(lowered)
+    fadd, _ = tvm.build(s, inputs, args.target)
+    if args.target == 'cuda':
+        print('-----GPU code-----\n' + fadd.imported_modules[0].get_source())
+    else:
+        print('-----CPU code-----\n' + fadd.get_source())
+else:
+    fadd, i_bufs = tvm.build(s, inputs, args.target)
+    # fadd = tvm.runtime.module.load_module('/home/ppf/rnn_compilers/ragged_tensors/incubator-tvm/build/qkt.so')
+    run_utils.run(fadd, i_bufs, [V, A, O], args.batch_size, args.max_batches,
+                  args.dataset, args.datadir, args.target, args.debug)

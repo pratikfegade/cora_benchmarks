@@ -103,7 +103,6 @@ if args.target == "cuda":
     s[O].reorder(b, xo, yo, h, xi, yi)
     f1 = s[O].fuse(xo, yo)
     f2 = s[O].fuse(b, f1)
-    # f = s[O].fuse(f2, h)
     s[O].bind(f2, block_x())
     s[O].bind(h, block_y())
     s[Qs].compute_at(s[O], h)
@@ -137,63 +136,6 @@ if args.target == "cuda":
     s[Qs].bind(fio, thread_y())
     s[Qs].bind(fii, thread_x())
 
-
-    # Ol = s.cache_write(O, "local")
-    # Qs = s.cache_read(Q, "shared", [Ol])
-    # Ks = s.cache_read(K, "shared", [Ol])
-
-    # Ql = s.cache_read(Qs, "local", [Ol])
-    # Kl = s.cache_read(Ks, "local", [Ol])
-
-    # b, h, x, y = s[O].leaf_iter_vars[0:4]
-    # xo, xi = s[O].split(x, factor = 64)
-    # yo, yi = s[O].split(y, factor = 64)
-
-    # s[O].reorder(b, xo, yo, h, xi, yi)
-    # f1 = s[O].fuse(xo, yo)
-    # f2 = s[O].fuse(b, f1)
-    # f = s[O].fuse(f2, h)
-    # s[O].bind(f, block_x())
-    # s[Qs].compute_at(s[O], f)
-    # s[Ks].compute_at(s[O], f)
-
-    # xio, xii = s[O].split(xi, nparts = 16)
-    # yio, yii = s[O].split(yi, nparts = 16)
-    # s[O].reorder(xio, yio, xii, yii)
-    # s[O].bind(xio, thread_y())
-    # s[O].bind(yio, thread_x())
-    # s[Ol].compute_at(s[O], yio)
-
-    # x, y, k = s[Ol].leaf_iter_vars[2], s[Ol].leaf_iter_vars[3], s[Ol].leaf_iter_vars[4]
-    # s[Ol].reorder(k, x, y)
-    # if args.unroll_loops:
-    #     s[Ol].unroll(x)
-    #     s[Ol].unroll(y)
-    # s[Ql].compute_at(s[Ol], k)
-    # s[Kl].compute_at(s[Ol], k)
-
-    # x, y = s[Qs].leaf_iter_vars[2], s[Qs].leaf_iter_vars[3]
-    # xo, xi = s[Qs].split(x, nparts = 16)
-    # s[Qs].reorder(y, xi, xo)
-    # s[Qs].bind(xo, thread_x())
-    # f = s[Qs].fuse(y, xi)
-    # fo, fi = s[Qs].split(f, factor = 16)
-    # s[Qs].bind(fi, thread_y())
-    # s.reorder_tensor_dimensions(Qs, 2, 3)
-    # s.split_tensor_dimension(Qs, 3, 4)
-    # s.reorder_tensor_dimensions(Qs, 3, 4)
-
-    # x, y = s[Ks].leaf_iter_vars[2], s[Ks].leaf_iter_vars[3]
-    # xo, xi = s[Ks].split(x, nparts = 16)
-    # s[Ks].reorder(y, xi, xo)
-    # s[Ks].bind(xo, thread_x())
-    # f = s[Ks].fuse(y, xi)
-    # fo, fi = s[Ks].split(f, factor = 16)
-    # s[Ks].bind(fi, thread_y())
-    # s.reorder_tensor_dimensions(Ks, 2, 3)
-    # s.split_tensor_dimension(Ks, 3, 4)
-    # s.reorder_tensor_dimensions(Ks, 3, 4)
-
     suffix = ""
     gen_prefix = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0] + suffix
     _ = tvm.register_func(utils.get_tvm_callback_cuda_compile(256))
@@ -215,7 +157,7 @@ else:
     f1 = s[O].fuse(xo, yo)
     f2 = s[O].fuse(b, f1)
     f = s[O].fuse(f2, h)
-    # s[O].bind(f, block_x())
+    s[O].parallel(f)
     s[Qs].compute_at(s[O], f)
     s[Ks].compute_at(s[O], f)
 
@@ -233,11 +175,11 @@ inputs = [[lens], [Q, K, O]]
 if args.debug_code:
     lowered = tvm.lower(s, inputs, simple_mode = True)
     print(lowered)
-    # fadd = tvm.build(s, inputs, args.target)
+    # fadd, _ = tvm.build(s, inputs, args.target)
     # if args.target == 'cuda':
-    #     print('-----GPU code-----\n' + fadd.imported_modules[0].get_source())
+        # print('-----GPU code-----\n' + fadd.imported_modules[0].get_source())
     # else:
-    #     print('-----CPU code-----\n' + fadd.get_source())
+        # print('-----CPU code-----\n' + fadd.get_source())
 else:
     fadd, i_bufs = tvm.build(s, inputs, args.target)
     # fadd = tvm.runtime.module.load_module('/home/ppf/rnn_compilers/ragged_tensors/incubator-tvm/build/qkt.so')
