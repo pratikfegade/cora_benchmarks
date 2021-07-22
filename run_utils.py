@@ -1,8 +1,36 @@
+import os
 import numpy as np
 import tvm
 
+dataset_files = {
+    "wikipedia_128": "/old_wikipedia/full_lengths_128.txt",
+    "wikipedia_512": "/old_wikipedia/full_lengths_512.txt",
+    "squadv2": "/squadv2/train_lengths.txt",
+    "mnli": "/glue_data/MNLI/train_lengths.txt",
+    "mrpc": "/glue_data/MRPC/train_lengths.txt",
+    "cola": "/glue_data/CoLA/train_lengths.txt",
+    "xnli": "/glue_data/XNLI/train_lengths.txt",
+    "race": "/race/train_lengths.txt",
+}
+
+dataset_max_lens = {
+    "wikipedia_128" : 128,
+    "wikipedia_512" : 512,
+    "squadv2" : 384,
+    "mnli" : 128,
+    "mrpc" : 112,
+    "cola" : 48,
+    "xnli" : 128,
+    "race" : 512,
+}
+
+def get_dataset_max_len(dataset):
+    return dataset_max_lens[dataset]
+
 def random_lengths(batch_size, max_seq_len):
-    min_seq_len = int(0.1 * max_seq_len)
+    # min_seq_len = int(0.1 * max_seq_len)
+    avg_seq_len = 65
+    min_seq_len = 2 * avg_seq_len - max_seq_len
     return np.random.randint(min_seq_len, max_seq_len, batch_size, "int32")
 
 def np_arrays(shape_list):
@@ -46,16 +74,43 @@ def execute(target, built, inputs, ctx, debug = False):
             return -100000000
             evaluator = built.time_evaluator('default_function', ctx, 1, repeat=10)
         else:
-            evaluator = built.time_evaluator(built.entry_name, ctx, number=1, repeat=1)
+            evaluator = built.time_evaluator(built.entry_name, ctx, number=10, repeat=10)
         eval_result = evaluator(*inputs)
-        return eval_result.mean
+        return eval_result.mean * 1000
 
-def run(built, l_inputs, i_inputs_tensors, t_inputs_tensors, target):
+def chunks(lst, n, m):
+    """Yield successive n-sized chunks from lst."""
+    for i in range(0, min(m * n, len(lst)), n):
+        yield np.array(lst[i:i + n], "int32")
+
+def read_lengths(filename, skip = 0):
+    data_lines = [int(line.strip()) for line in open(filename, "r", errors='replace')]
+    return data_lines[skip:]
+
+def read_and_chunk_lengths(batch_size, max_batches, lengths_file):
+    curr_dir = os.path.dirname(os.path.realpath(__file__))
+    data_lines = read_lengths(lengths_file)
+    return list(chunks(data_lines, batch_size, max_batches))
+
+def run(built, i_inputs_tensors, t_inputs_tensors, batch_size, num_batches, dataset, datadir, target, debug):
     ctx = get_ctx(target)
     cpu_ctx = get_ctx("llvm")
-    l_inputs = [tvm.nd.array(i, cpu_ctx) for i in l_inputs]
-    print([(t, get_shape(t)) for t in i_inputs_tensors])
-    i_inputs = [tvm.nd.array(create_numpy_array(i, "int32"), ctx) for i in i_inputs_tensors]
+    host_i_inputs = [tvm.nd.array(create_numpy_array(i, "int32"), cpu_ctx) for i in i_inputs_tensors[0]]
+    dev_i_inputs = [tvm.nd.array(create_numpy_array(i, "int32"), ctx) for i in i_inputs_tensors[1]]
     t_inputs = [tvm.nd.array(create_numpy_array(i, "float32"), ctx) for i in t_inputs_tensors]
-    inputs = t_inputs + l_inputs + i_inputs
-    execute(target, built, inputs, ctx)
+
+    if debug: num_batches = 1
+
+    if dataset == "random":
+        batches = [random_lengths(batch_size, 128) for i in range(num_batches)]
+    else:
+        batches = read_and_chunk_lengths(batch_size, num_batches, datadir + "/" + dataset_files[dataset])
+
+    time = 0
+    for batch in batches:
+        sorted(batch)
+        l_inputs = [tvm.nd.array(batch, cpu_ctx)]
+        inputs = t_inputs + l_inputs + host_i_inputs + dev_i_inputs
+        time += execute(target, built, inputs, ctx, debug)
+
+    print(time / len(batches))

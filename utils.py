@@ -27,15 +27,29 @@ def get_tvm_callback_cuda_compile(threads, grid_sync = False):
         # options = ["--ptxas-options='-v -warn-lmem-usage -warn-spills' --nvlink-options='-v'", '-rdc=true']
         # options = ["-Xcompiler", "-rdynamic", "-D_FORCE_INLINES", "--use_fast_math", "-lineinfo",
                    # "--ptxas-options='-allow-expensive-optimizations'", "--maxrregcount=" + str((65536 // threads) - 1)]
+        # options = ["-Xcompiler", "-rdynamic", "-D_FORCE_INLINES",
+                   # "--ptxas-options='-allow-expensive-optimizations'", "--maxrregcount=" + str((65536 // threads) - 1)]
         options = ["-Xcompiler", "-rdynamic", "-D_FORCE_INLINES",
-                   "--ptxas-options='-allow-expensive-optimizations'", "--maxrregcount=" + str((65536 // threads) - 1)]
+                   "--ptxas-options='-allow-expensive-optimizations'", "--use_fast_math"]
         if nvcc.have_grid_sync(grid_sync): options += ["-rdc=true", "-L /usr/lib/x86_64-linux-gnu"]
-        ptx =  nvcc.compile_cuda(code, target="ptx", options = options)
+        ptx = nvcc.compile_cuda(code, target="ptx", options = options)
         return ptx
     return tvm_callback_cuda_compile
 
-def ceildiv(a, b): return tvm.floordiv(a + b - 1, b)
+def ceildiv(a, b):
+    if isinstance(a, int) and isinstance(b, int):
+        return (a + b - 1) // b
+    else:
+        return tvm.floordiv(a + b - 1, b)
 
-def ceilmult(a, b): return b * tvm.floordiv(a + b - 1, b)
+def ceilmult(a, b):
+    if isinstance(a, int) and isinstance(b, int):
+        return b * ((a + b - 1) // b)
+    else:
+        return b * tvm.floordiv(a + b - 1, b)
 
-def floormult(a, b): return b * tvm.floordiv(a, b)
+def floormult(a, b):
+    if isinstance(a, int) and isinstance(b, int):
+        return b * (a // b)
+    else:
+        return b * tvm.floordiv(a, b)
