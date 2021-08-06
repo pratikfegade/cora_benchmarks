@@ -33,12 +33,12 @@ md = Dim('md')
 s1 = Dim('s1')
 s2 = Dim('s2')
 
-def len_uf(name): return Uf(name, (0, MAX_LEN), [bd], lambda b: utils.ceilmult(lens[b], 32))
+def len_uf(name): return Uf(name, 'l', (0, MAX_LEN), [bd], lambda b: utils.ceilmult(lens[b], 32))
 
 luf = len_uf('s2')
 ls =  {
-    0: Uf.from_constant('bd', BATCH_SIZE),
-    1: Uf.from_constant('md', NUM_HEADS),
+    0: Uf.from_constant('bd', BATCH_SIZE, 'l'),
+    1: Uf.from_constant('md', NUM_HEADS, 'l'),
     2: luf,
     3: luf,
 }
@@ -94,7 +94,7 @@ s[Asum].set_scope('local')
 s[Asum_rf].set_scope('local')
 s[Aexp].set_scope('local')
 
-inputs = [[lens], [A]]
+inputs = [[lens], [A, O]]
 if args.debug_code:
     lowered = tvm.lower(s, inputs, simple_mode = True)
     print(lowered)
@@ -106,5 +106,5 @@ if args.debug_code:
 else:
     fadd, i_bufs = tvm.build(s, inputs, args.target)
     # fadd = tvm.runtime.module.load_module('/home/ppf/rnn_compilers/ragged_tensors/incubator-tvm/build/qkt.so')
-    run_utils.run(fadd, i_bufs, [A], args.batch_size, args.max_batches,
+    run_utils.run(fadd, i_bufs, inputs[1], args.batch_size, args.max_batches,
                   args.dataset, args.datadir, args.target, args.debug)

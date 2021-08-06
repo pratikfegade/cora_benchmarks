@@ -28,7 +28,8 @@ HEAD_SIZE = 64
 TILE1=64
 TILE2=64
 RTILE=4
-MAX_LEN = utils.ceilmult(run_utils.get_dataset_max_len(args.dataset), max(TILE1, TILE2))
+# MAX_LEN = utils.ceilmult(run_utils.get_dataset_max_len(args.dataset), max(TILE1, TILE2))
+MAX_LEN = utils.ceilmult(64, max(TILE1, TILE2))
 
 lens = te.placeholder((BATCH_SIZE,), name = 'lens', dtype = 'int32')
 
@@ -124,19 +125,23 @@ fio, fii = s[Ks].split(fi, factor = 16)
 s[Ks].bind(fio, thread_y())
 s[Ks].bind(fii, thread_x())
 
-tvm_callback_cuda_compile = tvm.register_func(utils.get_tvm_callback_cuda_compile(256))
+suffix = ""
+gen_prefix = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0] + suffix
+_ = tvm.register_func(utils.get_tvm_callback_cuda_compile(256))
+_ = tvm.register_func(
+    utils.get_tvm_callback_cuda_postproc(args, os.path.realpath(__file__), fileprefix=gen_prefix))
 
 inputs = [[lens], [Q, K, O]]
 if args.debug_code:
-    # lowered = tvm.lower(s, inputs, simple_mode = True)
-    # print(lowered)
-    fadd, _ = tvm.build(s, inputs, args.target)
-    if args.target == 'cuda':
-        print('-----GPU code-----\n' + fadd.imported_modules[0].get_source())
-    else:
-        print('-----CPU code-----\n' + fadd.get_source())
+    lowered = tvm.lower(s, inputs, args.target, simple_mode = True)
+    print(lowered)
+    # fadd, _ = tvm.build(s, inputs, args.target)
+    # if args.target == 'cuda':
+        # print('-----GPU code-----\n' + fadd.imported_modules[0].get_source())
+    # else:
+        # print('-----CPU code-----\n' + fadd.get_source())
 else:
     fadd, i_bufs = tvm.build(s, inputs, args.target)
     # fadd = tvm.runtime.module.load_module('/home/ppf/rnn_compilers/ragged_tensors/incubator-tvm/build/qkt.so')
-    run_utils.run(fadd, i_bufs, [Q, K, O], args.batch_size, args.max_batches,
+    run_utils.run(fadd, i_bufs, inputs[1], args.batch_size, args.max_batches,
                   args.dataset, args.datadir, args.target, args.debug)

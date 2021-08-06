@@ -3,8 +3,8 @@ import numpy as np
 import tvm
 
 dataset_files = {
-    "wikipedia_128": "/old_wikipedia/full_lengths_128.txt",
-    "wikipedia_512": "/old_wikipedia/full_lengths_512.txt",
+    "wiki_128": "/old_wikipedia/full_lengths_128.txt",
+    "wiki_512": "/old_wikipedia/full_lengths_512.txt",
     "squadv2": "/squadv2/train_lengths.txt",
     "mnli": "/glue_data/MNLI/train_lengths.txt",
     "mrpc": "/glue_data/MRPC/train_lengths.txt",
@@ -14,8 +14,8 @@ dataset_files = {
 }
 
 dataset_max_lens = {
-    "wikipedia_128" : 128,
-    "wikipedia_512" : 512,
+    "wiki_128" : 128,
+    "wiki_512" : 512,
     "squadv2" : 384,
     "mnli" : 128,
     "mrpc" : 112,
@@ -29,9 +29,10 @@ def get_dataset_max_len(dataset):
 
 def random_lengths(batch_size, max_seq_len):
     # min_seq_len = int(0.1 * max_seq_len)
-    avg_seq_len = 65
+    max_seq_len = 128
+    avg_seq_len = 128
     min_seq_len = 2 * avg_seq_len - max_seq_len
-    return np.random.randint(min_seq_len, max_seq_len, batch_size, "int32")
+    return np.random.randint(min_seq_len, max_seq_len + 1, batch_size, "int32")
 
 def np_arrays(shape_list):
     return [np.zeros(shape, "float32") for shape in shape_list]
@@ -48,7 +49,9 @@ def get_shape(t):
         assert False
 
 def create_numpy_array(t, dtype):
-    return np.zeros(get_shape(t), dtype)
+    shape = get_shape(t)
+    print(t, shape)
+    return np.zeros(shape, dtype)
 
 def get_ctx(target):
     ctx = None
@@ -102,7 +105,7 @@ def run(built, i_inputs_tensors, t_inputs_tensors, batch_size, num_batches, data
     if debug: num_batches = 1
 
     if dataset == "random":
-        batches = [random_lengths(batch_size, 128) for i in range(num_batches)]
+        batches = [random_lengths(batch_size, 64) for i in range(num_batches)]
     else:
         batches = read_and_chunk_lengths(batch_size, num_batches, datadir + "/" + dataset_files[dataset])
 

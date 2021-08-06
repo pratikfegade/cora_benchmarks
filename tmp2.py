@@ -1,3 +1,4 @@
+import os
 import utils
 import run_utils
 import argparse
@@ -56,13 +57,13 @@ width_ufs=loop_ufs
 QKV = te.ragged_placeholder((QKV_NUM, BATCH_SIZE, NUM_HEADS, MAX_LEN, IN_SIZE), [qkv, bd, md, s1, id], loop_ufs,
                             name='QKV', width_ufs=width_ufs)
 
-W = te.placeholder((QKV_NUM, NUM_HEADS, OUT_SIZE, IN_SIZE), name='W')
+W = te.placeholder((QKV_NUM, NUM_HEADS, IN_SIZE, OUT_SIZE), name='W')
 
 loop_ufs=[ls[0], ls[1], ls[2], ls[3], ls[5]]
 width_ufs=[loop_ufs]
 k = tvm.reduce_axis((0, IN_SIZE), name = 'k')
 O = te.ragged_compute((QKV_NUM, BATCH_SIZE, NUM_HEADS, MAX_LEN, OUT_SIZE), [qkv, bd, md, s1, od], loop_ufs,
-                      lambda ds: tvm.sum(W[ds[qkv], ds[md], ds[od], k] * QKV[ds[qkv], ds[bd], ds[md], ds[s1], k],
+                      lambda ds: tvm.sum(W[ds[qkv], ds[md], k, ds[od]] * QKV[ds[qkv], ds[bd], ds[md], ds[s1], k],
                                          axis = k, dimensions = [id]),
                       name = 'O', width_uf_lists=width_ufs)
 
@@ -73,8 +74,8 @@ thread_y = lambda: tvm.thread_axis("threadIdx.y")
 block_x = lambda: tvm.thread_axis("blockIdx.x")
 block_y = lambda: tvm.thread_axis("blockIdx.y")
 
-ntx = 32
-nty = 32
+ntx = 16
+nty = 16
 
 Ol = s.cache_write(O, "local")
 Ws = s.cache_read(W, "shared", [Ol], vanilla=True)
@@ -118,6 +119,7 @@ s[Ws].bind(xii, thread_x())
 q, b, h, l, i = s[QKVs].leaf_iter_vars
 s[QKVs].reorder(h, b, l)
 f = s[QKVs].fuse(b, l)
+s[QKVs].reorder(i, f)
 f = s[QKVs].fuse(f, i)
 xo, xi = s[QKVs].split(f, factor = ntx * nty)
 xio, xii = s[QKVs].split(xi, factor = ntx)
@@ -126,20 +128,25 @@ s[QKVs].bind(xii, thread_x())
 
 s.reorder_tensor_dimensions(QKVs, 1, 2)
 s.fuse_tensor_dimensions(QKVs, 2, 3)
+s.reorder_tensor_dimensions(QKVs, 2, 3)
 
-tvm_callback_cuda_compile = tvm.register_func(utils.get_tvm_callback_cuda_compile(256))
+suffix = ""
+gen_prefix = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0] + suffix
+_ = tvm.register_func(utils.get_tvm_callback_cuda_compile(256))
+_ = tvm.register_func(
+    utils.get_tvm_callback_cuda_postproc(args, os.path.realpath(__file__), fileprefix=gen_prefix))
 
 inputs = [[lens], [QKV, W, O]]
 if args.debug_code:
-    # lowered = tvm.lower(s, inputs, args.target, simple_mode = True)
-    # print(lowered)
-    fadd, _ = tvm.build(s, inputs, args.target)
-    if args.target == 'cuda':
-        print('-----GPU code-----\n' + fadd.imported_modules[0].get_source())
-    else:
-        print('-----CPU code-----\n' + fadd.get_source())
+    lowered = tvm.lower(s, inputs, args.target, simple_mode = True)
+    print(lowered)
+    # fadd, _ = tvm.build(s, inputs, args.target)
+    # if args.target == 'cuda':
+        # print('-----GPU code-----\n' + fadd.imported_modules[0].get_source())
+    # else:
+        # print('-----CPU code-----\n' + fadd.get_source())
 else:
     fadd, i_bufs = tvm.build(s, inputs, args.target)
     # fadd = tvm.runtime.module.load_module('/home/ppf/rnn_compilers/ragged_tensors/incubator-tvm/build/qkt.so')
-    run_utils.run(fadd, i_bufs, [QKV, W], args.batch_size, args.max_batches,
+    run_utils.run(fadd, i_bufs, [QKV, W, O], args.batch_size, args.max_batches,
                   args.dataset, args.datadir, args.target, args.debug)

@@ -36,50 +36,33 @@ s1 = Dim('s1')
 s2 = Dim('s2')
 hd = Dim('hd')
 
-def len_uf(name): return Uf(name, 'l', (64, MAX_LEN), [bd], lambda b: utils.ceilmult(lens[b], TILE))
+def len_uf(name): return Uf(name, "l", (64, MAX_LEN), [bd], lambda b: utils.ceilmult(lens[b], TILE))
 
 luf = len_uf('s')
 ls =  {
-    0: Uf.from_constant('bd', args.batch_size, 'l'),
-    1: Uf.from_constant('md', NUM_HEADS, 'l'),
+    0: Uf.from_constant('bd', args.batch_size, "l"),
+    1: Uf.from_constant('md', NUM_HEADS, "l"),
     2: luf,
     3: luf,
-    4: Uf.from_constant('hd', HEAD_SIZE, 'l'),
+    4: Uf.from_constant('hd', HEAD_SIZE, "l"),
 }
 
-# loop_ufs=[ls[0], ls[1], ls[2], ls[4]]
-# width_ufs = None if args.dense_storage else loop_ufs
-# Q = te.ragged_placeholder((args.batch_size, NUM_HEADS, MAX_LEN, HEAD_SIZE), [bd, md, s1, hd], loop_ufs,
-#                           name='Q', width_ufs=width_ufs)
-
-# loop_ufs=[ls[0], ls[1], ls[3], ls[4]]
-# width_ufs = None if args.dense_storage else loop_ufs
-# K = te.ragged_placeholder((args.batch_size, NUM_HEADS, MAX_LEN, HEAD_SIZE), [bd, md, s2, hd], loop_ufs,
-#                           name='K', width_ufs=width_ufs)
-
-# loop_ufs=[ls[0], ls[1], ls[2], ls[3]]
-# width_ufs = None if args.dense_storage else [loop_ufs]
-# k = tvm.reduce_axis((0, HEAD_SIZE), name = 'k')
-# O = te.ragged_compute((args.batch_size, NUM_HEADS, MAX_LEN, MAX_LEN), [bd, md, s1, s2], loop_ufs,
-#                         lambda ds: tvm.sum(Q[ds[bd], ds[md], ds[s1], k] * K[ds[bd], ds[md], ds[s2], k], axis = k),
-#                         name = 'O', width_uf_lists=width_ufs)
-
-loop_ufs=[ls[0], ls[1], ls[4], ls[2]]
+loop_ufs=[ls[0], ls[1], ls[2], ls[4]]
 width_ufs = None if args.dense_storage else loop_ufs
-Q = te.ragged_placeholder((args.batch_size, NUM_HEADS, HEAD_SIZE, MAX_LEN), [bd, md, hd, s1], loop_ufs,
+Q = te.ragged_placeholder((args.batch_size, NUM_HEADS, MAX_LEN, HEAD_SIZE), [bd, md, s1, hd], loop_ufs,
                           name='Q', width_ufs=width_ufs)
 
-loop_ufs=[ls[0], ls[1], ls[4], ls[3]]
+loop_ufs=[ls[0], ls[1], ls[3], ls[4]]
 width_ufs = None if args.dense_storage else loop_ufs
-K = te.ragged_placeholder((args.batch_size, NUM_HEADS, HEAD_SIZE, MAX_LEN), [bd, md, hd, s2], loop_ufs,
+K = te.ragged_placeholder((args.batch_size, NUM_HEADS, MAX_LEN, HEAD_SIZE), [bd, md, s2, hd], loop_ufs,
                           name='K', width_ufs=width_ufs)
 
 loop_ufs=[ls[0], ls[1], ls[2], ls[3]]
 width_ufs = None if args.dense_storage else [loop_ufs]
 k = tvm.reduce_axis((0, HEAD_SIZE), name = 'k')
 O = te.ragged_compute((args.batch_size, NUM_HEADS, MAX_LEN, MAX_LEN), [bd, md, s1, s2], loop_ufs,
-                        lambda ds: tvm.sum(Q[ds[bd], ds[md], k, ds[s1]] * K[ds[bd], ds[md], k, ds[s2]],
-                                           axis = k, dimensions = [hd]),
+                        lambda ds: tvm.sum(Q[ds[bd], ds[md], ds[s1], k] * K[ds[bd], ds[md], ds[s2], k],
+                                           axis = k, dimensions=[hd]),
                         name = 'O', width_uf_lists=width_ufs)
 
 s = tvm.create_schedule([O.op])
@@ -89,6 +72,9 @@ if args.target == "cuda":
     thread_y = lambda: tvm.thread_axis("threadIdx.y")
     block_x = lambda: tvm.thread_axis("blockIdx.x")
     block_y = lambda: tvm.thread_axis("blockIdx.y")
+
+    ntx = 16
+    nty = 16
 
     Ol = s.cache_write(O, "local")
     Qs = s.cache_read(Q, "shared", [Ol], layouts='dense')
@@ -109,14 +95,14 @@ if args.target == "cuda":
     s[Qs].compute_at(s[O], h)
     s[Ks].compute_at(s[O], h)
 
-    xio, xii = s[O].split(xi, factor = 16)
-    yio, yii = s[O].split(yi, factor = 16)
+    xio, xii = s[O].split(xi, factor = nty)
+    yio, yii = s[O].split(yi, factor = ntx)
     s[O].bind(xii, thread_y())
     s[O].bind(yii, thread_x())
-    s[O].bind(xio, tvm.thread_axis("vthread"))
     s[O].bind(yio, tvm.thread_axis("vthread"))
-    s[O].reorder(xio, yio, xii, yii)
-    s[Ol].compute_at(s[O], yii)
+    s[O].bind(xio, tvm.thread_axis("vthread"))
+    s[O].reorder(xio, yii, yio, xii)
+    s[Ol].compute_at(s[O], xii)
 
     x, y, k = s[Ol].leaf_iter_vars[2:5]
     s[Ol].reorder(k, x, y)
@@ -124,18 +110,23 @@ if args.target == "cuda":
     s[Kl].compute_at(s[Ol], k)
 
     x, y = s[Ks].leaf_iter_vars[2], s[Ks].leaf_iter_vars[3]
+    s[Ks].reorder(y, x)
     f = s[Ks].fuse(x, y)
-    fo, fi = s[Ks].split(f, factor = 256)
-    fio, fii = s[Ks].split(fi, factor = 16)
+    fo, fi = s[Ks].split(f, factor = ntx * nty)
+    fio, fii = s[Ks].split(fi, factor = ntx)
     s[Ks].bind(fio, thread_y())
     s[Ks].bind(fii, thread_x())
 
     x, y = s[Qs].leaf_iter_vars[2], s[Qs].leaf_iter_vars[3]
+    s[Qs].reorder(y, x)
     f = s[Qs].fuse(x, y)
-    fo, fi = s[Qs].split(f, factor = 256)
-    fio, fii = s[Qs].split(fi, factor = 16)
+    fo, fi = s[Qs].split(f, factor = ntx * nty)
+    fio, fii = s[Qs].split(fi, factor = ntx)
     s[Qs].bind(fio, thread_y())
     s[Qs].bind(fii, thread_x())
+
+    s.reorder_tensor_dimensions(Ks, 2, 3)
+    s.reorder_tensor_dimensions(Qs, 2, 3)
 
     suffix = ""
     gen_prefix = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0] + suffix
@@ -174,7 +165,7 @@ else:
 
 inputs = [[lens], [Q, K, O]]
 if args.debug_code:
-    lowered = tvm.lower(s, inputs, simple_mode = True)
+    lowered = tvm.lower(s, inputs, args.target, simple_mode = True)
     print(lowered)
     # fadd, _ = tvm.build(s, inputs, args.target)
     # if args.target == 'cuda':
