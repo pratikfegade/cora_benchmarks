@@ -25,12 +25,13 @@ dataset_max_lens = {
 }
 
 def get_dataset_max_len(dataset):
-    return dataset_max_lens[dataset]
+    if dataset.startswith("random"):
+        _, _, max_seq_len = dataset.split("_")
+        return int(max_seq_len)
+    else:
+        return dataset_max_lens[dataset]
 
-def random_lengths(batch_size, max_seq_len):
-    # min_seq_len = int(0.1 * max_seq_len)
-    max_seq_len = 128
-    avg_seq_len = 128
+def random_lengths(batch_size, avg_seq_len, max_seq_len):
     min_seq_len = 2 * avg_seq_len - max_seq_len
     return np.random.randint(min_seq_len, max_seq_len + 1, batch_size, "int32")
 
@@ -104,8 +105,9 @@ def run(built, i_inputs_tensors, t_inputs_tensors, batch_size, num_batches, data
 
     if debug: num_batches = 1
 
-    if dataset == "random":
-        batches = [random_lengths(batch_size, 64) for i in range(num_batches)]
+    if dataset.startswith("random"):
+        _, avg_seq_len, max_seq_len = dataset.split("_")
+        batches = [random_lengths(batch_size, int(avg_seq_len), int(max_seq_len)) for i in range(num_batches)]
     else:
         batches = read_and_chunk_lengths(batch_size, num_batches, datadir + "/" + dataset_files[dataset])
 

@@ -127,13 +127,13 @@ tvm_callback_cuda_compile = tvm.register_func(utils.get_tvm_callback_cuda_compil
 
 inputs = [[lens], [V, A]]
 if args.debug_code:
-    lowered = tvm.lower(s, inputs, simple_mode = True)
-    print(lowered)
-    # fadd, _ = tvm.build(s, inputs, args.target)
-    # if args.target == 'cuda':
-        # print('-----GPU code-----\n' + fadd.imported_modules[0].get_source())
-    # else:
-        # print('-----CPU code-----\n' + fadd.get_source())
+    # lowered = tvm.lower(s, inputs, simple_mode = True)
+    # print(lowered)
+    fadd, _ = tvm.build(s, inputs, args.target)
+    if args.target == 'cuda':
+        print('-----GPU code-----\n' + fadd.imported_modules[0].get_source())
+    else:
+        print('-----CPU code-----\n' + fadd.get_source())
 else:
     fadd, i_bufs = tvm.build(s, inputs, args.target)
     # fadd = tvm.runtime.module.load_module('/home/ppf/rnn_compilers/ragged_tensors/incubator-tvm/build/qkt.so')
