@@ -51,7 +51,6 @@ def get_shape(t):
 
 def create_numpy_array(t, dtype):
     shape = get_shape(t)
-    print(t, shape)
     return np.zeros(shape, dtype)
 
 def get_ctx(target):

@@ -35,14 +35,14 @@ s2 = Dim('s2')
 
 TILE1=64
 TILE2=16
-def len1_uf(name): return Uf(name, (0, MAX_LEN), [bd], lambda b: utils.ceilmult(lens[b], TILE1))
-def len2_uf(name): return Uf(name, (0, MAX_LEN), [s1], lambda s: utils.ceilmult(s + 1, TILE2))
+def len1_uf(name): return Uf(name, 'l', (0, MAX_LEN), [bd], lambda b: utils.ceilmult(lens[b], TILE1))
+def len2_uf(name): return Uf(name, 'l', (0, MAX_LEN), [s1], lambda s: utils.ceilmult(s + 1, TILE2))
 
 luf1 = len1_uf('s1')
 luf2 = len2_uf('s2')
 ls =  {
-    0: Uf.from_constant('bd', BATCH_SIZE),
-    1: Uf.from_constant('md', NUM_HEADS),
+    0: Uf.from_constant('bd', BATCH_SIZE, 'l'),
+    1: Uf.from_constant('md', NUM_HEADS, 'l'),
     2: luf1,
     3: luf2,
 }
@@ -98,9 +98,9 @@ s[Aexp].set_scope('local')
 
 tvm_callback_cuda_compile = tvm.register_func(utils.get_tvm_callback_cuda_compile(256))
 
-inputs = [[lens], [A]]
+inputs = [[lens], [A, O]]
 if args.debug_code:
-    lowered = tvm.lower(s, inputs, simple_mode = True)
+    lowered = tvm.lower(s, inputs, args.target, simple_mode = True)
     print(lowered)
     # fadd = tvm.build(s, inputs, args.target)
     # if args.target == 'cuda':
@@ -110,5 +110,5 @@ if args.debug_code:
 else:
     fadd, i_bufs = tvm.build(s, inputs, args.target)
     # fadd = tvm.runtime.module.load_module('/home/ppf/rnn_compilers/ragged_tensors/incubator-tvm/build/qkt.so')
-    run_utils.run(fadd, i_bufs, [A], args.batch_size, args.max_batches,
+    run_utils.run(fadd, i_bufs, inputs[1], args.batch_size, args.max_batches,
                   args.dataset, args.datadir, args.target, args.debug)

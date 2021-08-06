@@ -18,11 +18,10 @@ parser.add_argument('--debug', dest='debug', default=False, action='store_true')
 parser.add_argument('--debug-code', dest='debug_code', default=False, action='store_true')
 parser.add_argument('--manual-code', dest='manual_code', default=False, action='store_true')
 parser.add_argument('--dense-storage', dest='dense_storage', default=False, action='store_true')
-parser.add_argument('--dataset', nargs='?', default='random')
+parser.add_argument('--dataset', nargs='?', default='random_65_128')
 parser.add_argument('--datadir', nargs='?', default='random')
 args = parser.parse_args()
 
-BATCH_SIZE = args.batch_size
 NUM_HEADS = 8
 HEAD_SIZE = 64
 TILE1=64
@@ -30,7 +29,7 @@ TILE2=64
 RTILE=4
 MAX_LEN = utils.ceilmult(run_utils.get_dataset_max_len(args.dataset), max(TILE1, TILE2))
 
-lens = te.placeholder((BATCH_SIZE,), name = 'lens', dtype = 'int32')
+lens = te.placeholder((args.batch_size,), name = 'lens', dtype = 'int32')
 
 bd = Dim('bd')
 md = Dim('md')
@@ -44,7 +43,7 @@ def len2_uf(name): return Uf(name, 'l', (64, MAX_LEN), [s1], lambda s: utils.cei
 luf1 = len1_uf('s1')
 luf2 = len2_uf('s2')
 ls =  {
-    0: Uf.from_constant('bd', BATCH_SIZE, 'l'),
+    0: Uf.from_constant('bd', args.batch_size, 'l'),
     1: Uf.from_constant('md', NUM_HEADS, 'l'),
     2: luf1,
     3: luf1,
@@ -53,18 +52,18 @@ ls =  {
 
 loop_ufs=[ls[0], ls[1], ls[4], ls[2]]
 width_ufs=[ls[0], ls[1], ls[4], luf1]
-Q = te.ragged_placeholder((BATCH_SIZE, NUM_HEADS, HEAD_SIZE, MAX_LEN), [bd, md, hd, s1], loop_ufs,
+Q = te.ragged_placeholder((args.batch_size, NUM_HEADS, HEAD_SIZE, MAX_LEN), [bd, md, hd, s1], loop_ufs,
                           name='Q', width_ufs=width_ufs)
 
 loop_ufs=[ls[0], ls[1], ls[4], ls[3]]
 width_ufs=[ls[0], ls[1], ls[4], luf1]
-K = te.ragged_placeholder((BATCH_SIZE, NUM_HEADS, HEAD_SIZE, MAX_LEN), [bd, md, hd, s2], loop_ufs,
+K = te.ragged_placeholder((args.batch_size, NUM_HEADS, HEAD_SIZE, MAX_LEN), [bd, md, hd, s2], loop_ufs,
                           name='K', width_ufs=width_ufs)
 
 loop_ufs=[ls[0], ls[1], luf1, luf2]
 width_ufs=[loop_ufs]
 k = tvm.reduce_axis((0, HEAD_SIZE), name = 'k')
-O = te.ragged_compute((BATCH_SIZE, NUM_HEADS, MAX_LEN, MAX_LEN), [bd, md, s1, s2], loop_ufs,
+O = te.ragged_compute((args.batch_size, NUM_HEADS, MAX_LEN, MAX_LEN), [bd, md, s1, s2], loop_ufs,
                       lambda ds: tvm.sum(Q[ds[bd], ds[md], k, ds[s1]] * K[ds[bd], ds[md], k, ds[s2]],
                                          axis = k, dimensions = [hd]),
                       name = 'O', width_uf_lists=width_ufs)
@@ -124,19 +123,22 @@ fio, fii = s[Ks].split(fi, factor = 16)
 s[Ks].bind(fio, thread_y())
 s[Ks].bind(fii, thread_x())
 
-tvm_callback_cuda_compile = tvm.register_func(utils.get_tvm_callback_cuda_compile(256))
+# suffix = ""
+# gen_prefix = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0] + suffix
+# _ = tvm.register_func(utils.get_tvm_callback_cuda_compile(256))
+# _ = tvm.register_func(
+    # utils.get_tvm_callback_cuda_postproc(args, os.path.realpath(__file__), fileprefix=gen_prefix))
 
 inputs = [[lens], [Q, K, O]]
 if args.debug_code:
-    # lowered = tvm.lower(s, inputs, simple_mode = True)
-    # print(lowered)
-    fadd, _ = tvm.build(s, inputs, args.target)
-    if args.target == 'cuda':
-        print('-----GPU code-----\n' + fadd.imported_modules[0].get_source())
-    else:
-        print('-----CPU code-----\n' + fadd.get_source())
+    lowered = tvm.lower(s, inputs, args.target, simple_mode = True)
+    print(lowered)
+    # fadd, _ = tvm.build(s, inputs, args.target)
+    # if args.target == 'cuda':
+        # print('-----GPU code-----\n' + fadd.imported_modules[0].get_source())
+    # else:
+        # print('-----CPU code-----\n' + fadd.get_source())
 else:
     fadd, i_bufs = tvm.build(s, inputs, args.target)
-    # fadd = tvm.runtime.module.load_module('/home/ppf/rnn_compilers/ragged_tensors/incubator-tvm/build/qkt.so')
-    run_utils.run(fadd, i_bufs, [Q, K, O], args.batch_size, args.max_batches,
+    run_utils.run(fadd, i_bufs, inputs[1], args.batch_size, args.max_batches,
                   args.dataset, args.datadir, args.target, args.debug)
