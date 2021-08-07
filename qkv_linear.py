@@ -61,7 +61,8 @@ loop_ufs=[ls[0], ls[1], ls[2], ls[3], ls[5]]
 width_ufs=[loop_ufs]
 k = tvm.reduce_axis((0, IN_SIZE), name = 'k')
 O = te.ragged_compute((QKV_NUM, BATCH_SIZE, NUM_HEADS, MAX_LEN, OUT_SIZE), [qkv, bd, md, s1, od], loop_ufs,
-                      lambda ds: tvm.sum(W[ds[qkv], ds[md], k, ds[od]] * QKV[ds[qkv], ds[bd], ds[md], ds[s1], k], axis = k),
+                      lambda ds: tvm.sum(W[ds[qkv], ds[md], k, ds[od]] * QKV[ds[qkv], ds[bd], ds[md], ds[s1], k],
+                                         axis = k),
                       name = 'O', width_uf_lists=width_ufs)
 
 s = tvm.create_schedule([O.op])

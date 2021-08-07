@@ -38,19 +38,24 @@ def random_lengths(batch_size, avg_seq_len, max_seq_len):
 def np_arrays(shape_list):
     return [np.zeros(shape, "float32") for shape in shape_list]
 
-def int_shape(expr_shape):
-    return [int(i) for i in expr_shape]
+def int_shape(expr_shape, rmap):
+    shape = []
+    for i in expr_shape:
+        if i in rmap:
+            i = rmap[i]
+        shape.append(int(i))
+    return shape
 
-def get_shape(t):
+def get_shape(t, rmap):
     if isinstance(t, tvm.te.Tensor):
-        return int_shape(t.shape)
+        return int_shape(t.shape, rmap)
     elif isinstance(t, tvm.tir.Buffer):
-        return int_shape(t.shape.dense_shape())
+        return int_shape(t.shape.dense_shape(), rmap)
     else:
         assert False
 
-def create_numpy_array(t, dtype):
-    shape = get_shape(t)
+def create_numpy_array(t, dtype, rmap = {}):
+    shape = get_shape(t, rmap)
     return np.zeros(shape, dtype)
 
 def get_ctx(target):
@@ -115,6 +120,30 @@ def run(built, i_inputs_tensors, t_inputs_tensors, batch_size, num_batches, data
         sorted(batch)
         l_inputs = [tvm.nd.array(batch, cpu_ctx)]
         inputs = t_inputs + l_inputs + host_i_inputs + dev_i_inputs
+        time += execute(target, built, inputs, ctx, debug)
+
+    print(time / len(batches))
+
+def run_fused(built, total_len_var, t_inputs_tensors, batch_size, num_batches, dataset, datadir, target, debug):
+    ctx = get_ctx(target)
+    cpu_ctx = get_ctx("llvm")
+
+    if debug: num_batches = 1
+
+    if dataset.startswith("random"):
+        _, avg_seq_len, max_seq_len = dataset.split("_")
+        batches = [random_lengths(batch_size, int(avg_seq_len), int(max_seq_len)) for i in range(num_batches)]
+    else:
+        batches = read_and_chunk_lengths(batch_size, num_batches, datadir + "/" + dataset_files[dataset])
+
+    time = 0
+    for batch in batches:
+        sorted(batch)
+        total_length = int(sum(batch))
+        total_length = ((total_length + 63) // 64) * 64
+        rmap = {total_len_var: total_length}
+        t_inputs = [tvm.nd.array(create_numpy_array(i, "float32", rmap), ctx) for i in t_inputs_tensors]
+        inputs = [total_length] + t_inputs
         time += execute(target, built, inputs, ctx, debug)
 
     print(time / len(batches))

@@ -1,3 +1,4 @@
+import math
 import os
 import utils
 import run_utils
@@ -7,10 +8,13 @@ from tvm import tir, te
 from tvm.te import RangeDimension as Dim
 from tvm.tir import UninterpFun as Uf
 
+def next_power_of_2(x):
+    return 1 if x == 0 else 2**math.ceil(math.log2(x))
+
 parser = argparse.ArgumentParser()
 parser.add_argument('--target', nargs='?', default='llvm')
 parser.add_argument('--dtype', dest='dtype', nargs='?', default='float32')
-parser.add_argument('--max-batches', dest='max_batches', default=1, type=int)
+parser.add_argument('--max-batches', dest='max_batches', default=10, type=int)
 parser.add_argument('--batch-size', dest='batch_size', default=32, type=int)
 parser.add_argument('--peel-loops', dest='peel_loops', default=False, action='store_true')
 parser.add_argument('--unroll-loops', dest='unroll_loops', default=False, action='store_true')
@@ -22,7 +26,6 @@ parser.add_argument('--dataset', nargs='?', default='random')
 parser.add_argument('--datadir', nargs='?', default='random')
 args = parser.parse_args()
 
-BATCH_SIZE = args.batch_size
 NUM_HEADS = 8
 IN_SIZE = 256
 OUT_SIZE = 64
@@ -31,7 +34,7 @@ TILE=64
 RTILE=4
 MAX_LEN = utils.ceilmult(run_utils.get_dataset_max_len(args.dataset), TILE)
 
-lens = te.placeholder((BATCH_SIZE,), name = 'lens', dtype = 'int32')
+lens = te.placeholder((args.batch_size,), name = 'lens', dtype = 'int32')
 
 bd = Dim('bd')
 qkv = Dim('qkv')
@@ -44,38 +47,40 @@ def len_uf(name): return Uf(name, "l", (0, MAX_LEN), [bd], lambda b: lens[b])
 
 ls =  {
     0: Uf.from_constant('qkv', QKV_NUM, "l"),
-    1: Uf.from_constant('bd', BATCH_SIZE, "l"),
+    1: Uf.from_constant('bd', args.batch_size, "l"),
     2: Uf.from_constant('md', NUM_HEADS, "l"),
     3: len_uf('s1'),
     4: Uf.from_constant('id', IN_SIZE, "l"),
     5: Uf.from_constant('od', OUT_SIZE, "l"),
 }
 
-loop_ufs=[ls[0], ls[1], ls[2], ls[3], ls[4]]
-# width_ufs=[ls[0], ls[1], ls[2], Uf("s2", "l", (0, MAX_LEN), [bd], lambda b: utils.ceilmult(lens[b], 32)), ls[4]]
+loop_ufs=[ls[0], ls[4], ls[1], ls[3]]
 width_ufs=loop_ufs
-QKV = te.ragged_placeholder((QKV_NUM, BATCH_SIZE, NUM_HEADS, MAX_LEN, IN_SIZE), [qkv, bd, md, s1, id], loop_ufs,
+QKV = te.ragged_placeholder((QKV_NUM, IN_SIZE, args.batch_size, MAX_LEN), [qkv, id, bd, s1], loop_ufs,
                             name='QKV', width_ufs=width_ufs)
 
-W = te.placeholder((QKV_NUM, NUM_HEADS, IN_SIZE, OUT_SIZE), name='W')
+W = te.placeholder((QKV_NUM, IN_SIZE, NUM_HEADS, OUT_SIZE), name='W')
 
-loop_ufs=[ls[0], ls[1], ls[2], ls[3], ls[5]]
+loop_ufs=[ls[0], ls[1], ls[3], ls[2], ls[5]]
 width_ufs=[loop_ufs]
 k = tvm.reduce_axis((0, IN_SIZE), name = 'k')
-O = te.ragged_compute((QKV_NUM, BATCH_SIZE, NUM_HEADS, MAX_LEN, OUT_SIZE), [qkv, bd, md, s1, od], loop_ufs,
-                      lambda ds: tvm.sum(W[ds[qkv], ds[md], k, ds[od]] * QKV[ds[qkv], ds[bd], ds[md], ds[s1], k],
+O = te.ragged_compute((QKV_NUM, args.batch_size, MAX_LEN, NUM_HEADS, OUT_SIZE), [qkv, bd, s1, md, od], loop_ufs,
+                      lambda ds: tvm.sum(W[ds[qkv], k, ds[md], ds[od]] * QKV[ds[qkv], k, ds[bd], ds[s1]],
                                          axis = k, dimensions = [id]),
                       name = 'O', width_uf_lists=width_ufs)
 
 s = tvm.create_schedule([O.op])
 
+tile = 128
+rtile = 8
+nt = tile // rtile
+ks = next_power_of_2(IN_SIZE / (6144 // tile))
+
 thread_x = lambda: tvm.thread_axis("threadIdx.x")
 thread_y = lambda: tvm.thread_axis("threadIdx.y")
 block_x = lambda: tvm.thread_axis("blockIdx.x")
 block_y = lambda: tvm.thread_axis("blockIdx.y")
-
-ntx = 16
-nty = 16
+block_z = lambda: tvm.thread_axis("blockIdx.z")
 
 Ol = s.cache_write(O, "local")
 Ws = s.cache_read(W, "shared", [Ol], vanilla=True)
@@ -84,51 +89,102 @@ QKVs = s.cache_read(QKV, "shared", [Ol])
 Wl = s.cache_read(Ws, "local", [Ol], vanilla=True)
 QKVl = s.cache_read(QKVs, "local", [Ol])
 
-q, b, h, l, o = s[O].leaf_iter_vars[0:5]
-s[O].reorder(q, h, b, l)
-f = s[O].fuse(q, h)
-s[O].bind(f, block_y());
-f = s[O].fuse(b, l)
-fo, fi = s[O].split(f, factor = 64)
-s[O].bind(fo, block_x())
-s[Ol].compute_at(s[O], o)
+q, b, l, h, o = s[O].leaf_iter_vars[0:5]
+s[O].bind(q, block_z());
+x = s[O].fuse(h, o)
+xo, xi = s[O].split(x, factor = tile)
+y = s[O].fuse(b, l)
+yo, yi = s[O].split(y, factor = tile)
+s[O].bind(yo, block_y())
+s[O].bind(xo, block_x())
 
-fio, fii = s[O].split(fi, factor = nty)
-oo, oi = s[O].split(o, factor = ntx)
-s[O].bind(fii, thread_y())
-s[O].bind(oi, thread_x())
-s[O].reorder(fii, oi, fio, oo)
-s[O].bind(fio, te.thread_axis("vthread"))
-s[O].bind(oo, te.thread_axis("vthread"))
-s[Ol].compute_at(s[O], oo)
+yio, yii = s[O].split(yi, factor = nt)
+xio, xii = s[O].split(xi, factor = nt)
+s[O].bind(yii, thread_y())
+s[O].bind(xii, thread_x())
+s[O].reorder(yii, xii, yio, xio)
+s[O].bind(yio, te.thread_axis("vthread"))
+s[O].bind(xio, te.thread_axis("vthread"))
+s[Ol].compute_at(s[O], xio)
 
-q, b, h, l, o, k = s[Ol].leaf_iter_vars
-s[Ol].reorder(k, q, o)
-ko, ki = s[Ol].split(k, nparts = 4)
+q, b, l, h, o, k = s[Ol].leaf_iter_vars
+s[Ol].reorder(k, b, l, h, o)
+ko, ki = s[Ol].split(k, nparts = ks)
 s[Ws].compute_at(s[Ol], ko)
 s[QKVs].compute_at(s[Ol], ko)
 s[Wl].compute_at(s[Ol], ki)
 s[QKVl].compute_at(s[Ol], ki)
 
 f = s[Ws].fuse(*s[Ws].leaf_iter_vars)
-xo, xi = s[Ws].split(f, factor = ntx * nty)
-xio, xii = s[Ws].split(xi, factor = ntx)
+xo, xi = s[Ws].split(f, factor = nt * nt)
+xio, xii = s[Ws].split(xi, factor = nt)
 s[Ws].bind(xio, thread_y())
 s[Ws].bind(xii, thread_x())
 
-q, b, h, l, i = s[QKVs].leaf_iter_vars
-s[QKVs].reorder(h, b, l)
+q, i, b, l = s[QKVs].leaf_iter_vars
 f = s[QKVs].fuse(b, l)
-s[QKVs].reorder(i, f)
 f = s[QKVs].fuse(f, i)
-xo, xi = s[QKVs].split(f, factor = ntx * nty)
-xio, xii = s[QKVs].split(xi, factor = ntx)
+xo, xi = s[QKVs].split(f, factor = nt * nt)
+xio, xii = s[QKVs].split(xi, factor = nt)
 s[QKVs].bind(xio, thread_y())
 s[QKVs].bind(xii, thread_x())
 
-s.reorder_tensor_dimensions(QKVs, 1, 2)
 s.fuse_tensor_dimensions(QKVs, 2, 3)
-s.reorder_tensor_dimensions(QKVs, 2, 3)
+
+
+
+# ntx = 16
+# nty = 16
+# Ol = s.cache_write(O, "local")
+# Ws = s.cache_read(W, "shared", [Ol], vanilla=True)
+# QKVs = s.cache_read(QKV, "shared", [Ol])
+
+# Wl = s.cache_read(Ws, "local", [Ol], vanilla=True)
+# QKVl = s.cache_read(QKVs, "local", [Ol])
+
+# q, b, h, l, o = s[O].leaf_iter_vars[0:5]
+# s[O].reorder(q, h, b, l)
+# f = s[O].fuse(q, h)
+# s[O].bind(f, block_y());
+# f = s[O].fuse(b, l)
+# fo, fi = s[O].split(f, factor = 64)
+# s[O].bind(fo, block_x())
+# s[Ol].compute_at(s[O], o)
+
+# fio, fii = s[O].split(fi, factor = nty)
+# oo, oi = s[O].split(o, factor = ntx)
+# s[O].bind(fii, thread_y())
+# s[O].bind(oi, thread_x())
+# s[O].reorder(fii, oi, fio, oo)
+# s[O].bind(fio, te.thread_axis("vthread"))
+# s[O].bind(oo, te.thread_axis("vthread"))
+# s[Ol].compute_at(s[O], oo)
+
+# q, b, h, l, o, k = s[Ol].leaf_iter_vars
+# s[Ol].reorder(k, q, o)
+# ko, ki = s[Ol].split(k, nparts = 4)
+# s[Ws].compute_at(s[Ol], ko)
+# s[QKVs].compute_at(s[Ol], ko)
+# s[Wl].compute_at(s[Ol], ki)
+# s[QKVl].compute_at(s[Ol], ki)
+
+# f = s[Ws].fuse(*s[Ws].leaf_iter_vars)
+# xo, xi = s[Ws].split(f, factor = ntx * nty)
+# xio, xii = s[Ws].split(xi, factor = ntx)
+# s[Ws].bind(xio, thread_y())
+# s[Ws].bind(xii, thread_x())
+
+# q, b, l, i = s[QKVs].leaf_iter_vars
+# f = s[QKVs].fuse(b, l)
+# s[QKVs].reorder(i, f)
+# f = s[QKVs].fuse(f, i)
+# xo, xi = s[QKVs].split(f, factor = ntx * nty)
+# xio, xii = s[QKVs].split(xi, factor = ntx)
+# s[QKVs].bind(xio, thread_y())
+# s[QKVs].bind(xii, thread_x())
+
+# s.fuse_tensor_dimensions(QKVs, 1, 2)
+# s.reorder_tensor_dimensions(QKVs, 1, 2)
 
 suffix = ""
 gen_prefix = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0] + suffix
