@@ -54,18 +54,23 @@ ls =  {
     5: Uf.from_constant('od', OUT_SIZE, "l"),
 }
 
-loop_ufs=[ls[0], ls[4], ls[1], ls[3]]
+# loop_ufs=[ls[0], ls[4], ls[1], ls[3]]
+# width_ufs=loop_ufs
+# QKV = te.ragged_placeholder((QKV_NUM, IN_SIZE, args.batch_size, MAX_LEN), [qkv, id, bd, s1], loop_ufs,
+                            # name='QKV', width_ufs=width_ufs)
+
+loop_ufs=[ls[0], ls[1], ls[3], ls[4]]
 width_ufs=loop_ufs
-QKV = te.ragged_placeholder((QKV_NUM, IN_SIZE, args.batch_size, MAX_LEN), [qkv, id, bd, s1], loop_ufs,
+QKV = te.ragged_placeholder((QKV_NUM, args.batch_size, MAX_LEN, IN_SIZE), [qkv, bd, s1, id], loop_ufs,
                             name='QKV', width_ufs=width_ufs)
 
 W = te.placeholder((QKV_NUM, IN_SIZE, NUM_HEADS, OUT_SIZE), name='W')
 
-loop_ufs=[ls[0], ls[1], ls[3], ls[2], ls[5]]
+loop_ufs=[ls[0], ls[1], ls[2], ls[3], ls[5]]
 width_ufs=[loop_ufs]
 k = tvm.reduce_axis((0, IN_SIZE), name = 'k')
-O = te.ragged_compute((QKV_NUM, args.batch_size, MAX_LEN, NUM_HEADS, OUT_SIZE), [qkv, bd, s1, md, od], loop_ufs,
-                      lambda ds: tvm.sum(W[ds[qkv], k, ds[md], ds[od]] * QKV[ds[qkv], k, ds[bd], ds[s1]],
+O = te.ragged_compute((QKV_NUM, args.batch_size, NUM_HEADS, MAX_LEN, OUT_SIZE), [qkv, bd, md, s1, od], loop_ufs,
+                      lambda ds: tvm.sum(W[ds[qkv], k, ds[md], ds[od]] * QKV[ds[qkv], ds[bd], ds[s1], k],
                                          axis = k, dimensions = [id]),
                       name = 'O', width_uf_lists=width_ufs)
 
@@ -89,7 +94,8 @@ QKVs = s.cache_read(QKV, "shared", [Ol])
 Wl = s.cache_read(Ws, "local", [Ol], vanilla=True)
 QKVl = s.cache_read(QKVs, "local", [Ol])
 
-q, b, l, h, o = s[O].leaf_iter_vars[0:5]
+q, b, h, l, o = s[O].leaf_iter_vars[0:5]
+s[O].reorder(b, l, h, o)
 s[O].bind(q, block_z());
 x = s[O].fuse(h, o)
 xo, xi = s[O].split(x, factor = tile)
@@ -107,7 +113,7 @@ s[O].bind(yio, te.thread_axis("vthread"))
 s[O].bind(xio, te.thread_axis("vthread"))
 s[Ol].compute_at(s[O], xio)
 
-q, b, l, h, o, k = s[Ol].leaf_iter_vars
+q, b, h, l, o, k = s[Ol].leaf_iter_vars
 s[Ol].reorder(k, b, l, h, o)
 ko, ki = s[Ol].split(k, nparts = ks)
 s[Ws].compute_at(s[Ol], ko)
@@ -121,15 +127,17 @@ xio, xii = s[Ws].split(xi, factor = nt)
 s[Ws].bind(xio, thread_y())
 s[Ws].bind(xii, thread_x())
 
-q, i, b, l = s[QKVs].leaf_iter_vars
+q, b, l, i = s[QKVs].leaf_iter_vars
 f = s[QKVs].fuse(b, l)
-f = s[QKVs].fuse(f, i)
+s[QKVs].reorder(i, f)
+f = s[QKVs].fuse(i, f)
 xo, xi = s[QKVs].split(f, factor = nt * nt)
 xio, xii = s[QKVs].split(xi, factor = nt)
 s[QKVs].bind(xio, thread_y())
 s[QKVs].bind(xii, thread_x())
 
-s.fuse_tensor_dimensions(QKVs, 2, 3)
+s.fuse_tensor_dimensions(QKVs, 1, 2)
+s.reorder_tensor_dimensions(QKVs, 1, 2)
 
 
 

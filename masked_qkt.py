@@ -50,21 +50,21 @@ ls =  {
     4: Uf.from_constant('hd', HEAD_SIZE, 'l'),
 }
 
-loop_ufs=[ls[0], ls[1], ls[4], ls[2]]
-width_ufs=[ls[0], ls[1], ls[4], luf1]
-Q = te.ragged_placeholder((args.batch_size, NUM_HEADS, HEAD_SIZE, MAX_LEN), [bd, md, hd, s1], loop_ufs,
+loop_ufs=[ls[0], ls[1], ls[2], ls[4]]
+width_ufs=[ls[0], ls[1], luf1, ls[4]]
+Q = te.ragged_placeholder((args.batch_size, NUM_HEADS, MAX_LEN, HEAD_SIZE), [bd, md, s1, hd], loop_ufs,
                           name='Q', width_ufs=width_ufs)
 
-loop_ufs=[ls[0], ls[1], ls[4], ls[3]]
-width_ufs=[ls[0], ls[1], ls[4], luf1]
-K = te.ragged_placeholder((args.batch_size, NUM_HEADS, HEAD_SIZE, MAX_LEN), [bd, md, hd, s2], loop_ufs,
+loop_ufs=[ls[0], ls[1], ls[3], ls[4]]
+width_ufs=[ls[0], ls[1], luf1, ls[4]]
+K = te.ragged_placeholder((args.batch_size, NUM_HEADS, MAX_LEN, HEAD_SIZE), [bd, md, s2, hd], loop_ufs,
                           name='K', width_ufs=width_ufs)
 
 loop_ufs=[ls[0], ls[1], luf1, luf2]
 width_ufs=[loop_ufs]
 k = tvm.reduce_axis((0, HEAD_SIZE), name = 'k')
 O = te.ragged_compute((args.batch_size, NUM_HEADS, MAX_LEN, MAX_LEN), [bd, md, s1, s2], loop_ufs,
-                      lambda ds: tvm.sum(Q[ds[bd], ds[md], k, ds[s1]] * K[ds[bd], ds[md], k, ds[s2]],
+                      lambda ds: tvm.sum(Q[ds[bd], ds[md], ds[s1], k] * K[ds[bd], ds[md], ds[s2], k],
                                          axis = k, dimensions = [hd]),
                       name = 'O', width_uf_lists=width_ufs)
 
@@ -110,6 +110,7 @@ s[Ql].compute_at(s[Ol], k)
 s[Kl].compute_at(s[Ol], k)
 
 x, y = s[Qs].leaf_iter_vars[2], s[Qs].leaf_iter_vars[3]
+s[Qs].reorder(y, x)
 f = s[Qs].fuse(x, y)
 fo, fi = s[Qs].split(f, factor = 256)
 fio, fii = s[Qs].split(fi, factor = 16)
@@ -117,17 +118,21 @@ s[Qs].bind(fio, thread_y())
 s[Qs].bind(fii, thread_x())
 
 x, y = s[Ks].leaf_iter_vars[2], s[Ks].leaf_iter_vars[3]
+s[Ks].reorder(y, x)
 f = s[Ks].fuse(x, y)
 fo, fi = s[Ks].split(f, factor = 256)
 fio, fii = s[Ks].split(fi, factor = 16)
 s[Ks].bind(fio, thread_y())
 s[Ks].bind(fii, thread_x())
 
-# suffix = ""
-# gen_prefix = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0] + suffix
-# _ = tvm.register_func(utils.get_tvm_callback_cuda_compile(256))
-# _ = tvm.register_func(
-    # utils.get_tvm_callback_cuda_postproc(args, os.path.realpath(__file__), fileprefix=gen_prefix))
+s.reorder_tensor_dimensions(Qs, 2, 3)
+s.reorder_tensor_dimensions(Ks, 2, 3)
+
+suffix = ""
+gen_prefix = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0] + suffix
+_ = tvm.register_func(utils.get_tvm_callback_cuda_compile(256))
+_ = tvm.register_func(
+    utils.get_tvm_callback_cuda_postproc(args, os.path.realpath(__file__), fileprefix=gen_prefix))
 
 inputs = [[lens], [Q, K, O]]
 if args.debug_code:

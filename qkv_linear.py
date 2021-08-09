@@ -9,7 +9,7 @@ from tvm.tir import UninterpFun as Uf
 parser = argparse.ArgumentParser()
 parser.add_argument('--target', nargs='?', default='llvm')
 parser.add_argument('--dtype', dest='dtype', nargs='?', default='float32')
-parser.add_argument('--max-batches', dest='max_batches', default=1, type=int)
+parser.add_argument('--max-batches', dest='max_batches', default=10, type=int)
 parser.add_argument('--batch-size', dest='batch_size', default=32, type=int)
 parser.add_argument('--peel-loops', dest='peel_loops', default=False, action='store_true')
 parser.add_argument('--unroll-loops', dest='unroll_loops', default=False, action='store_true')
