@@ -54,11 +54,6 @@ ls =  {
     5: Uf.from_constant('od', OUT_SIZE, "l"),
 }
 
-# loop_ufs=[ls[0], ls[4], ls[1], ls[3]]
-# width_ufs=loop_ufs
-# QKV = te.ragged_placeholder((QKV_NUM, IN_SIZE, args.batch_size, MAX_LEN), [qkv, id, bd, s1], loop_ufs,
-                            # name='QKV', width_ufs=width_ufs)
-
 loop_ufs=[ls[0], ls[1], ls[3], ls[4]]
 width_ufs=loop_ufs
 QKV = te.ragged_placeholder((QKV_NUM, args.batch_size, MAX_LEN, IN_SIZE), [qkv, bd, s1, id], loop_ufs,
@@ -88,11 +83,11 @@ block_y = lambda: tvm.thread_axis("blockIdx.y")
 block_z = lambda: tvm.thread_axis("blockIdx.z")
 
 Ol = s.cache_write(O, "local")
-Ws = s.cache_read(W, "shared", [Ol], vanilla=True)
 QKVs = s.cache_read(QKV, "shared", [Ol])
+Ws = s.cache_read(W, "shared", [Ol], vanilla=True)
 
-Wl = s.cache_read(Ws, "local", [Ol], vanilla=True)
 QKVl = s.cache_read(QKVs, "local", [Ol])
+Wl = s.cache_read(Ws, "local", [Ol], vanilla=True)
 
 q, b, h, l, o = s[O].leaf_iter_vars[0:5]
 s[O].reorder(b, l, h, o)
@@ -116,10 +111,10 @@ s[Ol].compute_at(s[O], xio)
 q, b, h, l, o, k = s[Ol].leaf_iter_vars
 s[Ol].reorder(k, b, l, h, o)
 ko, ki = s[Ol].split(k, nparts = ks)
-s[Ws].compute_at(s[Ol], ko)
 s[QKVs].compute_at(s[Ol], ko)
-s[Wl].compute_at(s[Ol], ki)
+s[Ws].compute_at(s[Ol], ko)
 s[QKVl].compute_at(s[Ol], ki)
+s[Wl].compute_at(s[Ol], ki)
 
 f = s[Ws].fuse(*s[Ws].leaf_iter_vars)
 xo, xi = s[Ws].split(f, factor = nt * nt)
@@ -136,63 +131,12 @@ xio, xii = s[QKVs].split(xi, factor = nt)
 s[QKVs].bind(xio, thread_y())
 s[QKVs].bind(xii, thread_x())
 
+s.reorder_tensor_dimensions(O, 1, 2)
+s.fuse_tensor_dimensions(O, 2, 3)
+s.fuse_tensor_dimensions(QKV, 1, 2)
+
 s.fuse_tensor_dimensions(QKVs, 1, 2)
 s.reorder_tensor_dimensions(QKVs, 1, 2)
-
-
-
-# ntx = 16
-# nty = 16
-# Ol = s.cache_write(O, "local")
-# Ws = s.cache_read(W, "shared", [Ol], vanilla=True)
-# QKVs = s.cache_read(QKV, "shared", [Ol])
-
-# Wl = s.cache_read(Ws, "local", [Ol], vanilla=True)
-# QKVl = s.cache_read(QKVs, "local", [Ol])
-
-# q, b, h, l, o = s[O].leaf_iter_vars[0:5]
-# s[O].reorder(q, h, b, l)
-# f = s[O].fuse(q, h)
-# s[O].bind(f, block_y());
-# f = s[O].fuse(b, l)
-# fo, fi = s[O].split(f, factor = 64)
-# s[O].bind(fo, block_x())
-# s[Ol].compute_at(s[O], o)
-
-# fio, fii = s[O].split(fi, factor = nty)
-# oo, oi = s[O].split(o, factor = ntx)
-# s[O].bind(fii, thread_y())
-# s[O].bind(oi, thread_x())
-# s[O].reorder(fii, oi, fio, oo)
-# s[O].bind(fio, te.thread_axis("vthread"))
-# s[O].bind(oo, te.thread_axis("vthread"))
-# s[Ol].compute_at(s[O], oo)
-
-# q, b, h, l, o, k = s[Ol].leaf_iter_vars
-# s[Ol].reorder(k, q, o)
-# ko, ki = s[Ol].split(k, nparts = 4)
-# s[Ws].compute_at(s[Ol], ko)
-# s[QKVs].compute_at(s[Ol], ko)
-# s[Wl].compute_at(s[Ol], ki)
-# s[QKVl].compute_at(s[Ol], ki)
-
-# f = s[Ws].fuse(*s[Ws].leaf_iter_vars)
-# xo, xi = s[Ws].split(f, factor = ntx * nty)
-# xio, xii = s[Ws].split(xi, factor = ntx)
-# s[Ws].bind(xio, thread_y())
-# s[Ws].bind(xii, thread_x())
-
-# q, b, l, i = s[QKVs].leaf_iter_vars
-# f = s[QKVs].fuse(b, l)
-# s[QKVs].reorder(i, f)
-# f = s[QKVs].fuse(f, i)
-# xo, xi = s[QKVs].split(f, factor = ntx * nty)
-# xio, xii = s[QKVs].split(xi, factor = ntx)
-# s[QKVs].bind(xio, thread_y())
-# s[QKVs].bind(xii, thread_x())
-
-# s.fuse_tensor_dimensions(QKVs, 1, 2)
-# s.reorder_tensor_dimensions(QKVs, 1, 2)
 
 suffix = ""
 gen_prefix = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0] + suffix
@@ -200,7 +144,7 @@ _ = tvm.register_func(utils.get_tvm_callback_cuda_compile(256))
 _ = tvm.register_func(
     utils.get_tvm_callback_cuda_postproc(args, os.path.realpath(__file__), fileprefix=gen_prefix))
 
-inputs = [[lens], [QKV, W, O]]
+inputs = [[lens], [QKV, W]]
 if args.debug_code:
     lowered = tvm.lower(s, inputs, args.target, simple_mode = True)
     print(lowered)
@@ -212,5 +156,5 @@ if args.debug_code:
 else:
     fadd, i_bufs = tvm.build(s, inputs, args.target)
     # fadd = tvm.runtime.module.load_module('/home/ppf/rnn_compilers/ragged_tensors/incubator-tvm/build/qkt.so')
-    run_utils.run(fadd, i_bufs, [QKV, W, O], args.batch_size, args.max_batches,
+    run_utils.run(fadd, i_bufs, inputs[1], args.batch_size, args.max_batches,
                   args.dataset, args.datadir, args.target, args.debug)
