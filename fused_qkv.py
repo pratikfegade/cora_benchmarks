@@ -1,3 +1,4 @@
+import math
 import os
 import utils
 import run_utils
@@ -6,6 +7,9 @@ import tvm
 from tvm import tir, te
 from tvm.te import RangeDimension as Dim
 from tvm.tir import UninterpFun as Uf
+
+def next_power_of_2(x):
+    return 1 if x == 0 else 2**math.ceil(math.log2(x))
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--target', nargs='?', default='llvm')
@@ -44,9 +48,9 @@ ls =  {
     4: Uf.from_constant('od', OUT_SIZE, "l"),
 }
 
-loop_ufs=[ls[0], ls[3], ls[1]]
+loop_ufs=[ls[3], ls[1]]
 width_ufs=loop_ufs
-QKV = te.ragged_placeholder((QKV_NUM, IN_SIZE, TOTAL_LEN), [qkv, id, tl], loop_ufs, name='QKV', width_ufs=width_ufs)
+QKV = te.ragged_placeholder((IN_SIZE, TOTAL_LEN), [id, tl], loop_ufs, name='QKV', width_ufs=width_ufs)
 
 W = te.placeholder((QKV_NUM, IN_SIZE, NUM_HEADS, OUT_SIZE), name='W')
 
@@ -54,7 +58,7 @@ loop_ufs=[ls[0], ls[1], ls[2], ls[4]]
 width_ufs=[loop_ufs]
 k = tvm.reduce_axis((0, IN_SIZE), name = 'k')
 O = te.ragged_compute((QKV_NUM, TOTAL_LEN, NUM_HEADS, OUT_SIZE), [qkv, tl, md, od], loop_ufs,
-                      lambda ds: tvm.sum(W[ds[qkv], k, ds[md], ds[od]] * QKV[ds[qkv], k, ds[tl]],
+                      lambda ds: tvm.sum(W[ds[qkv], k, ds[md], ds[od]] * QKV[k, ds[tl]],
                                          axis = k, dimensions = [id]),
                       name = 'O', width_uf_lists=width_ufs)
 
@@ -75,18 +79,21 @@ QKVs = s.cache_read(QKV, "shared", [Ol])
 Wl = s.cache_read(Ws, "local", [Ol], vanilla=True)
 QKVl = s.cache_read(QKVs, "local", [Ol])
 
-TILE = 64
+tile = 128
+rtile = 8
+nt = tile // rtile
+ks = next_power_of_2(IN_SIZE / (6144 // tile))
 q, l, h, o = s[O].leaf_iter_vars[0:4]
 s[O].bind(q, block_z());
 f = s[O].fuse(h, o)
-lo, li = s[O].split(l, factor = TILE)
-fo, fi = s[O].split(f, factor = TILE)
+lo, li = s[O].split(l, factor = tile)
+fo, fi = s[O].split(f, factor = tile)
 s[O].bind(lo, block_y())
 s[O].bind(fo, block_x())
 s[Ol].compute_at(s[O], fo)
 
-lio, lii = s[O].split(li, factor = nty)
-fio, fii = s[O].split(fi, factor = ntx)
+lio, lii = s[O].split(li, factor = nt)
+fio, fii = s[O].split(fi, factor = nt)
 s[O].bind(lii, thread_y())
 s[O].bind(fii, thread_x())
 s[O].reorder(lii, fii, lio, fio)
@@ -96,23 +103,23 @@ s[Ol].compute_at(s[O], fio)
 
 q, l, h, o, k = s[Ol].leaf_iter_vars
 s[Ol].reorder(k, l, h, o)
-ko, ki = s[Ol].split(k, nparts = 4)
+ko, ki = s[Ol].split(k, nparts = ks)
 s[Ws].compute_at(s[Ol], ko)
 s[QKVs].compute_at(s[Ol], ko)
 s[Wl].compute_at(s[Ol], ki)
 s[QKVl].compute_at(s[Ol], ki)
 
 f = s[Ws].fuse(*s[Ws].leaf_iter_vars)
-xo, xi = s[Ws].split(f, factor = ntx * nty)
-xio, xii = s[Ws].split(xi, factor = ntx)
+xo, xi = s[Ws].split(f, factor = nt * nt)
+xio, xii = s[Ws].split(xi, factor = nt)
 s[Ws].bind(xio, thread_y())
 s[Ws].bind(xii, thread_x())
 
-q, l, i = s[QKVs].leaf_iter_vars
+l, i = s[QKVs].leaf_iter_vars
 # s[QKVs].reorder(i, l)
 f = s[QKVs].fuse(l, i)
-xo, xi = s[QKVs].split(f, factor = ntx * nty)
-xio, xii = s[QKVs].split(xi, factor = ntx)
+xo, xi = s[QKVs].split(f, factor = nt * nt)
+xio, xii = s[QKVs].split(xi, factor = nt)
 s[QKVs].bind(xio, thread_y())
 s[QKVs].bind(xii, thread_x())
 
