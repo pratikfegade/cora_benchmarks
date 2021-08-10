@@ -8,9 +8,6 @@ from tvm import tir, te
 from tvm.te import RangeDimension as Dim
 from tvm.tir import UninterpFun as Uf
 
-def next_power_of_2(x):
-    return 1 if x == 0 else 2**math.ceil(math.log2(x))
-
 parser = argparse.ArgumentParser()
 parser.add_argument('--target', nargs='?', default='llvm')
 parser.add_argument('--dtype', dest='dtype', nargs='?', default='float32')
@@ -30,9 +27,7 @@ NUM_HEADS = 8
 IN_SIZE = 256
 OUT_SIZE = 64
 QKV_NUM = 3
-TILE=64
-RTILE=4
-MAX_LEN = utils.ceilmult(run_utils.get_dataset_max_len(args.dataset), TILE)
+MAX_LEN = utils.ceilmult(run_utils.get_dataset_max_len(args.dataset), 64)
 
 lens = te.placeholder((args.batch_size,), name = 'lens', dtype = 'int32')
 
@@ -90,7 +85,7 @@ s = tvm.create_schedule([O.op])
 tile = 128
 rtile = 8
 nt = tile // rtile
-ks = next_power_of_2(IN_SIZE / (6144 // tile))
+ks = utils.next_power_of_2(IN_SIZE / (6144 // tile))
 
 if args.target == "cuda":
     thread_x = lambda: tvm.thread_axis("threadIdx.x")

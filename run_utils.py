@@ -82,7 +82,7 @@ def execute(target, built, inputs, ctx, debug = False):
             return -100000000
             evaluator = built.time_evaluator('default_function', ctx, 1, repeat=10)
         else:
-            evaluator = built.time_evaluator(built.entry_name, ctx, number=10, repeat=100)
+            evaluator = built.time_evaluator(built.entry_name, ctx, number=10, repeat=10)
         eval_result = evaluator(*inputs)
         return eval_result.mean * 1000
 
@@ -103,8 +103,10 @@ def read_and_chunk_lengths(batch_size, max_batches, lengths_file):
 def run(built, i_inputs_tensors, t_inputs_tensors, batch_size, num_batches, dataset, datadir, target, debug):
     ctx = get_ctx(target)
     cpu_ctx = get_ctx("llvm")
-    host_i_inputs = [tvm.nd.array(create_numpy_array(i, "int32"), cpu_ctx) for i in i_inputs_tensors[0]]
-    dev_i_inputs = [tvm.nd.array(create_numpy_array(i, "int32"), ctx) for i in i_inputs_tensors[1]]
+    host_i_inputs, dev_i_inputs = [], []
+    if len(i_inputs_tensors) == 2:
+        host_i_inputs = [tvm.nd.array(create_numpy_array(i, "int32"), cpu_ctx) for i in i_inputs_tensors[0]]
+        dev_i_inputs = [tvm.nd.array(create_numpy_array(i, "int32"), ctx) for i in i_inputs_tensors[1]]
     t_inputs = [tvm.nd.array(create_numpy_array(i, "float32"), ctx) for i in t_inputs_tensors]
 
     if debug: num_batches = 1

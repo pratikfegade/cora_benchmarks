@@ -1,3 +1,4 @@
+import math
 import tvm
 import os
 from tvm.contrib import nvcc, cublas, cblas
@@ -53,3 +54,6 @@ def floormult(a, b):
         return b * (a // b)
     else:
         return b * tvm.floordiv(a, b)
+
+def next_power_of_2(x):
+    return 1 if x == 0 else 2**math.ceil(math.log2(x))
