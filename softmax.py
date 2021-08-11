@@ -52,9 +52,15 @@ width_ufs=[ls[0], ls[1], luf64, luf64]
 A = te.ragged_placeholder((BATCH_SIZE, NUM_HEADS, MAX_LEN, MAX_LEN), [bd, md, s1, s2], loop_ufs,
                           name='A', width_ufs=width_ufs)
 
+loop_ufs=[ls[0], ls[1], ls[2]]
+Amax = te.ragged_compute((BATCH_SIZE, NUM_HEADS, MAX_LEN), [bd, md, s1], loop_ufs,
+                         lambda ds, rds: tvm.max(A[ds[bd], ds[md], ds[s1], rds['k']], axis=rds['k'], dimensions=s2),
+                         name = 'Amax', reduce_axis_ufs = [('k', luf32)])
+
 loop_ufs=[ls[0], ls[1], ls[2], ls[3]]
 Aexp = te.ragged_compute((BATCH_SIZE, NUM_HEADS, MAX_LEN, MAX_LEN), [bd, md, s1, s2], loop_ufs,
-                         lambda ds: tvm.exp(A[ds[bd], ds[md], ds[s1], ds[s2]] * scale), name = 'Aexp')
+                         lambda ds: tvm.exp((A[ds[bd], ds[md], ds[s1], ds[s2]] -
+                                             Amax[ds[bd], ds[md], ds[s1]]) * scale), name = 'Aexp')
 
 loop_ufs=[ls[0], ls[1], ls[2]]
 Asum = te.ragged_compute((BATCH_SIZE, NUM_HEADS, MAX_LEN), [bd, md, s1], loop_ufs,
@@ -74,6 +80,9 @@ block_x = tvm.thread_axis("blockIdx.x")
 block_y = tvm.thread_axis("blockIdx.y")
 
 
+ko, ki = s[Amax].split(s[Amax].op.reduce_axis[0], factor = 32)
+Amax_rf = s.rfactor(Amax, ki, 1)
+
 ko, ki = s[Asum].split(s[Asum].op.reduce_axis[0], factor = 32)
 Asum_rf = s.rfactor(Asum, ki, 1)
 
@@ -85,26 +94,30 @@ s[O].bind(h, thread_y)
 
 xo, xi = s[O].split(s2, factor = 32)
 s[O].bind(xi, thread_x)
+s[Amax].bind(s[Amax].op.reduce_axis[0], thread_x)
 s[Asum].bind(s[Asum].op.reduce_axis[0], thread_x)
 
+s[Amax].compute_at(s[O], h)
+s[Amax_rf].compute_at(s[Amax], s[Amax].leaf_iter_vars[3])
 s[Asum].compute_at(s[O], h)
 s[Asum_rf].compute_at(s[Asum], s[Asum].leaf_iter_vars[3])
-# s[Aexp].compute_at(s[O], h)
 s[Aexp].compute_inline()
 
+s[Amax].set_scope('local')
+s[Amax_rf].set_scope('local')
 s[Asum].set_scope('local')
 s[Asum_rf].set_scope('local')
 s[Aexp].set_scope('local')
 
 inputs = [[lens], [A, O]]
 if args.debug_code:
-    lowered = tvm.lower(s, inputs, args.target, simple_mode = True)
-    print(lowered)
-    # fadd = tvm.build(s, inputs, args.target)
-    # if args.target == 'cuda':
-    #     print('-----GPU code-----\n' + fadd.imported_modules[0].get_source())
-    # else:
-    #     print('-----CPU code-----\n' + fadd.get_source())
+    # lowered = tvm.lower(s, inputs, args.target, simple_mode = True)
+    # print(lowered)
+    fadd, _ = tvm.build(s, inputs, args.target)
+    if args.target == 'cuda':
+        print('-----GPU code-----\n' + fadd.imported_modules[0].get_source())
+    else:
+        print('-----CPU code-----\n' + fadd.get_source())
 else:
     fadd, i_bufs = tvm.build(s, inputs, args.target)
     # fadd = tvm.runtime.module.load_module('/home/ppf/rnn_compilers/ragged_tensors/incubator-tvm/build/qkt.so')
