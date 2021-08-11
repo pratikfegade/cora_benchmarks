@@ -1,14 +1,29 @@
+import os
+import run_utils
+import argparse
 import utils
 import tvm
 from tvm import tir, te
 from tvm.te import RangeDimension as Dim
 from tvm.tir import UninterpFun as Uf
 
-BATCH_SIZE = 32
-# MAX_LEN = te.var('max_len') - 1
-MAX_LEN = 128
-NUM_HEADS = 8
-HEAD_SIZE = 64
+parser = argparse.ArgumentParser()
+parser.add_argument('--target', nargs='?', default='llvm')
+parser.add_argument('--dtype', dest='dtype', nargs='?', default='float32')
+parser.add_argument('--max-batches', dest='max_batches', default=10, type=int)
+parser.add_argument('--batch-size', dest='batch_size', default=32, type=int)
+parser.add_argument('--peel-loops', dest='peel_loops', default=False, action='store_true')
+parser.add_argument('--unroll-loops', dest='unroll_loops', default=False, action='store_true')
+parser.add_argument('--debug', dest='debug', default=False, action='store_true')
+parser.add_argument('--debug-code', dest='debug_code', default=False, action='store_true')
+parser.add_argument('--manual-code', dest='manual_code', default=False, action='store_true')
+parser.add_argument('--dense-storage', dest='dense_storage', default=False, action='store_true')
+parser.add_argument('--dataset', nargs='?', default='random')
+parser.add_argument('--datadir', nargs='?', default='random')
+args = parser.parse_args()
+
+BATCH_SIZE = args.batch_size
+MAX_LEN = utils.ceilmult(run_utils.get_dataset_max_len(args.dataset), 32)
 OUT_SIZE = 512
 
 eps = 0.00001
@@ -21,13 +36,13 @@ bd = Dim('bd')
 s1 = Dim('s1')
 od = Dim('od')
 
-def len_uf(name): return Uf(name, (0, MAX_LEN), [bd], lambda b: 64*lens[b])
+def len_uf(name): return Uf(name, 'l', (0, MAX_LEN), [bd], lambda b: lens[b])
 
 luf = len_uf('s')
 ls =  {
-    0: Uf.from_constant('bd', BATCH_SIZE),
+    0: Uf.from_constant('bd', BATCH_SIZE, 'l'),
     1: luf,
-    2: Uf.from_constant('od', OUT_SIZE),
+    2: Uf.from_constant('od', OUT_SIZE, 'l'),
 }
 
 loop_ufs=[ls[0], ls[1], ls[2]]
@@ -50,14 +65,14 @@ loop_ufs=[ls[0], ls[1]]
 width_ufs=[loop_ufs]
 k = tvm.reduce_axis((0, OUT_SIZE), name = 'k')
 Am1 = te.ragged_compute((BATCH_SIZE, MAX_LEN), [bd, s1], loop_ufs,
-                        lambda ds: tvm.sum(A[ds[bd], ds[s1], k], axis=k),
+                        lambda ds: tvm.sum(A[ds[bd], ds[s1], k], axis=k, dimensions=[od]),
                         name = 'Am1')
 
 loop_ufs=[ls[0], ls[1]]
 width_ufs=[loop_ufs]
 k = tvm.reduce_axis((0, OUT_SIZE), name = 'k')
 Am2 = te.ragged_compute((BATCH_SIZE, MAX_LEN), [bd, s1], loop_ufs,
-                        lambda ds: tvm.sum(A[ds[bd], ds[s1], k] * A[ds[bd], ds[s1], k], axis=k),
+                        lambda ds: tvm.sum(A[ds[bd], ds[s1], k] * A[ds[bd], ds[s1], k], axis=k, dimensions=[od]),
                         name = 'Am2')
 
 loop_ufs=[ls[0], ls[1], ls[2]]
@@ -74,31 +89,34 @@ thread_y = tvm.thread_axis("threadIdx.y")
 block_x = tvm.thread_axis("blockIdx.x")
 block_y = tvm.thread_axis("blockIdx.y")
 
-ko, ki = s[Am1].split(s[Am1].op.reduce_axis[0], nparts = 32)
-Am1_rf = s.rfactor(Am1, ko)
-ko, ki = s[Am2].split(s[Am2].op.reduce_axis[0], nparts = 32)
-Am2_rf = s.rfactor(Am2, ko)
+ko, ki = s[Am1].split(s[Am1].op.reduce_axis[0], factor = 32)
+Am1_rf = s.rfactor(Am1, ki, 1)
 
-b, s1, h = s[O].leaf_iter_vars
-s1o, s1i = s[O].split(s1, factor = 64)
-s1io, s1ii = s[O].split(s1i, factor = 8)
-f1 = s[O].fuse(b, s1o)
-f = s[O].fuse(f1, s1io)
-s[O].bind(f, block_x)
-s[O].bind(s1ii, thread_y)
+ko, ki = s[Am2].split(s[Am2].op.reduce_axis[0], factor = 32)
+Am2_rf = s.rfactor(Am2, ki, 1)
 
-ho, hi = s[O].split(h, nparts = 32)
-s[O].bind(ho, thread_x)
+nty = 16
+ntx = 32
 
-s[Am1_rf].compute_at(s[O], ho)
-s[Am2_rf].compute_at(s[O], ho)
-s[Am1].compute_at(s[O], ho)
-s[Am2].compute_at(s[O], ho)
-s[A].compute_at(s[O], ho)
+b, l, h = s[O].leaf_iter_vars
+f = s[O].fuse(b, l)
+fo, fi = s[O].split(f, factor = 16)
+s[O].bind(fo, block_x)
+s[O].bind(fi, thread_y)
+
+
+ho, hi = s[O].split(h, factor = 32)
+s[O].bind(hi, thread_x)
+
+s[Am1_rf].compute_at(s[Am1], s[Am1].leaf_iter_vars[2])
+s[Am2_rf].compute_at(s[Am2], s[Am2].leaf_iter_vars[2])
+s[Am1].compute_at(s[O], fi)
+s[Am2].compute_at(s[O], fi)
+# s[A].compute_at(s[O], fi)
+s[A].compute_inline()
 
 s[Am1].bind(s[Am1].op.reduce_axis[0], thread_x)
 s[Am2].bind(s[Am2].op.reduce_axis[0], thread_x)
-
 
 s[Am1_rf].set_scope('local')
 s[Am2_rf].set_scope('local')
@@ -106,10 +124,23 @@ s[Am1].set_scope('local')
 s[Am2].set_scope('local')
 s[A].set_scope('local')
 
-tvm_callback_cuda_compile = tvm.register_func(utils.get_tvm_callback_cuda_compile(256))
+suffix = ""
+gen_prefix = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0] + suffix
+_ = tvm.register_func(utils.get_tvm_callback_cuda_compile(256))
+_ = tvm.register_func(
+    utils.get_tvm_callback_cuda_postproc(args, os.path.realpath(__file__), fileprefix=gen_prefix))
 
-inputs = [lens, A1, A2]
-# stmt = tvm.lower(s, inputs, simple_mode = True)
-# print(stmt)
-fadd = tvm.build(s, inputs, "cuda")
-print('-----GPU code-----\n' + fadd.imported_modules[0].get_source())
+inputs = [[lens], [A1, A2, O]]
+if args.debug_code:
+    lowered = tvm.lower(s, inputs, args.target, simple_mode = True)
+    print(lowered)
+    # fadd, _ = tvm.build(s, inputs, args.target)
+    # if args.target == 'cuda':
+        # print('-----GPU code-----\n' + fadd.imported_modules[0].get_source())
+    # else:
+        # print('-----CPU code-----\n' + fadd.get_source())
+else:
+    fadd, i_bufs = tvm.build(s, inputs, args.target)
+    # fadd = tvm.runtime.module.load_module('/home/ppf/rnn_compilers/ragged_tensors/incubator-tvm/build/qkt.so')
+    run_utils.run(fadd, i_bufs, inputs[1], args.batch_size, args.max_batches,
+                  args.dataset, args.datadir, args.target, args.debug)
