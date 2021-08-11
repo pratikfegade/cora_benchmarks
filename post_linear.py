@@ -97,8 +97,8 @@ yio, yii = s[O].split(yi, factor = nt)
 xio, xii = s[O].split(xi, factor = nt)
 s[O].bind(xii, thread_x())
 s[O].bind(yii, thread_y())
-s[O].bind(xio, vthread())
-s[O].bind(yio, vthread())
+s[O].bind(xio, vthread(), no_unroll_vthread = True)
+s[O].bind(yio, vthread(), no_unroll_vthread = True)
 s[Ol].compute_at(s[O], xii)
 
 b, x, y, k = s[Ol].leaf_iter_vars
