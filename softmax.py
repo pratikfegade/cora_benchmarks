@@ -1,3 +1,4 @@
+import os
 import run_utils
 import argparse
 import utils
@@ -108,6 +109,12 @@ s[Amax_rf].set_scope('local')
 s[Asum].set_scope('local')
 s[Asum_rf].set_scope('local')
 s[Aexp].set_scope('local')
+
+suffix = ""
+gen_prefix = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0] + suffix
+_ = tvm.register_func(utils.get_tvm_callback_cuda_compile(256))
+_ = tvm.register_func(
+    utils.get_tvm_callback_cuda_postproc(args, os.path.realpath(__file__), fileprefix=gen_prefix))
 
 inputs = [[lens], [A, O]]
 if args.debug_code:
