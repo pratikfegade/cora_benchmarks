@@ -9,7 +9,7 @@ from tvm.tir import UninterpFun as Uf
 parser = argparse.ArgumentParser()
 parser.add_argument('--target', nargs='?', default='llvm')
 parser.add_argument('--dtype', dest='dtype', nargs='?', default='float32')
-parser.add_argument('--max-batches', dest='max_batches', default=1, type=int)
+parser.add_argument('--max-batches', dest='max_batches', default=10, type=int)
 parser.add_argument('--batch-size', dest='batch_size', default=32, type=int)
 parser.add_argument('--peel-loops', dest='peel_loops', default=False, action='store_true')
 parser.add_argument('--unroll-loops', dest='unroll_loops', default=False, action='store_true')
@@ -104,17 +104,21 @@ s[Ol].peel(ko)
 
 x, y = s[As].leaf_iter_vars[2], s[As].leaf_iter_vars[3]
 f = s[As].fuse(x, y)
-fo, fi = s[As].split(f, factor = 256)
-fio, fii = s[As].split(fi, factor = 16)
+fo, fi = s[As].split(f, factor = 256 * 4)
+fio, fii = s[As].split(fi, factor = 16 * 4)
+fiio, fiii = s[As].split(fii, factor = 4)
 s[As].bind(fio, thread_y())
-s[As].bind(fii, thread_x())
+s[As].bind(fiio, thread_x())
+s[As].vectorize(fiii)
 
 x, y = s[Vs].leaf_iter_vars[2], s[Vs].leaf_iter_vars[3]
 f = s[Vs].fuse(x, y)
-fo, fi = s[Vs].split(f, factor = 256)
-fio, fii = s[Vs].split(fi, factor = 16)
+fo, fi = s[Vs].split(f, factor = 256 * 4)
+fio, fii = s[Vs].split(fi, factor = 16 * 4)
+fiio, fiii = s[Vs].split(fii, factor = 4)
 s[Vs].bind(fio, thread_y())
-s[Vs].bind(fii, thread_x())
+s[Vs].bind(fiio, thread_x())
+s[Vs].vectorize(fiii)
 
 tvm_callback_cuda_compile = tvm.register_func(utils.get_tvm_callback_cuda_compile(256))
 

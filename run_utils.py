@@ -52,6 +52,7 @@ def get_shape(t, rmap):
     elif isinstance(t, tvm.tir.Buffer):
         return int_shape(t.shape.dense_shape(), rmap)
     else:
+        print(t)
         assert False
 
 def create_numpy_array(t, dtype, rmap = {}):
@@ -124,7 +125,7 @@ def run(built, i_inputs_tensors, t_inputs_tensors, batch_size, num_batches, data
         inputs = t_inputs + l_inputs + host_i_inputs + dev_i_inputs
         time += execute(target, built, inputs, ctx, debug)
 
-    print(time / len(batches))
+    print("RESULT", time / len(batches))
 
 def run_fused(built, total_len_var, t_inputs_tensors, batch_size, num_batches, dataset, datadir, target, debug):
     ctx = get_ctx(target)
@@ -148,4 +149,4 @@ def run_fused(built, total_len_var, t_inputs_tensors, batch_size, num_batches, d
         inputs = [total_length] + t_inputs
         time += execute(target, built, inputs, ctx, debug)
 
-    print(time / len(batches))
+    print("RESULT", time / len(batches))

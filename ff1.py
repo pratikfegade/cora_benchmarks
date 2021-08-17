@@ -59,80 +59,75 @@ M = te.ragged_compute((args.batch_size, MAX_LEN, OUT_SIZE), [bd, s1, od], loop_u
                       name = 'M', width_uf_lists=width_ufs)
 
 O = te.ragged_compute((args.batch_size, MAX_LEN, OUT_SIZE), [bd, s1, od], loop_ufs,
-                      lambda ds: tvm.max(B[ds[od]] + M[ds[bd], ds[s1], ds[od]], 0),
+                      lambda ds: tvm.max(M[ds[bd], ds[s1], ds[od]], 0),
                       name = 'O', width_uf_lists=width_ufs)
 
 s = tvm.create_schedule([O.op])
 
-tile = 128
-rtile = 8
-nt = tile // rtile
-ks = utils.next_power_of_2(IN_SIZE / (6144 // tile))
-
 if args.target == "cuda":
-    thread_x = lambda: tvm.thread_axis((0,  nt), "threadIdx.x")
-    thread_y = lambda: tvm.thread_axis((0,  nt), "threadIdx.y")
-    block_x = lambda: tvm.thread_axis("blockIdx.x")
-    block_y = lambda: tvm.thread_axis("blockIdx.y")
+    b, l, o, k = tuple(M.op.axis) + tuple(M.op.reduce_axis)
+    l = s[M].fuse(b, l, padding = 2)
+    loi, li = s[M].split(l, factor=2)
 
-    Bs = s.cache_read(B, "shared", [O], vanilla=True)
+    ooi, oi = s[M].split(o, factor=2)
 
-    As = s.cache_read(A, "shared", [M])
-    Ws = s.cache_read(W, "shared", [M], vanilla=True)
+    koi, ki = s[M].split(k, factor=4)
+    koo, koi = s[M].split(koi, factor=2)
 
-    Al = s.cache_read(As, "local", [M])
-    Wl = s.cache_read(Ws, "local", [M], vanilla=True)
+    s[M].reorder(koo, koi, loi, ooi, ki, li, oi)
 
-    b, l, o = s[O].leaf_iter_vars[0:3]
-    y = s[O].fuse(b, l)
-    yo, yi = s[O].split(y, factor = tile)
-    x = o
-    xo, xi = s[O].split(x, factor = tile)
-    s[O].bind(yo, block_y())
-    s[O].bind(xo, block_x())
+    if not args.debug_code:
+        s[M].unroll(koi)
+        s[M].unroll(loi)
+        s[M].unroll(ooi)
+        s[M].unroll(ki)
+        s[M].unroll(li)
+        s[M].unroll(oi)
 
-    yio, yii = s[O].split(yi, factor = nt)
-    xio, xii = s[O].split(xi, factor = nt)
-    s[O].bind(yii, thread_y())
-    s[O].bind(xii, thread_x())
-    s[O].reorder(yii, xii, yio, xio)
-    s[O].bind(yio, te.thread_axis("vthread"), no_unroll_vthread = True)
-    s[O].bind(xio, te.thread_axis("vthread"), no_unroll_vthread = True)
-    s[M].compute_at(s[O], xio)
-    s[Bs].compute_at(s[O], xio)
+    O_b, O_l, O_o = tuple(O.op.axis)
+    O_l = s[O].fuse(O_b, O_l, padding = 32)
 
-    x, = s[Bs].leaf_iter_vars
-    xo, xi = s[Bs].split(x, factor = nt)
-    s[Bs].bind(xo, thread_y())
-    s[Bs].bind(xi, thread_x())
+    O_l_o_i, O_l_i = s[O].split(O_l, factor=8)
+    O_l_o_o_i, O_l_o_i = s[O].split(O_l_o_i, factor=2)
+    O_l_o_o_o, O_l_o_o_i = s[O].split(O_l_o_o_i, factor=2)
 
-    b, l, o, k = s[M].leaf_iter_vars
-    s[M].reorder(k, b, l, o)
-    ko, ki = s[M].split(k, nparts = ks)
-    s[As].compute_at(s[M], ko)
-    s[Ws].compute_at(s[M], ko)
-    s[Al].compute_at(s[M], ki)
-    s[Wl].compute_at(s[M], ki)
+    O_o_o_i, O_o_i = s[O].split(O_o, factor=4)
+    O_o_o_o_i, O_o_o_i = s[O].split(O_o_o_i, factor=16)
+    O_o_o_o_o, O_o_o_o_i = s[O].split(O_o_o_o_i, factor=1)
+    s[O].reorder(O_l_o_o_o, O_o_o_o_o, O_l_o_o_i, O_o_o_o_i, O_l_o_i, O_o_o_i, O_l_i, O_o_i)
 
-    f = s[Ws].fuse(*s[Ws].leaf_iter_vars)
-    xo, xi = s[Ws].split(f, factor = nt * nt)
-    xio, xii = s[Ws].split(xi, factor = nt)
-    s[Ws].bind(xio, thread_y())
-    s[Ws].bind(xii, thread_x())
+    A_shared = s.cache_read(A, "shared", [M])
+    A_shared_axm1, A_shared_ax0, A_shared_ax1 = tuple(A_shared.op.axis)
+    A_shared_ax0 = s[A_shared].fuse(A_shared_axm1, A_shared_ax0)
+    s[A_shared].compute_at(s[M], koo)
 
-    b, l, i = s[As].leaf_iter_vars
-    f = s[As].fuse(b, l)
-    s[As].reorder(i, f)
-    f = s[As].fuse(i, f)
-    xo, xi = s[As].split(f, factor = nt * nt)
-    xio, xii = s[As].split(xi, factor = nt)
-    s[As].bind(xio, thread_y())
-    s[As].bind(xii, thread_x())
-    s.fuse_tensor_dimensions(As, 0, 1)
-    s.reorder_tensor_dimensions(As, 0, 1)
+    W_shared = s.cache_read(W, "shared", [M], vanilla=True)
+    W_shared_ax0, W_shared_ax1 = tuple(W_shared.op.axis)
+    s[W_shared].compute_at(s[M], koo)
 
-    s.fuse_tensor_dimensions(A, 0, 1)
-    s.fuse_tensor_dimensions(O, 0, 1)
+    s[O].bind(O_l_o_o_o, te.thread_axis("blockIdx.y"))
+    s[O].bind(O_o_o_o_o, te.thread_axis("blockIdx.x"))
+    O_l_o_o_i_o_o_o_i_fused = s[O].fuse(O_l_o_o_i, O_o_o_o_i)
+    s[O].bind(O_l_o_o_i_o_o_o_i_fused, te.thread_axis("vthread"))
+    O_l_o_i_o_o_i_fused = s[O].fuse(O_l_o_i, O_o_o_i)
+    s[O].bind(O_l_o_i_o_o_i_fused, te.thread_axis("threadIdx.x"))
+    s[M].compute_at(s[O], O_l_o_i_o_o_i_fused)
+
+    A_shared_ax0_ax1_fused = s[A_shared].fuse(A_shared_ax0, A_shared_ax1)
+    A_shared_ax0_ax1_fused_o, A_shared_ax0_ax1_fused_i = s[A_shared].split(A_shared_ax0_ax1_fused, factor=2)
+    s[A_shared].vectorize(A_shared_ax0_ax1_fused_i)
+    A_shared_ax0_ax1_fused_o_o, A_shared_ax0_ax1_fused_o_i = s[A_shared].split(A_shared_ax0_ax1_fused_o, factor=32)
+    s[A_shared].bind(A_shared_ax0_ax1_fused_o_i, te.thread_axis("threadIdx.x"))
+    s[A_shared].mark_no_bounds_check()
+
+    W_shared_ax0_ax1_fused = s[W_shared].fuse(W_shared_ax0, W_shared_ax1)
+    W_shared_ax0_ax1_fused_o, W_shared_ax0_ax1_fused_i = s[W_shared].split(W_shared_ax0_ax1_fused, factor=4)
+    s[W_shared].vectorize(W_shared_ax0_ax1_fused_i)
+    W_shared_ax0_ax1_fused_o_o, W_shared_ax0_ax1_fused_o_i = s[W_shared].split(W_shared_ax0_ax1_fused_o, factor=32)
+    s[W_shared].bind(W_shared_ax0_ax1_fused_o_i, te.thread_axis("threadIdx.x"))
+
+    s.fuse_tensor_dimensions(M, 0, 1)
+    s.fuse_tensor_dimensions(A_shared, 0, 1)
 
     s[M].set_scope('local')
 
@@ -144,20 +139,17 @@ if args.target == "cuda":
 else:
     pass
 
-bA = tvm.decl_buffer([args.batch_size*MAX_LEN, IN_SIZE], name = "bA")
-inputs = [[lens], [bA, W, B]]
-# print(A, s[A].op.output_shape(0))
-# exit(0)
+inputs = [[lens], [A, W, O]]
 if args.debug_code:
-    lowered = tvm.lower(s, inputs, args.target, simple_mode = True, binds = {A: bA})
+    lowered = tvm.lower(s, inputs, args.target, simple_mode = True)
     print(lowered)
-    # fadd, _ = tvm.build(s, inputs, args.target, binds = {A: bA})
+    # fadd, _ = tvm.build(s, inputs, args.target)
     # if args.target == 'cuda':
         # print('-----GPU code-----\n' + fadd.imported_modules[0].get_source())
     # else:
         # print('-----CPU code-----\n' + fadd.get_source())
 else:
-    fadd, i_bufs = tvm.build(s, inputs, args.target, binds = {A: bA})
+    fadd, i_bufs = tvm.build(s, inputs, args.target)
     # fadd = tvm.runtime.module.load_module('/home/ppf/rnn_compilers/ragged_tensors/incubator-tvm/build/qkt.so')
     run_utils.run(fadd, i_bufs, inputs[1], args.batch_size, args.max_batches,
                   args.dataset, args.datadir, args.target, args.debug)

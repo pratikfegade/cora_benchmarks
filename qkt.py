@@ -109,21 +109,21 @@ if args.target == "cuda":
     s[Ql].compute_at(s[Ol], k)
     s[Kl].compute_at(s[Ol], k)
 
-    x, y = s[Ks].leaf_iter_vars[2], s[Ks].leaf_iter_vars[3]
-    s[Ks].reorder(y, x)
-    f = s[Ks].fuse(x, y)
-    fo, fi = s[Ks].split(f, factor = ntx * nty)
-    fio, fii = s[Ks].split(fi, factor = ntx)
-    s[Ks].bind(fio, thread_y())
-    s[Ks].bind(fii, thread_x())
+    # x, y = s[Ks].leaf_iter_vars[2], s[Ks].leaf_iter_vars[3]
+    # s[Ks].reorder(y, x)
+    # f = s[Ks].fuse(x, y)
+    # fo, fi = s[Ks].split(f, factor = ntx * nty)
+    # fio, fii = s[Ks].split(fi, factor = ntx)
+    # s[Ks].bind(fio, thread_y())
+    # s[Ks].bind(fii, thread_x())
 
-    x, y = s[Qs].leaf_iter_vars[2], s[Qs].leaf_iter_vars[3]
-    s[Qs].reorder(y, x)
-    f = s[Qs].fuse(x, y)
-    fo, fi = s[Qs].split(f, factor = ntx * nty)
-    fio, fii = s[Qs].split(fi, factor = ntx)
-    s[Qs].bind(fio, thread_y())
-    s[Qs].bind(fii, thread_x())
+    # x, y = s[Qs].leaf_iter_vars[2], s[Qs].leaf_iter_vars[3]
+    # s[Qs].reorder(y, x)
+    # f = s[Qs].fuse(x, y)
+    # fo, fi = s[Qs].split(f, factor = ntx * nty)
+    # fio, fii = s[Qs].split(fi, factor = ntx)
+    # s[Qs].bind(fio, thread_y())
+    # s[Qs].bind(fii, thread_x())
 
     s.reorder_tensor_dimensions(Ks, 2, 3)
     s.reorder_tensor_dimensions(Qs, 2, 3)
