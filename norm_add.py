@@ -1,4 +1,4 @@
-cd import os
+import os
 import run_utils
 import argparse
 import utils
@@ -95,24 +95,20 @@ Am1_rf = s.rfactor(Am1, ki, 1)
 ko, ki = s[Am2].split(s[Am2].op.reduce_axis[0], factor = 32)
 Am2_rf = s.rfactor(Am2, ki, 1)
 
-nty = 16
 ntx = 32
 
 b, l, h = s[O].leaf_iter_vars
 f = s[O].fuse(b, l)
-fo, fi = s[O].split(f, factor = 16)
-s[O].bind(fo, block_x)
-s[O].bind(fi, thread_y)
+s[O].bind(f, block_x)
 
 
-ho, hi = s[O].split(h, factor = 32)
+ho, hi = s[O].split(h, factor = ntx)
 s[O].bind(hi, thread_x)
 
 s[Am1_rf].compute_at(s[Am1], s[Am1].leaf_iter_vars[2])
 s[Am2_rf].compute_at(s[Am2], s[Am2].leaf_iter_vars[2])
-s[Am1].compute_at(s[O], fi)
-s[Am2].compute_at(s[O], fi)
-# s[A].compute_at(s[O], fi)
+s[Am1].compute_at(s[O], f)
+s[Am2].compute_at(s[O], f)
 s[A].compute_inline()
 
 s[Am1].bind(s[Am1].op.reduce_axis[0], thread_x)
@@ -124,8 +120,7 @@ s[Am1].set_scope('local')
 s[Am2].set_scope('local')
 s[A].set_scope('local')
 
-suffix = ""
-gen_prefix = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0] + suffix
+gen_prefix = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0]
 _ = tvm.register_func(utils.get_tvm_callback_cuda_compile(256))
 _ = tvm.register_func(
     utils.get_tvm_callback_cuda_postproc(args, os.path.realpath(__file__), fileprefix=gen_prefix))
