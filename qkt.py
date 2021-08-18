@@ -60,10 +60,14 @@ K = te.ragged_placeholder((args.batch_size, NUM_HEADS, MAX_LEN, HEAD_SIZE), [bd,
 loop_ufs=[ls[0], ls[1], ls[2], ls[3]]
 width_ufs = None if args.dense_storage else [loop_ufs]
 k = tvm.reduce_axis((0, HEAD_SIZE), name = 'k')
+S = te.ragged_compute((args.batch_size, NUM_HEADS, MAX_LEN, MAX_LEN), [bd, md, s1, s2], loop_ufs,
+                      lambda ds: tvm.sum(Q[ds[bd], ds[md], ds[s1], k] * K[ds[bd], ds[md], ds[s2], k],
+                                         axis = k, dimensions=[hd]),
+                      name = 'S', width_uf_lists=width_ufs)
+
 O = te.ragged_compute((args.batch_size, NUM_HEADS, MAX_LEN, MAX_LEN), [bd, md, s1, s2], loop_ufs,
-                        lambda ds: tvm.sum(Q[ds[bd], ds[md], ds[s1], k] * K[ds[bd], ds[md], ds[s2], k],
-                                           axis = k, dimensions=[hd]),
-                        name = 'O', width_uf_lists=width_ufs)
+                      lambda ds: tvm.if_then_else(ds[s1] >= lens[ds[bd]], -float('inf'), S[ds[bd], ds[md], ds[s1], ds[s2]]),
+                      name = 'O', width_uf_lists=width_ufs)
 
 s = tvm.create_schedule([O.op])
 
@@ -76,12 +80,11 @@ if args.target == "cuda":
     ntx = 16
     nty = 16
 
-    Ol = s.cache_write(O, "local")
-    Qs = s.cache_read(Q, "shared", [Ol], layouts='dense')
-    Ks = s.cache_read(K, "shared", [Ol], layouts='dense')
+    Qs = s.cache_read(Q, "shared", [S], layouts='dense')
+    Ks = s.cache_read(K, "shared", [S], layouts='dense')
 
-    Ql = s.cache_read(Qs, "local", [Ol], layouts='dense')
-    Kl = s.cache_read(Ks, "local", [Ol], layouts='dense')
+    Ql = s.cache_read(Qs, "local", [S], layouts='dense')
+    Kl = s.cache_read(Ks, "local", [S], layouts='dense')
 
     b, h, x, y = s[O].leaf_iter_vars[0:4]
     xo, xi = s[O].split(x, factor = 64)
@@ -102,31 +105,33 @@ if args.target == "cuda":
     s[O].bind(yio, tvm.thread_axis("vthread"))
     s[O].bind(xio, tvm.thread_axis("vthread"))
     s[O].reorder(xio, yii, yio, xii)
-    s[Ol].compute_at(s[O], xii)
+    s[S].compute_at(s[O], xii)
 
-    x, y, k = s[Ol].leaf_iter_vars[2:5]
-    s[Ol].reorder(k, x, y)
-    s[Ql].compute_at(s[Ol], k)
-    s[Kl].compute_at(s[Ol], k)
+    x, y, k = s[S].leaf_iter_vars[2:5]
+    s[S].reorder(k, x, y)
+    s[Ql].compute_at(s[S], k)
+    s[Kl].compute_at(s[S], k)
 
-    # x, y = s[Ks].leaf_iter_vars[2], s[Ks].leaf_iter_vars[3]
-    # s[Ks].reorder(y, x)
-    # f = s[Ks].fuse(x, y)
-    # fo, fi = s[Ks].split(f, factor = ntx * nty)
-    # fio, fii = s[Ks].split(fi, factor = ntx)
-    # s[Ks].bind(fio, thread_y())
-    # s[Ks].bind(fii, thread_x())
+    x, y = s[Ks].leaf_iter_vars[2], s[Ks].leaf_iter_vars[3]
+    s[Ks].reorder(y, x)
+    f = s[Ks].fuse(x, y)
+    fo, fi = s[Ks].split(f, factor = ntx * nty)
+    fio, fii = s[Ks].split(fi, factor = ntx)
+    s[Ks].bind(fio, thread_y())
+    s[Ks].bind(fii, thread_x())
 
-    # x, y = s[Qs].leaf_iter_vars[2], s[Qs].leaf_iter_vars[3]
-    # s[Qs].reorder(y, x)
-    # f = s[Qs].fuse(x, y)
-    # fo, fi = s[Qs].split(f, factor = ntx * nty)
-    # fio, fii = s[Qs].split(fi, factor = ntx)
-    # s[Qs].bind(fio, thread_y())
-    # s[Qs].bind(fii, thread_x())
+    x, y = s[Qs].leaf_iter_vars[2], s[Qs].leaf_iter_vars[3]
+    s[Qs].reorder(y, x)
+    f = s[Qs].fuse(x, y)
+    fo, fi = s[Qs].split(f, factor = ntx * nty)
+    fio, fii = s[Qs].split(fi, factor = ntx)
+    s[Qs].bind(fio, thread_y())
+    s[Qs].bind(fii, thread_x())
 
     s.reorder_tensor_dimensions(Ks, 2, 3)
     s.reorder_tensor_dimensions(Qs, 2, 3)
+
+    s[S].set_scope('local')
 
     suffix = ""
     gen_prefix = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0] + suffix
@@ -165,13 +170,13 @@ else:
 
 inputs = [[lens], [Q, K, O]]
 if args.debug_code:
-    lowered = tvm.lower(s, inputs, args.target, simple_mode = True)
-    print(lowered)
-    # fadd, _ = tvm.build(s, inputs, args.target)
-    # if args.target == 'cuda':
-        # print('-----GPU code-----\n' + fadd.imported_modules[0].get_source())
-    # else:
-        # print('-----CPU code-----\n' + fadd.get_source())
+    # lowered = tvm.lower(s, inputs, args.target, simple_mode = True)
+    # print(lowered)
+    fadd, _ = tvm.build(s, inputs, args.target)
+    if args.target == 'cuda':
+        print('-----GPU code-----\n' + fadd.imported_modules[0].get_source())
+    else:
+        print('-----CPU code-----\n' + fadd.get_source())
 else:
     fadd, i_bufs = tvm.build(s, inputs, args.target)
     # fadd = tvm.runtime.module.load_module('/home/ppf/rnn_compilers/ragged_tensors/incubator-tvm/build/qkt.so')
