@@ -48,29 +48,29 @@ ls =  {
     3: luf32,
 }
 
-loop_ufs=[ls[0], ls[1], ls[2], ls[3]]
-width_ufs=[ls[0], ls[1], luf64, luf64]
-A = te.ragged_placeholder((BATCH_SIZE, NUM_HEADS, MAX_LEN, MAX_LEN), [bd, md, s1, s2], loop_ufs,
+loop_ufs=[ls[0], ls[2], ls[1], ls[3]]
+width_ufs=[ls[0], luf64, ls[1], luf64]
+A = te.ragged_placeholder((BATCH_SIZE, MAX_LEN, NUM_HEADS, MAX_LEN), [bd, s1, md, s2], loop_ufs,
                           name='A', width_ufs=width_ufs)
 
-loop_ufs=[ls[0], ls[1], ls[2]]
-Amax = te.ragged_compute((BATCH_SIZE, NUM_HEADS, MAX_LEN), [bd, md, s1], loop_ufs,
-                         lambda ds, rds: tvm.max(A[ds[bd], ds[md], ds[s1], rds['k']], axis=rds['k'], dimensions=s2),
+loop_ufs=[ls[0], ls[2], ls[1]]
+Amax = te.ragged_compute((BATCH_SIZE, MAX_LEN, NUM_HEADS), [bd, s1, md], loop_ufs,
+                         lambda ds, rds: tvm.max(A[ds[bd], ds[s1], ds[md], rds['k']], axis=rds['k'], dimensions=s2),
                          name = 'Amax', reduce_axis_ufs = [('k', luf32)])
 
-loop_ufs=[ls[0], ls[1], ls[2], ls[3]]
-Aexp = te.ragged_compute((BATCH_SIZE, NUM_HEADS, MAX_LEN, MAX_LEN), [bd, md, s1, s2], loop_ufs,
-                         lambda ds: tvm.exp((A[ds[bd], ds[md], ds[s1], ds[s2]] -
-                                             Amax[ds[bd], ds[md], ds[s1]]) * scale), name = 'Aexp')
+loop_ufs=[ls[0], ls[2], ls[1], ls[3]]
+Aexp = te.ragged_compute((BATCH_SIZE, MAX_LEN, NUM_HEADS, MAX_LEN), [bd, s1, md, s2], loop_ufs,
+                         lambda ds: tvm.exp((A[ds[bd], ds[s1], ds[md], ds[s2]] -
+                                             Amax[ds[bd], ds[s1], ds[md]]) * scale), name = 'Aexp')
 
-loop_ufs=[ls[0], ls[1], ls[2]]
-Asum = te.ragged_compute((BATCH_SIZE, NUM_HEADS, MAX_LEN), [bd, md, s1], loop_ufs,
-                         lambda ds, rds: tvm.sum(Aexp[ds[bd], ds[md], ds[s1], rds['k']], axis=rds['k'], dimensions=s2),
+loop_ufs=[ls[0], ls[2], ls[1]]
+Asum = te.ragged_compute((BATCH_SIZE, MAX_LEN, NUM_HEADS), [bd, s1, md], loop_ufs,
+                         lambda ds, rds: tvm.sum(Aexp[ds[bd], ds[s1], ds[md], rds['k']], axis=rds['k'], dimensions=s2),
                          name = 'Asum', reduce_axis_ufs = [('k', luf32)])
 
-loop_ufs=[ls[0], ls[1], ls[2], ls[3]]
-O = te.ragged_compute((BATCH_SIZE, NUM_HEADS, MAX_LEN, MAX_LEN), [bd, md, s1, s2], loop_ufs,
-                      lambda ds: Aexp[ds[bd], ds[md], ds[s1], ds[s2]] / Asum[ds[bd], ds[md], ds[s1]],
+loop_ufs=[ls[0], ls[2], ls[1], ls[3]]
+O = te.ragged_compute((BATCH_SIZE, MAX_LEN, NUM_HEADS, MAX_LEN), [bd, s1, md, s2], loop_ufs,
+                      lambda ds: Aexp[ds[bd], ds[s1], ds[md], ds[s2]] / Asum[ds[bd], ds[s1], ds[md]],
                       name = 'O', width_uf_lists=[width_ufs])
 
 s = tvm.create_schedule([O.op])
@@ -87,11 +87,10 @@ Amax_rf = s.rfactor(Amax, ki, 1)
 ko, ki = s[Asum].split(s[Asum].op.reduce_axis[0], factor = 32)
 Asum_rf = s.rfactor(Asum, ki, 1)
 
-b, h, s1, s2 = s[O].leaf_iter_vars
-s[O].reorder(s1, h)
+b, s1, h, s2 = s[O].leaf_iter_vars
 f = s[O].fuse(b, s1)
 s[O].bind(f, block_x)
-s[O].bind(h, thread_y)
+# s[O].bind(h, thread_y)
 
 xo, xi = s[O].split(s2, factor = 32)
 s[O].bind(xi, thread_x)

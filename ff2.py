@@ -114,6 +114,7 @@ if args.target == "cuda":
     s[A_shared].vectorize(A_shared_ax0_ax1_fused_i)
     A_shared_ax0_ax1_fused_o_o, A_shared_ax0_ax1_fused_o_i = s[A_shared].split(A_shared_ax0_ax1_fused_o, factor=32)
     s[A_shared].bind(A_shared_ax0_ax1_fused_o_i, te.thread_axis("threadIdx.x"))
+    s[A_shared].mark_no_bounds_check()
 
     W_shared_ax0_ax1_fused = s[W_shared].fuse(W_shared_ax0, W_shared_ax1)
     W_shared_ax0_ax1_fused_o, W_shared_ax0_ax1_fused_i = s[W_shared].split(W_shared_ax0_ax1_fused, factor=4)
@@ -126,8 +127,7 @@ if args.target == "cuda":
     s.fuse_tensor_dimensions(A_shared, 0, 1)
 
 
-    suffix = ""
-    gen_prefix = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0] + suffix
+    gen_prefix = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0]
     _ = tvm.register_func(utils.get_tvm_callback_cuda_compile(256))
     _ = tvm.register_func(
         utils.get_tvm_callback_cuda_postproc(args, os.path.realpath(__file__), fileprefix=gen_prefix))

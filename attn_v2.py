@@ -1,3 +1,4 @@
+import os
 import argparse
 import run_utils
 import utils
@@ -33,34 +34,33 @@ s1 = Dim('s1')
 s2 = Dim('s2')
 hd = Dim('hd')
 
-def len1_uf(name): return Uf(name, 'l', (64, MAX_LEN), [bd], lambda b: utils.ceilmult(lens[b], 64))
-def len2_uf(name): return Uf(name, 'l', (0, MAX_LEN), [bd], lambda b: lens[b])
+def len_uf(name, padding): return Uf(name, 'l', (64, MAX_LEN), [bd], lambda b: utils.ceilmult(lens[b], padding))
 
 ls =  {
     0: Uf.from_constant('bd', args.batch_size, 'l'),
     1: Uf.from_constant('md', NUM_HEADS, 'l'),
-    2: len1_uf('s1'),
-    3: len2_uf('s2'),
+    2: len_uf('s1', 16),
+    3: len_uf('s2', 64),
     4: Uf.from_constant('hd', HEAD_SIZE, 'l'),
 }
 
-loop_ufs=[ls[0], ls[1], ls[3], ls[2]]
+loop_ufs=[ls[0], ls[3], ls[1], ls[2]]
 width_ufs=loop_ufs
-A = te.ragged_placeholder((args.batch_size, NUM_HEADS, MAX_LEN, MAX_LEN), [bd, md, s2, s1], loop_ufs,
+A = te.ragged_placeholder((args.batch_size, MAX_LEN, NUM_HEADS, MAX_LEN), [bd, s2, md, s1], loop_ufs,
                           name='A', width_ufs=width_ufs)
 
-loop_ufs=[ls[0], ls[1], ls[3], ls[4]]
+loop_ufs=[ls[0], ls[2], ls[1], ls[4]]
 width_ufs=loop_ufs
-V = te.ragged_placeholder((args.batch_size, NUM_HEADS, MAX_LEN, HEAD_SIZE), [bd, md, s2, hd], loop_ufs,
+V = te.ragged_placeholder((args.batch_size, MAX_LEN, NUM_HEADS, HEAD_SIZE), [bd, s1, md, hd], loop_ufs,
                           name='V', width_ufs=width_ufs)
 
-loop_ufs=[ls[0], ls[1], ls[2], ls[4]]
+loop_ufs=[ls[0], ls[3], ls[1], ls[4]]
 width_ufs=[loop_ufs]
-O = te.ragged_compute((args.batch_size, NUM_HEADS, MAX_LEN, HEAD_SIZE), [bd, md, s1, hd], loop_ufs,
-                      lambda ds, rds: tvm.sum(A[ds[bd], ds[md], rds['k'], ds[s1]] *
-                                              V(ds[bd], ds[md], rds['k'], ds[hd]),
-                                              axis=rds['k'], dimensions=[s2]),
-                      name = 'O', reduce_axis_ufs = [('k', len2_uf('k'))],
+O = te.ragged_compute((args.batch_size, MAX_LEN, NUM_HEADS, HEAD_SIZE), [bd, s2, md, hd], loop_ufs,
+                      lambda ds, rds: tvm.sum(A[ds[bd], ds[s2], ds[md], rds['k']] *
+                                              V(ds[bd], rds['k'], ds[md], ds[hd]),
+                                              axis=rds['k'], dimensions=[s1]),
+                      name = 'O', reduce_axis_ufs = [('k', len_uf('k', 1))],
                       width_uf_lists=width_ufs)
 
 s = tvm.create_schedule([O.op])
@@ -77,7 +77,7 @@ Vs = s.cache_read(V, "shared", [Ol])
 Al = s.cache_read(As, "local", [Ol])
 Vl = s.cache_read(Vs, "local", [Ol])
 
-b, h, x, y = s[O].leaf_iter_vars[0:4]
+b, x, h, y = s[O].leaf_iter_vars[0:4]
 xo, xi = s[O].split(x, factor = 64)
 
 s[O].reorder(b, xo, h, xi, y)
@@ -93,8 +93,8 @@ s[O].bind(xio, tvm.thread_axis("vthread"))
 s[O].bind(yo, tvm.thread_axis("vthread"))
 s[Ol].compute_at(s[O], yi)
 
-x, y, k = s[Ol].leaf_iter_vars[2], s[Ol].leaf_iter_vars[3], s[Ol].leaf_iter_vars[4]
-s[Ol].reorder(k, x, y)
+b, x, h, y, k = s[Ol].leaf_iter_vars
+s[Ol].reorder(b, h, k, x, y)
 ko, ki = s[Ol].split(k, factor = 16)
 s[As].compute_at(s[Ol], ko)
 s[Vs].compute_at(s[Ol], ko)
@@ -102,7 +102,8 @@ s[Al].compute_at(s[Ol], ki)
 s[Vl].compute_at(s[Ol], ki)
 s[Ol].peel(ko)
 
-x, y = s[As].leaf_iter_vars[2], s[As].leaf_iter_vars[3]
+_, x, h, y = s[As].leaf_iter_vars
+s[As].reorder(h, x, y)
 f = s[As].fuse(x, y)
 fo, fi = s[As].split(f, factor = 256 * 4)
 fio, fii = s[As].split(fi, factor = 16 * 4)
@@ -111,7 +112,8 @@ s[As].bind(fio, thread_y())
 s[As].bind(fiio, thread_x())
 s[As].vectorize(fiii)
 
-x, y = s[Vs].leaf_iter_vars[2], s[Vs].leaf_iter_vars[3]
+_, x, h, y = s[Vs].leaf_iter_vars
+s[Vs].reorder(h, x, y)
 f = s[Vs].fuse(x, y)
 fo, fi = s[Vs].split(f, factor = 256 * 4)
 fio, fii = s[Vs].split(fi, factor = 16 * 4)
@@ -120,17 +122,20 @@ s[Vs].bind(fio, thread_y())
 s[Vs].bind(fiio, thread_x())
 s[Vs].vectorize(fiii)
 
-tvm_callback_cuda_compile = tvm.register_func(utils.get_tvm_callback_cuda_compile(256))
+gen_prefix = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0]
+_ = tvm.register_func(utils.get_tvm_callback_cuda_compile(256))
+_ = tvm.register_func(
+    utils.get_tvm_callback_cuda_postproc(args, os.path.realpath(__file__), fileprefix=gen_prefix))
 
 inputs = [[lens], [V, A, O]]
 if args.debug_code:
-    # lowered = tvm.lower(s, inputs, simple_mode = True)
-    # print(lowered)
-    fadd, _ = tvm.build(s, inputs, args.target)
-    if args.target == 'cuda':
-        print('-----GPU code-----\n' + fadd.imported_modules[0].get_source())
-    else:
-        print('-----CPU code-----\n' + fadd.get_source())
+    lowered = tvm.lower(s, inputs, args.target, simple_mode = True)
+    print(lowered)
+    # fadd, _ = tvm.build(s, inputs, args.target)
+    # if args.target == 'cuda':
+        # print('-----GPU code-----\n' + fadd.imported_modules[0].get_source())
+    # else:
+        # print('-----CPU code-----\n' + fadd.get_source())
 else:
     fadd, i_bufs = tvm.build(s, inputs, args.target)
     # fadd = tvm.runtime.module.load_module('/home/ppf/rnn_compilers/ragged_tensors/incubator-tvm/build/qkt.so')

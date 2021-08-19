@@ -131,8 +131,7 @@ if args.target == "cuda":
 
     s[M].set_scope('local')
 
-    suffix = ""
-    gen_prefix = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0] + suffix
+    gen_prefix = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0]
     _ = tvm.register_func(utils.get_tvm_callback_cuda_compile(256))
     _ = tvm.register_func(
         utils.get_tvm_callback_cuda_postproc(args, os.path.realpath(__file__), fileprefix=gen_prefix))

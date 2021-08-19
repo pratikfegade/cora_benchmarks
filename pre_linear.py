@@ -38,8 +38,8 @@ s1 = Dim('s1')
 id = Dim('id')
 od = Dim('od')
 
-# def len_uf(name): return Uf(name, "l", (0, MAX_LEN), [bd], lambda b: lens[b])
-def len_uf(name): return Uf(name, "l", (0, MAX_LEN), [bd], lambda b: utils.ceilmult(lens[b], 64))
+def len_uf(name): return Uf(name, "l", (0, MAX_LEN), [bd], lambda b: lens[b])
+# def len_uf(name): return Uf(name, "l", (0, MAX_LEN), [bd], lambda b: utils.ceilmult(lens[b], 64))
 
 ls =  {
     0: Uf.from_constant('qkv', QKV_NUM, "l"),
@@ -106,7 +106,7 @@ if args.target == "cuda":
     s[O].bind(q, block_z());
     x = s[O].fuse(h, o)
     xo, xi = s[O].split(x, factor = tile)
-    y = s[O].fuse(b, l)
+    y = s[O].fuse(b, l, padding=tile)
     yo, yi = s[O].split(y, factor = tile)
     s[O].bind(yo, block_y())
     s[O].bind(xo, block_x())
@@ -129,19 +129,22 @@ if args.target == "cuda":
     s[Wl].compute_at(s[Ol], ki)
 
     f = s[Ws].fuse(*s[Ws].leaf_iter_vars)
-    xo, xi = s[Ws].split(f, factor = nt * nt)
-    xio, xii = s[Ws].split(xi, factor = nt)
+    xo, xi = s[Ws].split(f, factor = nt * nt * 4)
+    xio, xii = s[Ws].split(xi, factor = nt * 4)
+    xiio, xiii = s[Ws].split(xii, factor = 4)
     s[Ws].bind(xio, thread_y())
-    s[Ws].bind(xii, thread_x())
+    s[Ws].bind(xiio, thread_x())
+    s[Ws].vectorize(xiii)
 
     i, b, l = s[QKVs].leaf_iter_vars
     f = s[QKVs].fuse(b, l)
-    # s[QKVs].reorder(i, f)
     f = s[QKVs].fuse(i, f)
-    xo, xi = s[QKVs].split(f, factor = nt * nt)
-    xio, xii = s[QKVs].split(xi, factor = nt)
+    xo, xi = s[QKVs].split(f, factor = nt * nt * 1)
+    xio, xii = s[QKVs].split(xi, factor = nt * 1)
+    xiio, xiii = s[QKVs].split(xii, factor = 1)
     s[QKVs].bind(xio, thread_y())
-    s[QKVs].bind(xii, thread_x())
+    s[QKVs].bind(xiio, thread_x())
+    s[QKVs].vectorize(xiii)
 
     s.reorder_tensor_dimensions(O, 1, 2)
     s.fuse_tensor_dimensions(O, 2, 3)
