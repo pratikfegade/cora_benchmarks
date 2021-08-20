@@ -116,6 +116,7 @@ ho, hi = s[O].split(h, factor = nt * 4)
 hio, hii = s[O].split(hi, factor = 4)
 s[O].bind(hio, thread_x)
 s[O].vectorize(hii)
+s[O].reorder(hio, ho, hii)
 
 s[Am1_rf].bind(s[Am1_rf].op.reduce_axis[0], thread_x)
 s[Am1_rf_rf].reorder(s[Am1_rf_rf].op.reduce_axis[0], s[Am1_rf_rf].leaf_iter_vars[1])
@@ -125,12 +126,12 @@ s[Am2_rf].bind(s[Am2_rf].op.reduce_axis[0], thread_x)
 s[Am2_rf_rf].reorder(s[Am2_rf_rf].op.reduce_axis[0], s[Am2_rf_rf].leaf_iter_vars[1])
 s[Am2_rf_rf].vectorize(s[Am2_rf_rf].leaf_iter_vars[2])
 
-s[Am1_rf_rf].compute_at(s[O], f)
-s[Am1_rf].compute_at(s[O], f)
-s[Am1].compute_at(s[O], f)
-s[Am2_rf_rf].compute_at(s[O], f)
-s[Am2_rf].compute_at(s[O], f)
-s[Am2].compute_at(s[O], f)
+s[Am1_rf_rf].compute_at(s[O], hio)
+s[Am1_rf].compute_at(s[O], hio)
+s[Am1].compute_at(s[O], hio)
+s[Am2_rf_rf].compute_at(s[O], hio)
+s[Am2_rf].compute_at(s[O], hio)
+s[Am2].compute_at(s[O], hio)
 s[A].compute_inline()
 
 s[Am1_rf_rf].set_scope('local')
@@ -147,13 +148,13 @@ _ = tvm.register_func(
 
 inputs = [[lens], [A1, A2, O]]
 if args.debug_code:
-    lowered = tvm.lower(s, inputs, args.target, simple_mode = True)
-    print(lowered)
-    # fadd, _ = tvm.build(s, inputs, args.target)
-    # if args.target == 'cuda':
-        # print('-----GPU code-----\n' + fadd.imported_modules[0].get_source())
-    # else:
-        # print('-----CPU code-----\n' + fadd.get_source())
+    # lowered = tvm.lower(s, inputs, args.target, simple_mode = True)
+    # print(lowered)
+    fadd, _ = tvm.build(s, inputs, args.target)
+    if args.target == 'cuda':
+        print('-----GPU code-----\n' + fadd.imported_modules[0].get_source())
+    else:
+        print('-----CPU code-----\n' + fadd.get_source())
 else:
     fadd, i_bufs = tvm.build(s, inputs, args.target)
     # fadd = tvm.runtime.module.load_module('/home/ppf/rnn_compilers/ragged_tensors/incubator-tvm/build/qkt.so')
