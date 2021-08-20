@@ -109,7 +109,7 @@ if args.target == "cuda":
     O_q_looo_f_nooo_f_hooo_f = s[O].fuse(O_nooi, O_hooo)
     s[O].bind(O_q_looo_f_nooo_f_hooo_f, te.thread_axis("blockIdx.x"))
     O_qooi_looi_f_nooi_f_hooi_f = s[O].fuse(O_looi, O_hooi)
-    s[O].bind(O_qooi_looi_f_nooi_f_hooi_f, te.thread_axis("vthread"))
+    s[O].bind(O_qooi_looi_f_nooi_f_hooi_f, te.thread_axis("vthread"), no_unroll_vthread=args.debug_code)
     O_qoi_loi_f_noi_f_hoi_f = s[O].fuse(O_loi, O_noi, O_hoi)
     s[O].bind(O_qoi_loi_f_noi_f_hoi_f, te.thread_axis("threadIdx.x"))
     s[O_local].compute_at(s[O], O_qoi_loi_f_noi_f_hoi_f)
@@ -126,8 +126,9 @@ if args.target == "cuda":
     W_sh_ax0_ax1_f_ax2_f_ax3_f_o_o, W_sh_ax0_ax1_f_ax2_f_ax3_f_o_i = s[W_sh].split(W_sh_ax0_ax1_f_ax2_f_ax3_f_o, factor=64)
     s[W_sh].bind(W_sh_ax0_ax1_f_ax2_f_ax3_f_o_i, te.thread_axis("threadIdx.x"))
 
-    s[O_local].pragma(q_c, "auto_unroll_max_step", 512)
-    s[O_local].pragma(q_c, "unroll_explicit", True)
+    if not args.debug_code:
+        s[O_local].pragma(q_c, "auto_unroll_max_step", 512)
+        s[O_local].pragma(q_c, "unroll_explicit", True)
 
 
     gen_prefix = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0]

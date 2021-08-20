@@ -44,9 +44,11 @@ def ceildiv(a, b):
         return tvm.floordiv(a + b - 1, b)
 
 def ceilmult(a, b):
-    if isinstance(a, int) and isinstance(b, int):
-        return b * ((a + b - 1) // b)
-    else:
+    try:
+        ai = int(a)
+        bi = int(b)
+        return bi * ((ai + bi - 1) // bi)
+    except:
         return b * tvm.floordiv(a + b - 1, b)
 
 def floormult(a, b):
