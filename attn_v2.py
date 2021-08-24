@@ -127,17 +127,18 @@ _ = tvm.register_func(utils.get_tvm_callback_cuda_compile(256))
 _ = tvm.register_func(
     utils.get_tvm_callback_cuda_postproc(args, os.path.realpath(__file__), fileprefix=gen_prefix))
 
-inputs = [[lens], [V, A, O]]
-if args.debug_code:
-    lowered = tvm.lower(s, inputs, args.target, simple_mode = True)
-    print(lowered)
-    # fadd, _ = tvm.build(s, inputs, args.target)
-    # if args.target == 'cuda':
-        # print('-----GPU code-----\n' + fadd.imported_modules[0].get_source())
-    # else:
-        # print('-----CPU code-----\n' + fadd.get_source())
-else:
-    fadd, i_bufs = tvm.build(s, inputs, args.target)
-    # fadd = tvm.runtime.module.load_module('/home/ppf/rnn_compilers/ragged_tensors/incubator-tvm/build/qkt.so')
-    run_utils.run(fadd, i_bufs, [V, A, O], args.batch_size, args.max_batches,
-                  args.dataset, args.datadir, args.target, args.debug)
+with tvm.build_config(prep_code_mode='with_prep_code', fill_in_function_bodies=True):
+    inputs = [[lens], [V, A, O]]
+    if args.debug_code:
+        lowered = tvm.lower(s, inputs, args.target, simple_mode = True)
+        print(lowered)
+        # fadd, _ = tvm.build(s, inputs, args.target)
+        # if args.target == 'cuda':
+            # print('-----GPU code-----\n' + fadd.imported_modules[0].get_source())
+        # else:
+            # print('-----CPU code-----\n' + fadd.get_source())
+    else:
+        fadd, i_bufs = tvm.build(s, inputs, args.target)
+        # fadd = tvm.runtime.module.load_module('/home/ppf/rnn_compilers/ragged_tensors/incubator-tvm/build/qkt.so')
+        run_utils.run(fadd, i_bufs, [V, A, O], args.batch_size, args.max_batches,
+                      args.dataset, args.datadir, args.target, args.debug)

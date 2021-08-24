@@ -38,7 +38,7 @@ s1 = Dim('s1')
 id = Dim('id')
 od = Dim('od')
 
-def len_uf(name, padding=1): return Uf(name, "l", (0, MAX_LEN), [bd], lambda b: utils.ceilmult(lens[b], padding))
+def len_uf(name, padding=1): return Uf(name, "l", (padding, MAX_LEN), [bd], lambda b: utils.ceilmult(lens[b], padding))
 
 ls =  {
     0: Uf.from_constant('qkv', QKV_NUM, "l"),
@@ -142,16 +142,17 @@ else:
 
 bQKV = tvm.decl_buffer([args.batch_size*MAX_LEN, IN_SIZE], name = "bQKV")
 inputs = [[lens], [bQKV, W, O]]
-if args.debug_code:
-    lowered = tvm.lower(s, inputs, args.target, simple_mode = True, binds = {QKV: bQKV})
-    print(lowered)
-    # fadd, _ = tvm.build(s, inputs, args.target, binds = {QKV: bQKV})
-    # if args.target == 'cuda':
-        # print('-----GPU code-----\n' + fadd.imported_modules[0].get_source())
-    # else:
-        # print('-----CPU code-----\n' + fadd.get_source())
-else:
-    fadd, i_bufs = tvm.build(s, inputs, args.target, binds = {QKV: bQKV})
-    # fadd = tvm.runtime.module.load_module('/home/ppf/rnn_compilers/ragged_tensors/incubator-tvm/build/qkt.so')
-    run_utils.run(fadd, i_bufs, inputs[1], args.batch_size, args.max_batches,
-                  args.dataset, args.datadir, args.target, args.debug)
+with tvm.build_config(prep_code_mode='with_prep_code', fill_in_function_bodies=True):
+    if args.debug_code:
+        lowered = tvm.lower(s, inputs, args.target, simple_mode = True, binds = {QKV: bQKV})
+        print(lowered)
+        # fadd, _ = tvm.build(s, inputs, args.target, binds = {QKV: bQKV})
+        # if args.target == 'cuda':
+            # print('-----GPU code-----\n' + fadd.imported_modules[0].get_source())
+        # else:
+            # print('-----CPU code-----\n' + fadd.get_source())
+    else:
+        fadd, i_bufs = tvm.build(s, inputs, args.target, binds = {QKV: bQKV})
+        # fadd = tvm.runtime.module.load_module('/home/ppf/rnn_compilers/ragged_tensors/incubator-tvm/build/qkt.so')
+        run_utils.run(fadd, i_bufs, inputs[1], args.batch_size, args.max_batches,
+                      args.dataset, args.datadir, args.target, args.debug)

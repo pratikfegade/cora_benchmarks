@@ -51,9 +51,9 @@ ls =  {
     4: Uf.from_constant('hd', HEAD_SIZE, 'l'),
 }
 
-loop_ufs=[ls[0], ls[1], ls[3], ls[2]]
+loop_ufs=[ls[0], ls[1], ls[2], ls[3]]
 width_ufs=loop_ufs
-A = te.ragged_placeholder((BATCH_SIZE, NUM_HEADS, MAX_LEN, MAX_LEN), [bd, md, s2, s1], loop_ufs,
+A = te.ragged_placeholder((BATCH_SIZE, NUM_HEADS, MAX_LEN, MAX_LEN), [bd, md, s1, s2], loop_ufs,
                           name='A', width_ufs=width_ufs)
 
 loop_ufs=[ls[0], ls[1], ls[3], ls[4]]
@@ -64,7 +64,7 @@ V = te.ragged_placeholder((BATCH_SIZE, NUM_HEADS, MAX_LEN, HEAD_SIZE), [bd, md, 
 loop_ufs=[ls[0], ls[1], ls[2], ls[4]]
 width_ufs=[loop_ufs]
 O = te.ragged_compute((BATCH_SIZE, NUM_HEADS, MAX_LEN, HEAD_SIZE), [bd, md, s1, hd], loop_ufs,
-                      lambda ds, rds: tvm.sum(A[ds[bd], ds[md], rds['k'], ds[s1]] *
+                      lambda ds, rds: tvm.sum(A[ds[bd], ds[md], ds[s1], rds['k']] *
                                               V(ds[bd], ds[md], rds['k'], ds[hd]),
                                               axis=rds['k'], dimensions = [s2]),
                       name = 'O', reduce_axis_ufs = [('k', luf3)],
@@ -126,17 +126,18 @@ s[Vs].bind(fii, thread_x())
 
 tvm_callback_cuda_compile = tvm.register_func(utils.get_tvm_callback_cuda_compile(256))
 
-inputs = [[lens], [V, A, O]]
-if args.debug_code:
-    # lowered = tvm.lower(s, inputs, simple_mode = True)
-    # print(lowered)
-    fadd, _ = tvm.build(s, inputs, args.target)
-    if args.target == 'cuda':
-        print('-----GPU code-----\n' + fadd.imported_modules[0].get_source())
+with tvm.build_config(prep_code_mode='with_prep_code', fill_in_function_bodies=True):
+    inputs = [[lens], [V, A, O]]
+    if args.debug_code:
+        # lowered = tvm.lower(s, inputs, simple_mode = True)
+        # print(lowered)
+        fadd, _ = tvm.build(s, inputs, args.target)
+        if args.target == 'cuda':
+            print('-----GPU code-----\n' + fadd.imported_modules[0].get_source())
+        else:
+            print('-----CPU code-----\n' + fadd.get_source())
     else:
-        print('-----CPU code-----\n' + fadd.get_source())
-else:
-    fadd, i_bufs = tvm.build(s, inputs, args.target)
-    # fadd = tvm.runtime.module.load_module('/home/ppf/rnn_compilers/ragged_tensors/incubator-tvm/build/qkt.so')
-    run_utils.run(fadd, i_bufs, inputs[1], args.batch_size, args.max_batches,
-                  args.dataset, args.datadir, args.target, args.debug)
+        fadd, i_bufs = tvm.build(s, inputs, args.target)
+        # fadd = tvm.runtime.module.load_module('/home/ppf/rnn_compilers/ragged_tensors/incubator-tvm/build/qkt.so')
+        run_utils.run(fadd, i_bufs, inputs[1], args.batch_size, args.max_batches,
+                      args.dataset, args.datadir, args.target, args.debug)

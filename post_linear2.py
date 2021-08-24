@@ -37,8 +37,8 @@ hd = Dim('hd')
 od = Dim('od')
 mdhd = Dim('mdhd')
 
-def len64_uf(name): return Uf(name, 'l', (0, MAX_LEN), [bd], lambda b: utils.ceilmult(lens[b], 64))
-def len1_uf(name): return Uf(name, 'l', (0, MAX_LEN), [bd], lambda b: lens[b])
+def len64_uf(name): return Uf(name, 'l', (64, MAX_LEN), [bd], lambda b: utils.ceilmult(lens[b], 64))
+def len1_uf(name): return Uf(name, 'l', (1, MAX_LEN), [bd], lambda b: lens[b])
 
 luf64 = len64_uf('s')
 luf1 = len1_uf('s')
@@ -141,16 +141,17 @@ _ = tvm.register_func(
 
 bO = tvm.decl_buffer([args.batch_size * MAX_LEN, OUT_SIZE], name = "bA")
 inputs = [[lens], [A, W, bO]]
-if args.debug_code:
-    lowered = tvm.lower(s, inputs, args.target, simple_mode = True, binds = {O: bO})
-    print(lowered)
-    # fadd, _ = tvm.build(s, inputs, args.target, binds = {O: bO})
-    # if args.target == 'cuda':
-        # print('-----GPU code-----\n' + fadd.imported_modules[0].get_source())
-    # else:
-        # print('-----CPU code-----\n' + fadd.get_source())
-else:
-    fadd, i_bufs = tvm.build(s, inputs, args.target, binds = {O: bO})
-    # fadd = tvm.runtime.module.load_module('/home/ppf/rnn_compilers/ragged_tensors/incubator-tvm/build/qkt.so')
-    run_utils.run(fadd, i_bufs, inputs[1], args.batch_size, args.max_batches,
-                  args.dataset, args.datadir, args.target, args.debug)
+with tvm.build_config(prep_code_mode='with_prep_code', fill_in_function_bodies=True):
+    if args.debug_code:
+        lowered = tvm.lower(s, inputs, args.target, simple_mode = True, binds = {O: bO})
+        print(lowered)
+        # fadd, _ = tvm.build(s, inputs, args.target, binds = {O: bO})
+        # if args.target == 'cuda':
+            # print('-----GPU code-----\n' + fadd.imported_modules[0].get_source())
+        # else:
+            # print('-----CPU code-----\n' + fadd.get_source())
+    else:
+        fadd, i_bufs = tvm.build(s, inputs, args.target, binds = {O: bO})
+        # fadd = tvm.runtime.module.load_module('/home/ppf/rnn_compilers/ragged_tensors/incubator-tvm/build/qkt.so')
+        run_utils.run(fadd, i_bufs, inputs[1], args.batch_size, args.max_batches,
+                      args.dataset, args.datadir, args.target, args.debug)

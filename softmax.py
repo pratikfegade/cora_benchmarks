@@ -34,13 +34,11 @@ md = Dim('md')
 s1 = Dim('s1')
 s2 = Dim('s2')
 
-def len1_uf(name): return Uf(name, 'l', (0, MAX_LEN), [bd], lambda b: lens[b])
-def len32_uf(name): return Uf(name, 'l', (0, MAX_LEN), [bd], lambda b: utils.ceilmult(lens[b], 32))
-def len64_uf(name): return Uf(name, 'l', (0, MAX_LEN), [bd], lambda b: utils.ceilmult(lens[b], 64))
+def len_uf(name, padding): return Uf(name, 'l', (padding, MAX_LEN), [bd], lambda b: utils.ceilmult(lens[b], padding))
 
-luf1 = len1_uf('s1_1')
-luf32 = len32_uf('s2_32')
-luf64 = len64_uf('s64')
+luf1 = len_uf('s1_1', 1)
+luf32 = len_uf('s2_32', 32)
+luf64 = len_uf('s64', 64)
 ls =  {
     0: Uf.from_constant('bd', BATCH_SIZE, 'l'),
     1: Uf.from_constant('md', NUM_HEADS, 'l'),
@@ -117,16 +115,17 @@ _ = tvm.register_func(
     utils.get_tvm_callback_cuda_postproc(args, os.path.realpath(__file__), fileprefix=gen_prefix))
 
 inputs = [[lens], [A, O]]
-if args.debug_code:
-    lowered = tvm.lower(s, inputs, args.target, simple_mode = True)
-    print(lowered)
-    # fadd, _ = tvm.build(s, inputs, args.target)
-    # if args.target == 'cuda':
-        # print('-----GPU code-----\n' + fadd.imported_modules[0].get_source())
-    # else:
-        # print('-----CPU code-----\n' + fadd.get_source())
-else:
-    fadd, i_bufs = tvm.build(s, inputs, args.target)
-    # fadd = tvm.runtime.module.load_module('/home/ppf/rnn_compilers/ragged_tensors/incubator-tvm/build/qkt.so')
-    run_utils.run(fadd, i_bufs, inputs[1], args.batch_size, args.max_batches,
-                  args.dataset, args.datadir, args.target, args.debug)
+with tvm.build_config(prep_code_mode='with_prep_code', fill_in_function_bodies=True):
+    if args.debug_code:
+        lowered = tvm.lower(s, inputs, args.target, simple_mode = True)
+        print(lowered)
+        # fadd, _ = tvm.build(s, inputs, args.target)
+        # if args.target == 'cuda':
+            # print('-----GPU code-----\n' + fadd.imported_modules[0].get_source())
+        # else:
+            # print('-----CPU code-----\n' + fadd.get_source())
+    else:
+        fadd, i_bufs = tvm.build(s, inputs, args.target)
+        # fadd = tvm.runtime.module.load_module('/home/ppf/rnn_compilers/ragged_tensors/incubator-tvm/build/qkt.so')
+        run_utils.run(fadd, i_bufs, inputs[1], args.batch_size, args.max_batches,
+                      args.dataset, args.datadir, args.target, args.debug)
