@@ -35,9 +35,6 @@ def random_lengths(batch_size, avg_seq_len, max_seq_len):
     min_seq_len = 2 * avg_seq_len - max_seq_len
     return np.random.randint(min_seq_len, max_seq_len + 1, batch_size, "int32")
 
-def np_arrays(shape_list):
-    return [np.zeros(shape, "float32") for shape in shape_list]
-
 def int_shape(expr_shape, rmap):
     shape = []
     for i in expr_shape:
@@ -57,7 +54,9 @@ def get_shape(t, rmap):
 
 def create_numpy_array(t, dtype, rmap = {}):
     shape = get_shape(t, rmap)
-    return np.zeros(shape, dtype)
+    # return np.zeros(shape, dtype)
+    return np.full(shape, 0.1, dtype)
+    # return np.random.normal(size=shape, loc=0.5, scale=4).astype(dtype)
 
 def get_ctx(target):
     ctx = None
@@ -109,8 +108,9 @@ def run(built, i_inputs_tensors, t_inputs_tensors, batch_size, num_batches, data
         host_i_inputs = [tvm.nd.array(create_numpy_array(i, "int32"), cpu_ctx) for i in i_inputs_tensors[0]]
         dev_i_inputs = [tvm.nd.array(create_numpy_array(i, "int32"), ctx) for i in i_inputs_tensors[1]]
     t_inputs = [tvm.nd.array(create_numpy_array(i, "float32"), ctx) for i in t_inputs_tensors]
-
     if debug: num_batches = 1
+
+    print([np.mean(t.asnumpy()) for t in t_inputs])
 
     if dataset.startswith("random"):
         _, avg_seq_len, max_seq_len = dataset.split("_")
@@ -126,6 +126,7 @@ def run(built, i_inputs_tensors, t_inputs_tensors, batch_size, num_batches, data
         time += execute(target, built, inputs, ctx, debug)
 
     print("RESULT", time / len(batches))
+    return [t.asnumpy() for t in t_inputs], batches
 
 def run_fused(built, total_len_var, t_inputs_tensors, batch_size, num_batches, dataset, datadir, target, debug):
     ctx = get_ctx(target)

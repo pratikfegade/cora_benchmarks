@@ -1,3 +1,4 @@
+import numpy as np
 import os
 import run_utils
 import argparse
@@ -26,9 +27,9 @@ BATCH_SIZE = args.batch_size
 MAX_LEN = utils.ceilmult(run_utils.get_dataset_max_len(args.dataset), 32)
 OUT_SIZE = 512
 
-eps = 0.00001
-beta = 2
-gamma = 5
+eps = 0.001
+beta = 0.2
+gamma = 0.5
 
 lens = te.placeholder((BATCH_SIZE,), name = 'lens', dtype = 'int32')
 
@@ -75,12 +76,16 @@ Am2 = te.ragged_compute((BATCH_SIZE, MAX_LEN), [bd, s1], loop_ufs,
                         lambda ds: tvm.sum(A[ds[bd], ds[s1], k] * A[ds[bd], ds[s1], k], axis=k, dimensions=[od]),
                         name = 'Am2')
 
+def compute_body(ds):
+    mean1 = Am1[ds[bd], ds[s1]]/OUT_SIZE
+    mean2 = Am2[ds[bd], ds[s1]]/OUT_SIZE
+    std = tvm.sqrt(mean2 - mean1*mean1 + eps)
+    normed = (A[ds[bd], ds[s1], ds[od]] - mean1) / std
+    return beta + gamma * normed
+
 loop_ufs=[ls[0], ls[1], ls[2]]
-width_ufs=[loop_ufs]
-O = te.ragged_compute((BATCH_SIZE, MAX_LEN, OUT_SIZE), [bd, s1, od], loop_ufs,
-                      lambda ds: beta + gamma * (A[ds[bd], ds[s1], ds[od]] - Am1[ds[bd], ds[s1]]) /
-                                    tvm.sqrt(Am2[ds[bd], ds[s1]] - Am1[ds[bd], ds[s1]]*Am1[ds[bd], ds[s1]] + eps),
-                      name = 'O', width_uf_lists=width_ufs)
+width_ufs=None if args.dense_storage else [loop_ufs]
+O = te.ragged_compute((BATCH_SIZE, MAX_LEN, OUT_SIZE), [bd, s1, od], loop_ufs, compute_body, name = 'O', width_uf_lists=width_ufs)
 
 s = tvm.create_schedule([O.op])
 
@@ -138,5 +143,15 @@ with tvm.build_config(prep_code_mode='with_prep_code', fill_in_function_bodies=T
     else:
         fadd, i_bufs = tvm.build(s, inputs, args.target)
         # fadd = tvm.runtime.module.load_module('/home/ppf/rnn_compilers/ragged_tensors/incubator-tvm/build/qkt.so')
-        run_utils.run(fadd, i_bufs, inputs[1], args.batch_size, args.max_batches,
-                      args.dataset, args.datadir, args.target, args.debug)
+        outs, batches = run_utils.run(fadd, i_bufs, inputs[1], args.batch_size, args.max_batches,
+                                      args.dataset, args.datadir, args.target, args.debug)
+        # A1, A2, O = outs
+        # for i in range(args.batch_size):
+            # this_a1 = A1[i]
+            # this_a2 = A2[i]
+            # added = this_a1 + this_a2
+            # mean = np.mean(added, axis=1, keepdims=True)
+            # std = np.std(added, axis=1, keepdims=True)
+            # res = beta + gamma * ((added - mean) / (std + eps))
+            # length = batches[0][i]
+            # print(length, np.mean(res), np.std(res), np.mean(O[i,0:length,:]), np.std(O[i,0:length,:]))

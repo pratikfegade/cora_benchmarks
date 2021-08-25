@@ -1,3 +1,4 @@
+import numpy as np
 import math
 import os
 import utils
@@ -60,7 +61,7 @@ M = te.ragged_compute((args.batch_size, MAX_LEN, OUT_SIZE), [bd, s1, od], loop_u
 
 O = te.ragged_compute((args.batch_size, MAX_LEN, OUT_SIZE), [bd, s1, od], loop_ufs,
                       lambda ds: tvm.max(M[ds[bd], ds[s1], ds[od]], 0),
-                      name = 'O', width_uf_lists=width_ufs)
+                      name = 'O', width_uf_lists=None if args.dense_storage else width_ufs)
 
 s = tvm.create_schedule([O.op])
 
@@ -151,5 +152,10 @@ with tvm.build_config(prep_code_mode='with_prep_code', fill_in_function_bodies=T
     else:
         fadd, i_bufs = tvm.build(s, inputs, args.target)
         # fadd = tvm.runtime.module.load_module('/home/ppf/rnn_compilers/ragged_tensors/incubator-tvm/build/qkt.so')
-        run_utils.run(fadd, i_bufs, inputs[1], args.batch_size, args.max_batches,
-                      args.dataset, args.datadir, args.target, args.debug)
+        outs, batches = run_utils.run(fadd, i_bufs, inputs[1], args.batch_size, args.max_batches,
+                                      args.dataset, args.datadir, args.target, args.debug)
+
+        A, W, O  = outs
+        for i in range(args.batch_size):
+            length = batches[0][i]
+            print(batches[0][i], np.mean(O[i,0:length,:]))

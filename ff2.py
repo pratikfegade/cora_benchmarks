@@ -1,3 +1,4 @@
+import numpy as np
 import math
 import os
 import utils
@@ -52,7 +53,7 @@ A = te.ragged_placeholder((args.batch_size, MAX_LEN, IN_SIZE), [bd, s1, id], loo
 W = te.placeholder((IN_SIZE, OUT_SIZE), name='W')
 
 loop_ufs=[ls[0], ls[1], ls[3]]
-width_ufs=[[ls[0], len_uf('s132', 32), ls[3]]]
+width_ufs=None if args.dense_storage else [[ls[0], len_uf('s132', 32), ls[3]]]
 k = tvm.reduce_axis((0, IN_SIZE), name = 'k')
 O = te.ragged_compute((args.batch_size, MAX_LEN, OUT_SIZE), [bd, s1, od], loop_ufs,
                       lambda ds: tvm.sum(W[k, ds[od]] * A[ds[bd], ds[s1], k], axis = k, dimensions = [id]),
@@ -150,5 +151,10 @@ with tvm.build_config(prep_code_mode='with_prep_code', fill_in_function_bodies=n
     else:
         fadd, i_bufs = tvm.build(s, inputs, args.target)
         # fadd = tvm.runtime.module.load_module('/home/ppf/rnn_compilers/ragged_tensors/incubator-tvm/build/qkt.so')
-        run_utils.run(fadd, i_bufs, inputs[1], args.batch_size, args.max_batches,
-                      args.dataset, args.datadir, args.target, args.debug)
+        outs, batches = run_utils.run(fadd, i_bufs, inputs[1], args.batch_size, args.max_batches,
+                                      args.dataset, args.datadir, args.target, args.debug)
+
+        A, W, O  = outs
+        for i in range(args.batch_size):
+            length = batches[0][i]
+            print(batches[0][i], np.mean(O[i,0:length,:]))

@@ -1,3 +1,4 @@
+import numpy as np
 import os
 import argparse
 import run_utils
@@ -55,7 +56,7 @@ V = te.ragged_placeholder((args.batch_size, MAX_LEN, NUM_HEADS, HEAD_SIZE), [bd,
                           name='V', width_ufs=width_ufs)
 
 loop_ufs=[ls[0], ls[3], ls[1], ls[4]]
-width_ufs=[loop_ufs]
+width_ufs=None if args.dense_storage else [loop_ufs]
 O = te.ragged_compute((args.batch_size, MAX_LEN, NUM_HEADS, HEAD_SIZE), [bd, s2, md, hd], loop_ufs,
                       lambda ds, rds: tvm.sum(A[ds[bd], ds[s2], ds[md], rds['k']] *
                                               V(ds[bd], rds['k'], ds[md], ds[hd]),
@@ -140,5 +141,10 @@ with tvm.build_config(prep_code_mode='with_prep_code', fill_in_function_bodies=T
     else:
         fadd, i_bufs = tvm.build(s, inputs, args.target)
         # fadd = tvm.runtime.module.load_module('/home/ppf/rnn_compilers/ragged_tensors/incubator-tvm/build/qkt.so')
-        run_utils.run(fadd, i_bufs, [V, A, O], args.batch_size, args.max_batches,
-                      args.dataset, args.datadir, args.target, args.debug)
+        outs, batches = run_utils.run(fadd, i_bufs, [V, A, O], args.batch_size, args.max_batches,
+                                      args.dataset, args.datadir, args.target, args.debug)
+
+        # V, A, O  = outs
+        # for i in range(args.batch_size):
+        #     rounded64 = utils.ceilmult(batches[0][i], 64)
+        #     print(batches[0][i], np.mean(O[i,0:rounded64,:,:]))

@@ -15,6 +15,7 @@ parser.add_argument('--batch-size', dest='batch_size', default=32, type=int)
 parser.add_argument('--peel-loops', dest='peel_loops', default=False, action='store_true')
 parser.add_argument('--unroll-loops', dest='unroll_loops', default=False, action='store_true')
 parser.add_argument('--debug', dest='debug', default=False, action='store_true')
+parser.add_argument('--debug-functions', dest='debug_functions', default=False, action='store_true')
 parser.add_argument('--debug-code', dest='debug_code', default=False, action='store_true')
 parser.add_argument('--manual-code', dest='manual_code', default=False, action='store_true')
 parser.add_argument('--dense-storage', dest='dense_storage', default=False, action='store_true')
@@ -38,16 +39,15 @@ s1 = Dim('s1')
 s2 = Dim('s2')
 hd = Dim('hd')
 
-def len1_uf(name): return Uf(name, 'l', (TILE1, MAX_LEN), [bd], lambda b: utils.ceilmult(lens[b], TILE1))
-def len2_uf(name): return Uf(name, 'l', (TILE2, MAX_LEN), [bd], lambda b: utils.ceilmult(lens[b], TILE2))
+def len_uf(name, padding): return Uf(name, 'l', (padding, MAX_LEN), [bd], lambda b: utils.ceilmult(lens[b], padding))
 def len3_uf(name): return Uf(name, 'l', (TILE3, MAX_LEN), [s1], lambda s: utils.ceilmult(s + 1, TILE3))
 
 luf3 = len3_uf('s2k')
 ls =  {
     0: Uf.from_constant('bd', BATCH_SIZE, 'l'),
     1: Uf.from_constant('md', NUM_HEADS, 'l'),
-    2: len1_uf('s1'),
-    3: len2_uf('s2'),
+    2: len_uf('s1', TILE1),
+    3: len_uf('s2', TILE2),
     4: Uf.from_constant('hd', HEAD_SIZE, 'l'),
 }
 
@@ -56,7 +56,7 @@ width_ufs=loop_ufs
 A = te.ragged_placeholder((BATCH_SIZE, MAX_LEN, NUM_HEADS, MAX_LEN), [bd, s1, md, s2], loop_ufs,
                           name='A', width_ufs=width_ufs)
 
-loop_ufs=[ls[0], ls[3], ls[2], ls[4]]
+loop_ufs=[ls[0], ls[3], ls[1], ls[4]]
 width_ufs=loop_ufs
 V = te.ragged_placeholder((BATCH_SIZE, MAX_LEN, NUM_HEADS, HEAD_SIZE), [bd, s2, md, hd], loop_ufs,
                           name='V', width_ufs=width_ufs)
@@ -108,7 +108,7 @@ s[As].compute_at(s[Ol], ko)
 s[Vs].compute_at(s[Ol], ko)
 s[Al].compute_at(s[Ol], ki)
 s[Vl].compute_at(s[Ol], ki)
-s[Ol].peel(ko)
+# s[Ol].peel(ko)
 
 b, x, h, y = s[As].leaf_iter_vars
 s[As].reorder(b, h, x, y)
@@ -131,16 +131,16 @@ _ = tvm.register_func(utils.get_tvm_callback_cuda_compile(256))
 _ = tvm.register_func(
     utils.get_tvm_callback_cuda_postproc(args, os.path.realpath(__file__), fileprefix=gen_prefix))
 
-with tvm.build_config(prep_code_mode='with_prep_code', fill_in_function_bodies=True):
+with tvm.build_config(prep_code_mode='with_prep_code', fill_in_function_bodies=not args.debug_functions):
     inputs = [[lens], [V, A, O]]
     if args.debug_code:
-        # lowered = tvm.lower(s, inputs, simple_mode = True)
-        # print(lowered)
-        fadd, _ = tvm.build(s, inputs, args.target)
-        if args.target == 'cuda':
-            print('-----GPU code-----\n' + fadd.imported_modules[0].get_source())
-        else:
-            print('-----CPU code-----\n' + fadd.get_source())
+        lowered = tvm.lower(s, inputs, args.target, simple_mode = True)
+        print(lowered)
+        # fadd, _ = tvm.build(s, inputs, args.target)
+        # if args.target == 'cuda':
+            # print('-----GPU code-----\n' + fadd.imported_modules[0].get_source())
+        # else:
+            # print('-----CPU code-----\n' + fadd.get_source())
     else:
         fadd, i_bufs = tvm.build(s, inputs, args.target)
         # fadd = tvm.runtime.module.load_module('/home/ppf/rnn_compilers/ragged_tensors/incubator-tvm/build/qkt.so')
