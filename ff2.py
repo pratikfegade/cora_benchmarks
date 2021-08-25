@@ -17,6 +17,7 @@ parser.add_argument('--peel-loops', dest='peel_loops', default=False, action='st
 parser.add_argument('--unroll-loops', dest='unroll_loops', default=False, action='store_true')
 parser.add_argument('--debug', dest='debug', default=False, action='store_true')
 parser.add_argument('--debug-code', dest='debug_code', default=False, action='store_true')
+parser.add_argument('--debug-functions', dest='debug_functions', default=False, action='store_true')
 parser.add_argument('--manual-code', dest='manual_code', default=False, action='store_true')
 parser.add_argument('--dense-storage', dest='dense_storage', default=False, action='store_true')
 parser.add_argument('--dataset', nargs='?', default='random')
@@ -60,7 +61,9 @@ O = te.ragged_compute((args.batch_size, MAX_LEN, OUT_SIZE), [bd, s1, od], loop_u
 s = tvm.create_schedule([O.op])
 
 if args.target == "cuda":
-    O_local, = s.cache_write([O], "local")
+    # O_local, = s.cache_write([O], "local", pass_storage_layouts=True)
+    O_local, = s.cache_write([O], "local", storage_layout_mode='loop_layout')
+
     b, l, o, k = tuple(O_local.op.axis) + tuple(O_local.op.reduce_axis)
     l = s[O_local].fuse(b, l, padding = 2)
     loi, li = s[O_local].split(l, factor=2)
@@ -111,14 +114,14 @@ if args.target == "cuda":
 
     A_shared_ax0_ax1_fused = s[A_shared].fuse(A_shared_ax0, A_shared_ax1)
     A_shared_ax0_ax1_fused_o, A_shared_ax0_ax1_fused_i = s[A_shared].split(A_shared_ax0_ax1_fused, factor=2)
-    s[A_shared].vectorize(A_shared_ax0_ax1_fused_i)
+    if not args.debug_functions: s[A_shared].vectorize(A_shared_ax0_ax1_fused_i)
     A_shared_ax0_ax1_fused_o_o, A_shared_ax0_ax1_fused_o_i = s[A_shared].split(A_shared_ax0_ax1_fused_o, factor=32)
     s[A_shared].bind(A_shared_ax0_ax1_fused_o_i, te.thread_axis("threadIdx.x"))
     s[A_shared].mark_no_bounds_check()
 
     W_shared_ax0_ax1_fused = s[W_shared].fuse(W_shared_ax0, W_shared_ax1)
     W_shared_ax0_ax1_fused_o, W_shared_ax0_ax1_fused_i = s[W_shared].split(W_shared_ax0_ax1_fused, factor=4)
-    s[W_shared].vectorize(W_shared_ax0_ax1_fused_i)
+    if not args.debug_functions: s[W_shared].vectorize(W_shared_ax0_ax1_fused_i)
     W_shared_ax0_ax1_fused_o_o, W_shared_ax0_ax1_fused_o_i = s[W_shared].split(W_shared_ax0_ax1_fused_o, factor=32)
     s[W_shared].bind(W_shared_ax0_ax1_fused_o_i, te.thread_axis("threadIdx.x"))
 
@@ -134,7 +137,7 @@ if args.target == "cuda":
 else:
     pass
 
-with tvm.build_config(prep_code_mode='with_prep_code', fill_in_function_bodies=True):
+with tvm.build_config(prep_code_mode='with_prep_code', fill_in_function_bodies=not args.debug_functions):
     inputs = [[lens], [A, W, O]]
     if args.debug_code:
         lowered = tvm.lower(s, inputs, args.target, simple_mode = True)
