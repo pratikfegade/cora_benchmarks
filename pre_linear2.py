@@ -70,7 +70,7 @@ s = tvm.create_schedule([O.op])
 if args.target == "cuda":
     s.fuse_tensor_dimensions(QKV, 0, 1)
 
-    O_local, = s.cache_write([O], "local")
+    O_local, = s.cache_write([O], "local", storage_layout_mode='loop_layout')
     s.fuse_tensor_dimensions(O_local, 1, 2)
     q_c, b_c, l_c, n_c, h_c, k = tuple(O_local.op.axis) + tuple(O_local.op.reduce_axis)
     l_c = s[O_local].fuse(b_c, l_c)
@@ -130,7 +130,6 @@ if args.target == "cuda":
     if not args.debug_code:
         s[O_local].pragma(q_c, "auto_unroll_max_step", 512)
         s[O_local].pragma(q_c, "unroll_explicit", True)
-
 
     gen_prefix = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0]
     _ = tvm.register_func(utils.get_tvm_callback_cuda_compile(256))

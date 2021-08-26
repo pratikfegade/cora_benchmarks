@@ -18,6 +18,7 @@ parser.add_argument('--peel-loops', dest='peel_loops', default=False, action='st
 parser.add_argument('--unroll-loops', dest='unroll_loops', default=False, action='store_true')
 parser.add_argument('--debug', dest='debug', default=False, action='store_true')
 parser.add_argument('--debug-code', dest='debug_code', default=False, action='store_true')
+parser.add_argument('--debug-functions', dest='debug_functions', default=False, action='store_true')
 parser.add_argument('--manual-code', dest='manual_code', default=False, action='store_true')
 parser.add_argument('--dense-storage', dest='dense_storage', default=False, action='store_true')
 parser.add_argument('--dataset', nargs='?', default='random')
@@ -80,11 +81,11 @@ block_y = lambda: tvm.thread_axis("blockIdx.y")
 vthread = lambda: tvm.thread_axis("vthread")
 
 Ol = s.cache_write(O, "local")
+As = s.cache_read(A, "shared", [Ol], loop_layout=[ls[0], ls[1], ls[2], ls[3]], layouts=[ls[0], ls[1], ls[2], ls[3]])
 Ws = s.cache_read(W, "shared", [Ol], vanilla=True)
-As = s.cache_read(A, "shared", [Ol])
 
-Wl = s.cache_read(Ws, "local", [Ol], vanilla=True)
 Al = s.cache_read(As, "local", [Ol])
+Wl = s.cache_read(Ws, "local", [Ol], vanilla=True)
 
 b, l, h = s[O].leaf_iter_vars
 y = s[O].fuse(b, l, padding = tile)
@@ -98,8 +99,8 @@ yio, yii = s[O].split(yi, factor = nt)
 xio, xii = s[O].split(xi, factor = nt)
 s[O].bind(xii, thread_x())
 s[O].bind(yii, thread_y())
-s[O].bind(xio, vthread(), no_unroll_vthread = True)
-s[O].bind(yio, vthread(), no_unroll_vthread = True)
+s[O].bind(xio, tvm.thread_axis("vthread", name='vth1'), no_unroll_vthread = True)
+s[O].bind(yio, tvm.thread_axis("vthread", name='vth2'), no_unroll_vthread = True)
 s[Ol].compute_at(s[O], xii)
 
 b, x, y, k = s[Ol].leaf_iter_vars
@@ -119,7 +120,7 @@ fio, fii = s[As].split(fi, factor = nt * 4)
 fiio, fiii = s[As].split(fii, factor = 4)
 s[As].bind(fio, thread_y())
 s[As].bind(fiio, thread_x())
-s[As].vectorize(fiii)
+if not args.debug_functions: s[As].vectorize(fiii)
 
 s.reorder_tensor_dimensions(As, 0, 1)
 s.fuse_tensor_dimensions(As, 1, 2)
@@ -133,7 +134,7 @@ fio, fii = s[Ws].split(fi, factor = nt * 4)
 fiio, fiii = s[Ws].split(fii, factor = 4)
 s[Ws].bind(fio, thread_y())
 s[Ws].bind(fiio, thread_x())
-s[Ws].vectorize(fiii)
+if not args.debug_functions: s[Ws].vectorize(fiii)
 
 gen_prefix = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0]
 _ = tvm.register_func(utils.get_tvm_callback_cuda_compile(256))
@@ -142,7 +143,7 @@ _ = tvm.register_func(
 
 bO = tvm.decl_buffer([args.batch_size * MAX_LEN, OUT_SIZE], name = "bA")
 inputs = [[lens], [A, W, bO]]
-with tvm.build_config(prep_code_mode='with_prep_code', fill_in_function_bodies=True):
+with tvm.build_config(prep_code_mode='with_prep_code', fill_in_function_bodies=not args.debug_functions):
     if args.debug_code:
         lowered = tvm.lower(s, inputs, args.target, simple_mode = True, binds = {O: bO})
         print(lowered)
