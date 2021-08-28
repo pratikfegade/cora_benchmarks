@@ -49,7 +49,7 @@ M = te.ragged_compute((args.batch_size, MAX_LEN, OUT_SIZE), [bd, s1, od], loop_u
                       name = 'M', width_uf_lists=width_ufs)
 
 O = te.ragged_compute((args.batch_size, MAX_LEN, OUT_SIZE), [bd, s1, od], loop_ufs,
-                      lambda ds: tvm.max(M[ds[bd], ds[s1], ds[od]], 0),
+                      lambda ds: tvm.max(M[ds[bd], ds[s1], ds[od]], 0) + B[ds[od]],
                       name = 'O', width_uf_lists=None if args.dense_storage else width_ufs)
 
 s = tvm.create_schedule([O.op])
@@ -95,6 +95,9 @@ if args.target == "cuda":
     W_shared_ax0, W_shared_ax1 = tuple(W_shared.op.axis)
     s[W_shared].compute_at(s[M], koo)
 
+    B_shared = s.cache_read(B, "shared", [O], vanilla=True)
+    B_shared_ax0, = tuple(B_shared.op.axis)
+
     s[O].bind(O_l_o_o_o, te.thread_axis("blockIdx.y"))
     s[O].bind(O_o_o_o_o, te.thread_axis("blockIdx.x"))
     O_l_o_o_i_o_o_o_i_fused = s[O].fuse(O_l_o_o_i, O_o_o_o_i)
@@ -102,6 +105,7 @@ if args.target == "cuda":
     O_l_o_i_o_o_i_fused = s[O].fuse(O_l_o_i, O_o_o_i)
     s[O].bind(O_l_o_i_o_o_i_fused, te.thread_axis("threadIdx.x"))
     s[M].compute_at(s[O], O_l_o_i_o_o_i_fused)
+    s[B_shared].compute_at(s[O], O_l_o_i_o_o_i_fused)
 
     A_shared_ax0_ax1_fused = s[A_shared].fuse(A_shared_ax0, A_shared_ax1)
     A_shared_ax0_ax1_fused_o, A_shared_ax0_ax1_fused_i = s[A_shared].split(A_shared_ax0_ax1_fused, factor=2)
@@ -115,6 +119,11 @@ if args.target == "cuda":
     s[W_shared].vectorize(W_shared_ax0_ax1_fused_i)
     W_shared_ax0_ax1_fused_o_o, W_shared_ax0_ax1_fused_o_i = s[W_shared].split(W_shared_ax0_ax1_fused_o, factor=32)
     s[W_shared].bind(W_shared_ax0_ax1_fused_o_i, te.thread_axis("threadIdx.x"))
+
+    B_shared_ax0_o, B_shared_ax0_i = s[B_shared].split(B_shared_ax0, factor=2)
+    s[B_shared].vectorize(B_shared_ax0_i)
+    B_shared_ax0_o_o, B_shared_ax0_o_i = s[B_shared].split(B_shared_ax0_o, factor=32)
+    s[B_shared].bind(B_shared_ax0_o_i, te.thread_axis("threadIdx.x"))
 
     s.fuse_tensor_dimensions(M, 0, 1)
     s.fuse_tensor_dimensions(A_shared, 0, 1)
@@ -136,22 +145,11 @@ def size_fn(l_inputs):
                        run_utils.prefix_sum(len(lens), lambda b: lufw.get_fn(lens)(b)))
     }
 
-with tvm.build_config(prep_code_mode='with_prep_code', fill_in_function_bodies=True):
-    inputs = [[lens], [A, W, O]]
-    if args.debug_code:
-        lowered = tvm.lower(s, inputs, args.target, simple_mode = True)
-        print(lowered)
-        # fadd, _ = tvm.build(s, inputs, args.target)
-        # if args.target == 'cuda':
-            # print('-----GPU code-----\n' + fadd.imported_modules[0].get_source())
-        # else:
-            # print('-----CPU code-----\n' + fadd.get_source())
-    else:
-        fadd, i_bufs = tvm.build(s, inputs, args.target)
-        # fadd = tvm.runtime.module.load_module('/home/ppf/rnn_compilers/ragged_tensors/incubator-tvm/build/qkt.so')
-        outs, batches = run_utils.run2(fadd, i_bufs, inputs[1], size_fn, args)
+inputs = [[lens], [A, W, B, O]]
+name = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0]
+out, batches = run_utils.lower_or_build(name, s, inputs, args, size_fn=size_fn)
 
-        A, W, O  = outs
-        for i in range(args.batch_size):
-            length = batches[0][i]
-            print(batches[0][i], np.mean(O[i,0:length,:]))
+# A, W, O  = out
+# for i in range(args.batch_size):
+    # length = batches[0][i]
+    # print(batches[0][i], np.mean(O[i,0:length,:]))

@@ -139,21 +139,11 @@ def size_fn(l_inputs):
 bQKV = tvm.decl_buffer([args.batch_size*MAX_LEN, IN_SIZE], name = "bQKV")
 binds = {QKV: bQKV}
 inputs = [[lens], [bQKV, W, O]]
-with tvm.build_config(prep_code_mode='with_prep_code', fill_in_function_bodies=True):
-    if args.debug_code:
-        lowered = tvm.lower(s, inputs, args.target, simple_mode = True, binds = binds)
-        print(lowered)
-        # fadd, _ = tvm.build(s, inputs, args.target, binds = binds)
-        # if args.target == 'cuda':
-            # print('-----GPU code-----\n' + fadd.imported_modules[0].get_source())
-        # else:
-            # print('-----CPU code-----\n' + fadd.get_source())
-    else:
-        fadd, i_bufs = tvm.build(s, inputs, args.target, binds = binds)
-        # fadd = tvm.runtime.module.load_module('/home/ppf/rnn_compilers/ragged_tensors/incubator-tvm/build/qkt.so')
-        outs, batches = run_utils.run2(fadd, i_bufs, inputs[1], size_fn, args)
 
-        # QKV, W, O  = outs
-        # for i in range(args.batch_size):
-            # length = batches[0][i]
-            # print(batches[0][i], np.mean(O[:,i,0:length,:,:]))
+name = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0]
+out, batches = run_utils.lower_or_build(name, s, inputs, args, size_fn=size_fn, binds=binds)
+
+# QKV, W, O  = outs
+# for i in range(args.batch_size):
+    # length = batches[0][i]
+    # print(batches[0][i], np.mean(O[:,i,0:length,:,:]))

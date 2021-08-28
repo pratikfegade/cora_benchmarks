@@ -40,6 +40,7 @@ width_ufs=[ls[0], lufw64.get_uf(), ls[1], lufw64.get_uf()]
 A = te.ragged_placeholder((BATCH_SIZE, MAX_LEN, NUM_HEADS, MAX_LEN), [bd, s1, md, s2], loop_ufs,
                           name='A', width_ufs=width_ufs)
 
+
 loop_ufs=[ls[0], ls[2], ls[1]]
 Amax = te.ragged_compute((BATCH_SIZE, MAX_LEN, NUM_HEADS), [bd, s1, md], loop_ufs,
                          lambda ds, rds: tvm.max(A[ds[bd], ds[s1], ds[md], rds['k']], axis=rds['k'], dimensions=s2),
@@ -115,20 +116,9 @@ def size_fn(l_inputs):
                                                        lufw64.get_fn(lens)(b)))
     }
 
-with tvm.build_config(prep_code_mode='with_prep_code', fill_in_function_bodies=True):
-    if args.debug_code:
-        lowered = tvm.lower(s, inputs, args.target, simple_mode = True)
-        print(lowered)
-        # fadd, _ = tvm.build(s, inputs, args.target)
-        # if args.target == 'cuda':
-            # print('-----GPU code-----\n' + fadd.imported_modules[0].get_source())
-        # else:
-            # print('-----CPU code-----\n' + fadd.get_source())
-    else:
-        fadd, i_bufs = tvm.build(s, inputs, args.target)
-        # fadd = tvm.runtime.module.load_module('/home/ppf/rnn_compilers/ragged_tensors/incubator-tvm/build/qkt.so')
-        out, batches = run_utils.run2(fadd, i_bufs, inputs[1], size_fn, args)
-        # out = out[1].asnumpy()
-        # for i in range(args.batch_size):
-        #     rounded = utils.ceilmult(batches[0][i], 32)
-        #     print(1 / rounded, np.mean(out[i, 0, 0, 0:rounded]))
+name = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0]
+out, batches = run_utils.lower_or_build(name, s, inputs, args, size_fn=size_fn)
+# out = out[1].asnumpy()
+# for i in range(args.batch_size):
+#     rounded = utils.ceilmult(batches[0][i], 32)
+#     print(1 / rounded, np.mean(out[i, 0, 0, 0:rounded]))

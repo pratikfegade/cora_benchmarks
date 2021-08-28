@@ -65,7 +65,6 @@ Am2 = te.ragged_compute((BATCH_SIZE, MAX_LEN), [bd, s1], loop_ufs,
                         name = 'Am2')
 
 def compute_body(ds):
-
     mean1 = Am1[ds[bd], ds[s1]]/OUT_SIZE
     mean2 = Am2[ds[bd], ds[s1]]/OUT_SIZE
     std = tvm.sqrt(mean2 - mean1*mean1 + eps)
@@ -126,32 +125,18 @@ def size_fn(l_inputs):
         A1: OUT_SIZE * run_utils.prefix_sum(len(lens), lambda b: lufw.get_fn(lens)(b)),
         A2: OUT_SIZE * run_utils.prefix_sum(len(lens), lambda b: lufw.get_fn(lens)(b)),
         O: OUT_SIZE * run_utils.prefix_sum(len(lens), lambda b: lufw.get_fn(lens)(b)),
-        A: OUT_SIZE * run_utils.prefix_sum(len(lens), lambda b: lufw.get_fn(lens)(b)),
-        Am1: run_utils.prefix_sum(len(lens), lambda b: lufw.get_fn(lens)(b)),
-        Am2: run_utils.prefix_sum(len(lens), lambda b: lufw.get_fn(lens)(b)),
     }
 
-with tvm.build_config(prep_code_mode='with_prep_code', fill_in_function_bodies=True):
-    inputs = [[lens], [A1, A2, O, A, Am1, Am2]]
-    if args.debug_code:
-        lowered = tvm.lower(s, inputs, args.target, simple_mode = True)
-        print(lowered)
-        # fadd, _ = tvm.build(s, inputs, args.target)
-        # if args.target == 'cuda':
-            # print('-----GPU code-----\n' + fadd.imported_modules[0].get_source())
-        # else:
-            # print('-----CPU code-----\n' + fadd.get_source())
-    else:
-        fadd, i_bufs = tvm.build(s, inputs, args.target)
-        # fadd = tvm.runtime.module.load_module('/home/ppf/rnn_compilers/ragged_tensors/incubator-tvm/build/qkt.so')
-        outs, batches = run_utils.run2(fadd, i_bufs, inputs[1], size_fn, args)
-        # A1, A2, O = outs
-        # for i in range(args.batch_size):
-            # this_a1 = A1[i]
-            # this_a2 = A2[i]
-            # added = this_a1 + this_a2
-            # mean = np.mean(added, axis=1, keepdims=True)
-            # std = np.std(added, axis=1, keepdims=True)
-            # res = beta + gamma * ((added - mean) / (std + eps))
-            # length = batches[0][i]
-            # print(length, np.mean(res), np.std(res), np.mean(O[i,0:length,:]), np.std(O[i,0:length,:]))
+inputs = [[lens], [A1, A2, O]]
+name = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0]
+out, batches = run_utils.lower_or_build(name, s, inputs, args, size_fn=size_fn)
+A1, A2, O = out
+for i in range(args.batch_size):
+    this_a1 = A1[i]
+    this_a2 = A2[i]
+    added = this_a1 + this_a2
+    mean = np.mean(added, axis=1, keepdims=True)
+    std = np.std(added, axis=1, keepdims=True)
+    res = beta + gamma * ((added - mean) / (std + eps))
+    length = batches[0][i]
+    print(length, np.mean(res), np.std(res), np.mean(O[i,0:length,:]), np.std(O[i,0:length,:]))

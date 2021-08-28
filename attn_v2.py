@@ -17,6 +17,7 @@ HEAD_SIZE = 64
 
 lens = te.placeholder((args.batch_size,), name = 'lens', dtype = 'int32')
 
+qk = Dim('qk')
 bd = Dim('bd')
 md = Dim('md')
 s1 = Dim('s1')
@@ -34,6 +35,7 @@ ls = {
     2: lufw16.get_uf(),
     3: lufw64.get_uf(),
     4: Uf.from_constant('hd', HEAD_SIZE, 'l'),
+    5: Uf.from_constant('qk', 3, "l"),
 }
 
 loop_ufs=[ls[0], ls[3], ls[1], ls[2]]
@@ -41,16 +43,16 @@ width_ufs=loop_ufs
 A = te.ragged_placeholder((args.batch_size, MAX_LEN, NUM_HEADS, MAX_LEN), [bd, s2, md, s1], loop_ufs,
                           name='A', width_ufs=width_ufs)
 
-loop_ufs=[ls[0], ls[2], ls[1], ls[4]]
+loop_ufs=[ls[5], ls[0], ls[2], ls[1], ls[4]]
 width_ufs=loop_ufs
-V = te.ragged_placeholder((args.batch_size, MAX_LEN, NUM_HEADS, HEAD_SIZE), [bd, s1, md, hd], loop_ufs,
+V = te.ragged_placeholder((3, args.batch_size, MAX_LEN, NUM_HEADS, HEAD_SIZE), [qk, bd, s1, md, hd], loop_ufs,
                           name='V', width_ufs=width_ufs)
 
 loop_ufs=[ls[0], ls[3], ls[1], ls[4]]
 width_ufs=None if args.dense_storage else [loop_ufs]
 O = te.ragged_compute((args.batch_size, MAX_LEN, NUM_HEADS, HEAD_SIZE), [bd, s2, md, hd], loop_ufs,
                       lambda ds, rds: tvm.sum(A[ds[bd], ds[s2], ds[md], rds['k']] *
-                                              V(ds[bd], rds['k'], ds[md], ds[hd]),
+                                              V[2, ds[bd], rds['k'], ds[md], ds[hd]],
                                               axis=rds['k'], dimensions=[s1]),
                       name = 'O', reduce_axis_ufs = [('k', lufw1.get_uf())],
                       width_uf_lists=width_ufs)
@@ -105,7 +107,7 @@ if args.target == "cuda":
     s[As].bind(fiio, thread_x())
     s[As].vectorize(fiii)
 
-    _, x, h, y = s[Vs].leaf_iter_vars
+    _, _, x, h, y = s[Vs].leaf_iter_vars
     s[Vs].reorder(h, x, y)
     f = s[Vs].fuse(x, y)
     fo, fi = s[Vs].split(f, factor = 256 * 4)
@@ -123,28 +125,16 @@ if args.target == "cuda":
 def size_fn(l_inputs):
     lens = l_inputs[0]
     return {
-        V: NUM_HEADS * HEAD_SIZE * run_utils.prefix_sum(len(lens), lambda b: (lufw16.get_fn(lens)(b))),
+        V: 3 * NUM_HEADS * HEAD_SIZE * run_utils.prefix_sum(len(lens), lambda b: (lufw16.get_fn(lens)(b))),
         A: NUM_HEADS * run_utils.prefix_sum(len(lens), lambda b: (lufw16.get_fn(lens)(b) *
                                                                   lufw64.get_fn(lens)(b))),
         O: NUM_HEADS * HEAD_SIZE * run_utils.prefix_sum(len(lens), lambda b: lufw64.get_fn(lens)(b))
     }
 
-with tvm.build_config(prep_code_mode='with_prep_code', fill_in_function_bodies=True):
-    inputs = [[lens], [V, A, O]]
-    if args.debug_code:
-        lowered = tvm.lower(s, inputs, args.target, simple_mode = True)
-        print(lowered)
-        # fadd, _ = tvm.build(s, inputs, args.target)
-        # if args.target == 'cuda':
-            # print('-----GPU code-----\n' + fadd.imported_modules[0].get_source())
-        # else:
-            # print('-----CPU code-----\n' + fadd.get_source())
-    else:
-        fadd, i_bufs = tvm.build(s, inputs, args.target)
-        # fadd = tvm.runtime.module.load_module('/home/ppf/rnn_compilers/ragged_tensors/incubator-tvm/build/qkt.so')
-        outs, batches = run_utils.run2(fadd, i_bufs, inputs[1], size_fn, args)
-
-        # V, A, O  = outs
-        # for i in range(args.batch_size):
-        #     rounded64 = utils.ceilmult(batches[0][i], 64)
-        #     print(batches[0][i], np.mean(O[i,0:rounded64,:,:]))
+inputs = [[lens], [V, A, O]]
+name = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0]
+out, batches = run_utils.lower_or_build(name, s, inputs, args, size_fn=size_fn)
+V, A, O  = outs
+for i in range(args.batch_size):
+    rounded64 = utils.ceilmult(batches[0][i], 64)
+    print(batches[0][i], np.mean(O[i,0:rounded64,:,:]))

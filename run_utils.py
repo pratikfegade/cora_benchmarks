@@ -25,6 +25,8 @@ dataset_max_lens = {
     "race" : 512,
 }
 
+MODULE_DIR = os.path.dirname(os.path.realpath(__file__)) + '/genlibs/'
+
 def get_cmd_parser(no_options=False):
     parser = argparse.ArgumentParser()
     if not no_options:
@@ -33,10 +35,11 @@ def get_cmd_parser(no_options=False):
         parser.add_argument('--max-batches', dest='max_batches', default=10, type=int)
         parser.add_argument('--batch-size', dest='batch_size', default=32, type=int)
         parser.add_argument('--debug', dest='debug', default=False, action='store_true')
-        parser.add_argument('--debug-code', dest='debug_code', default=False, action='store_true')
+        parser.add_argument('--debug-code', dest='debug_code', default=None, type=str)
         parser.add_argument('--debug-functions', dest='debug_functions', default=False, action='store_true')
         parser.add_argument('--manual-code', dest='manual_code', default=False, action='store_true')
         parser.add_argument('--dense-storage', dest='dense_storage', default=False, action='store_true')
+        parser.add_argument('--gen-lib', dest='gen_lib', default=False, action='store_true')
         parser.add_argument('--dataset', nargs='?', default='random')
         parser.add_argument('--datadir', nargs='?', default='random')
     return parser
@@ -67,7 +70,9 @@ def int_shape(expr_shape, rmap):
     return shape
 
 def get_shape(t, rmap):
-    if isinstance(t, tvm.te.Tensor):
+    if isinstance(t, tuple) or isinstance(t, list):
+        return t
+    elif isinstance(t, tvm.te.Tensor):
         return int_shape(t.shape, rmap)
     elif isinstance(t, tvm.tir.Buffer):
         return int_shape(t.shape.dense_shape(), rmap)
@@ -93,7 +98,7 @@ def create_tvm_array(t, dtype, ctx, rmap={}, lw_args=None):
     assert (lw_args is not None)
     if t in lw_args:
         flat_size = lw_args[t]
-        print(t, flat_size, shape)
+        # print(t, flat_size, shape)
         return create_ragged_array(shape, flat_size, dtype, ctx)
 
     # return np.zeros(shape, dtype)
@@ -142,6 +147,18 @@ def read_and_chunk_lengths(batch_size, max_batches, lengths_file):
     data_lines = read_lengths(lengths_file)
     return list(chunks(data_lines, batch_size, max_batches))
 
+def is_ragged(t):
+    if isinstance(t, tvm.te.Tensor):
+        if t.op.output_layout(0) is None:
+            return False
+        else:
+            return t.op.output_layout(0).is_ragged()
+    elif isinstance(t, tvm.tir.Buffer):
+        return t.shape.is_ragged()
+    else:
+        print(t)
+        assert False
+
 def run(built, i_inputs_tensors, t_inputs_tensors, batch_size, num_batches, dataset, datadir, target, debug):
     ctx = get_ctx(target)
     cpu_ctx = get_ctx("llvm")
@@ -170,42 +187,6 @@ def run(built, i_inputs_tensors, t_inputs_tensors, batch_size, num_batches, data
     print("RESULT", time / len(batches))
     return [t.asnumpy() for t in t_inputs], batches
 
-def run_fused(built, total_len_var, t_inputs_tensors, batch_size, num_batches, dataset, datadir, target, debug):
-    ctx = get_ctx(target)
-    cpu_ctx = get_ctx("llvm")
-
-    if debug: num_batches = 1
-
-    if dataset.startswith("random"):
-        _, avg_seq_len, max_seq_len = dataset.split("_")
-        batches = [random_lengths(batch_size, int(avg_seq_len), int(max_seq_len)) for i in range(num_batches)]
-    else:
-        batches = read_and_chunk_lengths(batch_size, num_batches, datadir + "/" + dataset_files[dataset])
-
-    time = 0
-    for batch in batches:
-        sorted(batch)
-        total_length = int(sum(batch))
-        total_length = ((total_length + 63) // 64) * 64
-        rmap = {total_len_var: total_length}
-        t_inputs = [tvm.nd.array(create_numpy_array(i, "float32", rmap), ctx) for i in t_inputs_tensors]
-        inputs = [total_length] + t_inputs
-        time += execute(target, built, inputs, ctx, debug)
-
-    print("RESULT", time / len(batches))
-
-def is_ragged(t):
-    if isinstance(t, tvm.te.Tensor):
-        if t.op.output_layout(0) is None:
-            return False
-        else:
-            return t.op.output_layout(0).is_ragged()
-    elif isinstance(t, tvm.tir.Buffer):
-        return t.shape.is_ragged()
-    else:
-        print(t)
-        assert False
-
 def run2(built, i_inputs_tensors, t_inputs_tensors, lw_args, args):
     ctx = get_ctx(args.target)
     cpu_ctx = get_ctx("llvm")
@@ -221,7 +202,7 @@ def run2(built, i_inputs_tensors, t_inputs_tensors, lw_args, args):
         _, avg_seq_len, max_seq_len = args.dataset.split("_")
         batches = [random_lengths(args.batch_size, int(avg_seq_len), int(max_seq_len)) for i in range(num_batches)]
     else:
-        batches = read_and_chunk_lengths(args.batch_size, args.num_batches, args.datadir + "/" + dataset_files[args.dataset])
+        batches = read_and_chunk_lengths(args.batch_size, num_batches, args.datadir + "/" + dataset_files[args.dataset])
 
     time = 0
     for batch in batches:
@@ -239,3 +220,34 @@ def run2(built, i_inputs_tensors, t_inputs_tensors, lw_args, args):
             target = np.empty(size_fn[t_inputs_tensors[i]], dtype='float32')
         t_inputs[i] = t_inputs[i].asnumpy(target=target, is_src_ragged=is_ragged(t_inputs_tensors[i]))
     return t_inputs, batches
+
+
+def lower_or_build(name, s, inputs, args, prep_code_mode='with_prep_code', binds=None, size_fn={}):
+    with tvm.build_config(prep_code_mode=prep_code_mode, fill_in_function_bodies=not args.debug_functions):
+        if args.gen_lib:
+            fadd, i_bufs = tvm.build(s, inputs, args.target, binds=binds)
+            fadd.export_library(MODULE_DIR + name + '.so')
+            with open(MODULE_DIR + name + '_bufs.txt', 'w') as buf_file:
+                for buf in i_bufs[0]:
+                    print('h', buf.shape.dense_shape(), buf.dtype, file=buf_file)
+                for buf in i_bufs[1]:
+                    print('d', buf.shape.dense_shape(), buf.dtype, file=buf_file)
+            return None, None
+        else:
+            if args.debug_code == 'ir':
+                lowered = tvm.lower(s, inputs, args.target, simple_mode=True, binds=binds)
+                print(lowered)
+                return None, None
+            elif args.debug_code == 'code':
+                fadd, _ = tvm.build(s, inputs, args.target, binds=binds)
+                if args.target == 'cuda':
+                    print('-----GPU code-----\n' + fadd.imported_modules[0].get_source())
+                else:
+                    print('-----CPU code-----\n' + fadd.get_source())
+                return None, None
+            else:
+                assert args.debug_code is None
+                fadd, i_bufs = tvm.build(s, inputs, args.target, binds=binds)
+                # fadd = tvm.runtime.module.load_module('/home/ppf/rnn_compilers/ragged_tensors/incubator-tvm/build/qkt.so')
+                out, batches = run2(fadd, i_bufs, inputs[1], size_fn, args)
+                return out, batches
