@@ -7,21 +7,9 @@ import argparse
 import tvm
 from tvm import tir, te
 from tvm.te import RangeDimension as Dim
-from tvm.tir import UninterpFun as Uf
+from tvm.tir import UninterpFun as Uf, UfWrapper as Ufw
 
-parser = argparse.ArgumentParser()
-parser.add_argument('--target', nargs='?', default='llvm')
-parser.add_argument('--dtype', dest='dtype', nargs='?', default='float32')
-parser.add_argument('--max-batches', dest='max_batches', default=10, type=int)
-parser.add_argument('--batch-size', dest='batch_size', default=32, type=int)
-parser.add_argument('--peel-loops', dest='peel_loops', default=False, action='store_true')
-parser.add_argument('--unroll-loops', dest='unroll_loops', default=False, action='store_true')
-parser.add_argument('--debug', dest='debug', default=False, action='store_true')
-parser.add_argument('--debug-code', dest='debug_code', default=False, action='store_true')
-parser.add_argument('--manual-code', dest='manual_code', default=False, action='store_true')
-parser.add_argument('--dense-storage', dest='dense_storage', default=False, action='store_true')
-parser.add_argument('--dataset', nargs='?', default='random')
-parser.add_argument('--datadir', nargs='?', default='random')
+parser = run_utils.get_cmd_parser()
 args = parser.parse_args()
 
 IN_SIZE = 512
@@ -35,11 +23,12 @@ s1 = Dim('s1')
 id = Dim('id')
 od = Dim('od')
 
-def len_uf(name): return Uf(name, "l", (1, MAX_LEN), [bd], lambda b: lens[b])
+def len_ufw(name): return Ufw(name, "l", (1, MAX_LEN), [bd], [lens], lambda lens: lambda b: lens[b])
+lufw = len_ufw('s1')
 
 ls =  {
     0: Uf.from_constant('bd', args.batch_size, "l"),
-    1: len_uf('s1'),
+    1: lufw.get_uf(),
     2: Uf.from_constant('id', IN_SIZE, "l"),
     3: Uf.from_constant('od', OUT_SIZE, "l"),
 }
@@ -53,7 +42,7 @@ W = te.placeholder((IN_SIZE, OUT_SIZE), name='W')
 B = te.placeholder((OUT_SIZE, ), name='B')
 
 loop_ufs=[ls[0], ls[1], ls[3]]
-width_ufs=[loop_ufs]
+width_ufs=None if args.dense_storage else [loop_ufs]
 k = tvm.reduce_axis((0, IN_SIZE), name = 'k')
 M = te.ragged_compute((args.batch_size, MAX_LEN, OUT_SIZE), [bd, s1, od], loop_ufs,
                       lambda ds: tvm.sum(W[k, ds[od]] * A[ds[bd], ds[s1], k], axis = k, dimensions = [id]),
@@ -139,6 +128,14 @@ if args.target == "cuda":
 else:
     pass
 
+def size_fn(l_inputs):
+    lens = l_inputs[0]
+    return {
+        A: IN_SIZE * run_utils.prefix_sum(len(lens), lambda b: lufw.get_fn(lens)(b)),
+        O: OUT_SIZE * (args.batch_size * MAX_LEN if args.dense_storage else
+                       run_utils.prefix_sum(len(lens), lambda b: lufw.get_fn(lens)(b)))
+    }
+
 with tvm.build_config(prep_code_mode='with_prep_code', fill_in_function_bodies=True):
     inputs = [[lens], [A, W, O]]
     if args.debug_code:
@@ -152,8 +149,7 @@ with tvm.build_config(prep_code_mode='with_prep_code', fill_in_function_bodies=T
     else:
         fadd, i_bufs = tvm.build(s, inputs, args.target)
         # fadd = tvm.runtime.module.load_module('/home/ppf/rnn_compilers/ragged_tensors/incubator-tvm/build/qkt.so')
-        outs, batches = run_utils.run(fadd, i_bufs, inputs[1], args.batch_size, args.max_batches,
-                                      args.dataset, args.datadir, args.target, args.debug)
+        outs, batches = run_utils.run2(fadd, i_bufs, inputs[1], size_fn, args)
 
         A, W, O  = outs
         for i in range(args.batch_size):

@@ -1,3 +1,4 @@
+import argparse
 import os
 import numpy as np
 import tvm
@@ -23,6 +24,28 @@ dataset_max_lens = {
     "xnli" : 128,
     "race" : 512,
 }
+
+def get_cmd_parser(no_options=False):
+    parser = argparse.ArgumentParser()
+    if not no_options:
+        parser.add_argument('--target', nargs='?', default='llvm')
+        parser.add_argument('--dtype', dest='dtype', nargs='?', default='float32')
+        parser.add_argument('--max-batches', dest='max_batches', default=10, type=int)
+        parser.add_argument('--batch-size', dest='batch_size', default=32, type=int)
+        parser.add_argument('--debug', dest='debug', default=False, action='store_true')
+        parser.add_argument('--debug-code', dest='debug_code', default=False, action='store_true')
+        parser.add_argument('--debug-functions', dest='debug_functions', default=False, action='store_true')
+        parser.add_argument('--manual-code', dest='manual_code', default=False, action='store_true')
+        parser.add_argument('--dense-storage', dest='dense_storage', default=False, action='store_true')
+        parser.add_argument('--dataset', nargs='?', default='random')
+        parser.add_argument('--datadir', nargs='?', default='random')
+    return parser
+
+def prefix_sum(extent, fn):
+    s = 0
+    for i in range(extent):
+        s += fn(i)
+    return s
 
 def get_dataset_max_len(dataset):
     if dataset.startswith("random"):
@@ -52,10 +75,29 @@ def get_shape(t, rmap):
         print(t)
         assert False
 
-def create_numpy_array(t, dtype, rmap = {}):
+def create_ragged_array(dense_shape, flat_size, dtype, ctx):
+    src_np_array = np.random.normal(size=(flat_size,)).astype(dtype)
+    tvm_array = tvm.nd.ragged_empty(dense_shape, flat_size, dtype=dtype, ctx=ctx)
+    tvm_array.copyfrom(src_np_array, is_dst_ragged=True)
+    return tvm_array
+
+def create_numpy_array(t, dtype, rmap={}, lw_args=None):
     shape = get_shape(t, rmap)
     # return np.zeros(shape, dtype)
     return np.full(shape, 0.1, dtype)
+    # return np.random.normal(size=shape, loc=0.5, scale=4).astype(dtype)
+
+def create_tvm_array(t, dtype, ctx, rmap={}, lw_args=None):
+    shape = get_shape(t, rmap)
+
+    assert (lw_args is not None)
+    if t in lw_args:
+        flat_size = lw_args[t]
+        print(t, flat_size, shape)
+        return create_ragged_array(shape, flat_size, dtype, ctx)
+
+    # return np.zeros(shape, dtype)
+    return tvm.nd.array(np.full(shape, 0.1, dtype), ctx)
     # return np.random.normal(size=shape, loc=0.5, scale=4).astype(dtype)
 
 def get_ctx(target):
@@ -110,7 +152,7 @@ def run(built, i_inputs_tensors, t_inputs_tensors, batch_size, num_batches, data
     t_inputs = [tvm.nd.array(create_numpy_array(i, "float32"), ctx) for i in t_inputs_tensors]
     if debug: num_batches = 1
 
-    print([np.mean(t.asnumpy()) for t in t_inputs])
+    # print([np.mean(t.asnumpy()) for t in t_inputs])
 
     if dataset.startswith("random"):
         _, avg_seq_len, max_seq_len = dataset.split("_")
@@ -151,3 +193,49 @@ def run_fused(built, total_len_var, t_inputs_tensors, batch_size, num_batches, d
         time += execute(target, built, inputs, ctx, debug)
 
     print("RESULT", time / len(batches))
+
+def is_ragged(t):
+    if isinstance(t, tvm.te.Tensor):
+        if t.op.output_layout(0) is None:
+            return False
+        else:
+            return t.op.output_layout(0).is_ragged()
+    elif isinstance(t, tvm.tir.Buffer):
+        return t.shape.is_ragged()
+    else:
+        print(t)
+        assert False
+
+def run2(built, i_inputs_tensors, t_inputs_tensors, lw_args, args):
+    ctx = get_ctx(args.target)
+    cpu_ctx = get_ctx("llvm")
+    host_i_inputs, dev_i_inputs = [], []
+    if len(i_inputs_tensors) == 2:
+        host_i_inputs = [tvm.nd.array(create_numpy_array(i, "int32"), cpu_ctx) for i in i_inputs_tensors[0]]
+        dev_i_inputs = [tvm.nd.array(create_numpy_array(i, "int32"), ctx) for i in i_inputs_tensors[1]]
+
+    num_batches = args.max_batches
+    if args.debug: num_batches = 1
+
+    if args.dataset.startswith("random"):
+        _, avg_seq_len, max_seq_len = args.dataset.split("_")
+        batches = [random_lengths(args.batch_size, int(avg_seq_len), int(max_seq_len)) for i in range(num_batches)]
+    else:
+        batches = read_and_chunk_lengths(args.batch_size, args.num_batches, args.datadir + "/" + dataset_files[args.dataset])
+
+    time = 0
+    for batch in batches:
+        sorted(batch)
+        t_inputs = [create_tvm_array(i, "float32", ctx, lw_args=lw_args([batch])) for i in t_inputs_tensors]
+        l_inputs = [tvm.nd.array(batch, cpu_ctx)]
+        inputs = t_inputs + l_inputs + host_i_inputs + dev_i_inputs
+        time += execute(args.target, built, inputs, ctx, args.debug)
+
+    print("RESULT", time / len(batches))
+    for i in range(len(t_inputs)):
+        size_fn = lw_args([batch])
+        target = None
+        if t_inputs_tensors[i] in size_fn:
+            target = np.empty(size_fn[t_inputs_tensors[i]], dtype='float32')
+        t_inputs[i] = t_inputs[i].asnumpy(target=target, is_src_ragged=is_ragged(t_inputs_tensors[i]))
+    return t_inputs, batches

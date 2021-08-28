@@ -1,3 +1,4 @@
+import numpy as np
 import os
 import argparse
 import utils
@@ -25,7 +26,8 @@ args = parser.parse_args()
 
 NUM_HEADS = 8
 HEAD_SIZE = 64
-TILE=32
+TILE=64
+RTILE=4
 MAX_LEN = utils.ceilmult(run_utils.get_dataset_max_len(args.dataset), TILE)
 
 lens = te.placeholder((args.batch_size,), name = 'lens', dtype = 'int32')
@@ -58,9 +60,13 @@ K = te.ragged_placeholder((args.batch_size, MAX_LEN, NUM_HEADS, HEAD_SIZE), [bd,
 loop_ufs=[bd_uf, ub_uf, md_uf, ub_uf]
 width_ufs = None if args.dense_storage else [loop_ufs]
 k = tvm.reduce_axis((0, HEAD_SIZE), name = 'k')
-O = te.ragged_compute((args.batch_size, MAX_LEN, NUM_HEADS, MAX_LEN), [bd, s1, md, s2], loop_ufs,
+S = te.ragged_compute((args.batch_size, MAX_LEN, NUM_HEADS, MAX_LEN), [bd, s1, md, s2], loop_ufs,
                       lambda ds: tvm.sum(Q[ds[bd], ds[s1], ds[md], k] * K[ds[bd], ds[s2], ds[md], k],
                                          axis = k, dimensions=[hd]),
+                      name = 'S', width_uf_lists=width_ufs)
+
+O = te.ragged_compute((args.batch_size, MAX_LEN, NUM_HEADS, MAX_LEN), [bd, s1, md, s2], loop_ufs,
+                      lambda ds: tvm.if_then_else(ds[s1] >= lens[ds[bd]], -float('inf'), S[ds[bd], ds[s1], ds[md], ds[s2]]),
                       name = 'O', width_uf_lists=width_ufs)
 
 output_layout = O.op.output_layout(0)
@@ -70,22 +76,19 @@ thread_x = lambda: tvm.thread_axis("threadIdx.x")
 thread_y = lambda: tvm.thread_axis("threadIdx.y")
 block_x = lambda: tvm.thread_axis("blockIdx.x")
 block_y = lambda: tvm.thread_axis("blockIdx.y")
-
 ntx = 16
 nty = 16
 
-def schedule_op(O, tile_x, tile_y, suffix):
-    Ol = s.cache_write(O, 'local')
+def schedule_op(S, O, tile_x, tile_y, suffix):
+    Qs = s.cache_read(Q, "shared", [S], layouts='dense', suffix=suffix)
+    Ks = s.cache_read(K, "shared", [S], layouts='dense', suffix=suffix)
 
-    Qs = s.cache_read(Q, "shared", [Ol], layouts='dense', suffix=suffix)
-    Ks = s.cache_read(K, "shared", [Ol], layouts='dense', suffix=suffix)
-
-    Ql = s.cache_read(Qs, "local", [Ol], layouts='dense', suffix=suffix)
-    Kl = s.cache_read(Ks, "local", [Ol], layouts='dense', suffix=suffix)
+    Ql = s.cache_read(Qs, "local", [S], layouts='dense', suffix=suffix)
+    Kl = s.cache_read(Ks, "local", [S], layouts='dense', suffix=suffix)
 
     b, x, h, y = s[O].leaf_iter_vars[0:4]
-    xo, xi = s[O].split(x, factor = tile_x)
-    yo, yi = s[O].split(y, factor = tile_y)
+    xo, xi = s[O].split(x, factor=tile_x)
+    yo, yi = s[O].split(y, factor=tile_x)
 
     s[O].reorder(b, xo, yo, h, xi, yi)
     f1 = s[O].fuse(xo, yo)
@@ -102,12 +105,12 @@ def schedule_op(O, tile_x, tile_y, suffix):
     s[O].bind(yio, tvm.thread_axis("vthread", name='vth1'), no_unroll_vthread=True)
     s[O].bind(xio, tvm.thread_axis("vthread", name='vth2'), no_unroll_vthread=True)
     s[O].reorder(xio, yii, yio, xii)
-    s[Ol].compute_at(s[O], xii)
+    s[S].compute_at(s[O], xii)
 
-    x, h, y, k = s[Ol].leaf_iter_vars[1:5]
-    s[Ol].reorder(h, k, x, y)
-    s[Ql].compute_at(s[Ol], k)
-    s[Kl].compute_at(s[Ol], k)
+    x, h, y, k = s[S].leaf_iter_vars[1:5]
+    s[S].reorder(h, k, x, y)
+    s[Ql].compute_at(s[S], k)
+    s[Kl].compute_at(s[S], k)
 
     x, h, y = s[Ks].leaf_iter_vars[1], s[Ks].leaf_iter_vars[2], s[Ks].leaf_iter_vars[3]
     s[Ks].reorder(h, y, x)
@@ -134,14 +137,13 @@ def schedule_op(O, tile_x, tile_y, suffix):
     s.reorder_tensor_dimensions(Qs, 1, 2)
     s.reorder_tensor_dimensions(Qs, 2, 3)
 
-O1, O2, O3, O4 = s.split_for_bin_packing(O, {O.op.axis[1]: lb_uf, O.op.axis[3]: lb_uf})
-schedule_op(O1, 64, 64, '1')
-schedule_op(O2, 32, 64, '2')
-schedule_op(O3, 64, 32, '3')
-schedule_op(O4, 32, 32, '4')
+    s[S].set_scope('local')
 
-s.hfuse([(s[O1].op, s[O1].leaf_iter_vars[0]), (s[O2].op, s[O2].leaf_iter_vars[0]),
-         (s[O3].op, s[O3].leaf_iter_vars[0]), (s[O4].op, s[O4].leaf_iter_vars[0])])
+G1, G2 = s.split_for_bin_packing([S], O, {O.op.axis[1]: lb_uf}, include_inputs=True)
+S1, O1 = G1
+S2, O2 = G2
+schedule_op(S1, O1, 64, 64, '1')
+schedule_op(S2, O2, 32, 64, '2')
 
 gen_prefix = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0]
 _ = tvm.register_func(utils.get_tvm_callback_cuda_compile(256))
@@ -150,18 +152,23 @@ _ = tvm.register_func(
 
 bO = tvm.tir.decl_buffer(output_layout, name="bO")
 inputs = [[lens], [Q, K, bO]]
-binds = {O1:bO, O2:bO, O3:bO, O4:bO}
+binds = {O1:bO, O2:bO}
 with tvm.build_config(prep_code_mode='with_prep_code', fill_in_function_bodies=not args.debug_functions):
     if args.debug_code:
-        # lowered = tvm.lower(s, inputs, args.target, simple_mode=True, binds=binds)
-        # print(lowered)
-        fadd, _ = tvm.build(s, inputs, args.target, binds=binds)
-        if args.target == 'cuda':
-            print('-----GPU code-----\n' + fadd.imported_modules[0].get_source())
-        else:
-            print('-----CPU code-----\n' + fadd.get_source())
+        lowered = tvm.lower(s, inputs, args.target, simple_mode=True, binds=binds)
+        print(lowered)
+        # fadd, _ = tvm.build(s, inputs, args.target, binds=binds)
+        # if args.target == 'cuda':
+            # print('-----GPU code-----\n' + fadd.imported_modules[0].get_source())
+        # else:
+            # print('-----CPU code-----\n' + fadd.get_source())
     else:
         fadd, i_bufs = tvm.build(s, inputs, args.target, binds=binds)
         # fadd = tvm.runtime.module.load_module('/home/ppf/rnn_compilers/ragged_tensors/incubator-tvm/build/qkt.so')
-        run_utils.run(fadd, i_bufs, [Q, K, O], args.batch_size, args.max_batches,
-                      args.dataset, args.datadir, args.target, args.debug)
+        out, batches = run_utils.run(fadd, i_bufs, [Q, K, O], args.batch_size, args.max_batches,
+                                     args.dataset, args.datadir, args.target, args.debug)
+        Q, K, O = [t.asnumpy() for t in out]
+        for i in range(args.batch_size):
+            length = batches[0][i]
+            rounded = utils.ceilmult(length, TILE)
+            print(rounded, np.mean(O[i,0:rounded,:,0:rounded]))

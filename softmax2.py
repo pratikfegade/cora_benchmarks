@@ -6,21 +6,9 @@ import utils
 import tvm
 from tvm import tir, te
 from tvm.te import RangeDimension as Dim
-from tvm.tir import UninterpFun as Uf
+from tvm.tir import UninterpFun as Uf, UfWrapper as Ufw
 
-parser = argparse.ArgumentParser()
-parser.add_argument('--target', nargs='?', default='llvm')
-parser.add_argument('--dtype', dest='dtype', nargs='?', default='float32')
-parser.add_argument('--max-batches', dest='max_batches', default=10, type=int)
-parser.add_argument('--batch-size', dest='batch_size', default=32, type=int)
-parser.add_argument('--peel-loops', dest='peel_loops', default=False, action='store_true')
-parser.add_argument('--unroll-loops', dest='unroll_loops', default=False, action='store_true')
-parser.add_argument('--debug', dest='debug', default=False, action='store_true')
-parser.add_argument('--debug-code', dest='debug_code', default=False, action='store_true')
-parser.add_argument('--manual-code', dest='manual_code', default=False, action='store_true')
-parser.add_argument('--dense-storage', dest='dense_storage', default=False, action='store_true')
-parser.add_argument('--dataset', nargs='?', default='random')
-parser.add_argument('--datadir', nargs='?', default='random')
+parser = run_utils.get_cmd_parser()
 args = parser.parse_args()
 
 BATCH_SIZE = args.batch_size
@@ -35,27 +23,27 @@ md = Dim('md')
 s1 = Dim('s1')
 s2 = Dim('s2')
 
-def len_uf(name, padding): return Uf(name, 'l', (padding, MAX_LEN), [bd], lambda b: utils.ceilmult(lens[b], padding))
+def len_ufw(name, pad): return Ufw(name, "l", (pad, MAX_LEN), [bd], [lens], lambda lens: lambda b: utils.ceilmult(lens[b], pad))
+lufw1 = len_ufw('s1_1', 1)
+lufw32 = len_ufw('s2_32', 32)
+lufw64 = len_ufw('s64', 64)
 
-luf1 = len_uf('s1_1', 1)
-luf32 = len_uf('s2_32', 32)
-luf64 = len_uf('s64', 64)
 ls =  {
     0: Uf.from_constant('bd', BATCH_SIZE, 'l'),
     1: Uf.from_constant('md', NUM_HEADS, 'l'),
-    2: luf1,
-    3: luf32,
+    2: lufw1.get_uf(),
+    3: lufw32.get_uf(),
 }
 
 loop_ufs=[ls[0], ls[2], ls[1], ls[3]]
-width_ufs=[ls[0], luf64, ls[1], luf64]
+width_ufs=[ls[0], lufw64.get_uf(), ls[1], lufw64.get_uf()]
 A = te.ragged_placeholder((BATCH_SIZE, MAX_LEN, NUM_HEADS, MAX_LEN), [bd, s1, md, s2], loop_ufs,
                           name='A', width_ufs=width_ufs)
 
 loop_ufs=[ls[0], ls[2], ls[1]]
 Amax = te.ragged_compute((BATCH_SIZE, MAX_LEN, NUM_HEADS), [bd, s1, md], loop_ufs,
                          lambda ds, rds: tvm.max(A[ds[bd], ds[s1], ds[md], rds['k']], axis=rds['k'], dimensions=s2),
-                         name = 'Amax', reduce_axis_ufs = [('k', luf32)])
+                         name = 'Amax', reduce_axis_ufs = [('k', lufw32.get_uf())])
 
 loop_ufs=[ls[0], ls[2], ls[1], ls[3]]
 Aexp = te.ragged_compute((BATCH_SIZE, MAX_LEN, NUM_HEADS, MAX_LEN), [bd, s1, md, s2], loop_ufs,
@@ -65,7 +53,7 @@ Aexp = te.ragged_compute((BATCH_SIZE, MAX_LEN, NUM_HEADS, MAX_LEN), [bd, s1, md,
 loop_ufs=[ls[0], ls[2], ls[1]]
 Asum = te.ragged_compute((BATCH_SIZE, MAX_LEN, NUM_HEADS), [bd, s1, md], loop_ufs,
                          lambda ds, rds: tvm.sum(Aexp[ds[bd], ds[s1], ds[md], rds['k']], axis=rds['k'], dimensions=s2),
-                         name = 'Asum', reduce_axis_ufs = [('k', luf32)])
+                         name = 'Asum', reduce_axis_ufs = [('k', lufw32.get_uf())])
 
 loop_ufs=[ls[0], ls[2], ls[1], ls[3]]
 O = te.ragged_compute((BATCH_SIZE, MAX_LEN, NUM_HEADS, MAX_LEN), [bd, s1, md, s2], loop_ufs,
@@ -74,47 +62,59 @@ O = te.ragged_compute((BATCH_SIZE, MAX_LEN, NUM_HEADS, MAX_LEN), [bd, s1, md, s2
 
 s = tvm.create_schedule([O.op])
 
-thread_x = tvm.thread_axis("threadIdx.x")
-thread_y = tvm.thread_axis("threadIdx.y")
-block_x = tvm.thread_axis("blockIdx.x")
-block_y = tvm.thread_axis("blockIdx.y")
+if args.target == 'cuda':
+    thread_x = tvm.thread_axis("threadIdx.x")
+    thread_y = tvm.thread_axis("threadIdx.y")
+    block_x = tvm.thread_axis("blockIdx.x")
+    block_y = tvm.thread_axis("blockIdx.y")
 
+    ko, ki = s[Amax].split(s[Amax].op.reduce_axis[0], factor = 32)
+    Amax_rf = s.rfactor(Amax, ki, 1)
 
-ko, ki = s[Amax].split(s[Amax].op.reduce_axis[0], factor = 32)
-Amax_rf = s.rfactor(Amax, ki, 1)
+    ko, ki = s[Asum].split(s[Asum].op.reduce_axis[0], factor = 32)
+    Asum_rf = s.rfactor(Asum, ki, 1)
 
-ko, ki = s[Asum].split(s[Asum].op.reduce_axis[0], factor = 32)
-Asum_rf = s.rfactor(Asum, ki, 1)
+    b, s1, h, s2 = s[O].leaf_iter_vars
+    f = s[O].fuse(b, s1)
+    s[O].bind(f, block_x)
+    # s[O].bind(h, thread_y)
 
-b, s1, h, s2 = s[O].leaf_iter_vars
-f = s[O].fuse(b, s1)
-s[O].bind(f, block_x)
-# s[O].bind(h, thread_y)
+    xo, xi = s[O].split(s2, factor = 32)
+    s[O].bind(xi, thread_x)
+    s[Amax].bind(s[Amax].op.reduce_axis[0], thread_x)
+    s[Asum].bind(s[Asum].op.reduce_axis[0], thread_x)
 
-xo, xi = s[O].split(s2, factor = 32)
-s[O].bind(xi, thread_x)
-s[Amax].bind(s[Amax].op.reduce_axis[0], thread_x)
-s[Asum].bind(s[Asum].op.reduce_axis[0], thread_x)
+    s[Amax].compute_at(s[O], h)
+    s[Amax_rf].compute_at(s[Amax], s[Amax].leaf_iter_vars[3])
+    s[Asum].compute_at(s[O], h)
+    s[Asum_rf].compute_at(s[Asum], s[Asum].leaf_iter_vars[3])
+    s[Aexp].compute_inline()
 
-s[Amax].compute_at(s[O], h)
-s[Amax_rf].compute_at(s[Amax], s[Amax].leaf_iter_vars[3])
-s[Asum].compute_at(s[O], h)
-s[Asum_rf].compute_at(s[Asum], s[Asum].leaf_iter_vars[3])
-s[Aexp].compute_inline()
+    s[Amax].set_scope('local')
+    s[Amax_rf].set_scope('local')
+    s[Asum].set_scope('local')
+    s[Asum_rf].set_scope('local')
+    s[Aexp].set_scope('local')
+    inputs = [[lens], [A, O]]
+else:
+    inputs = [[lens], [A, Amax, Aexp, Asum, O]]
 
-s[Amax].set_scope('local')
-s[Amax_rf].set_scope('local')
-s[Asum].set_scope('local')
-s[Asum_rf].set_scope('local')
-s[Aexp].set_scope('local')
-
-suffix = ""
-gen_prefix = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0] + suffix
+gen_prefix = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0]
 _ = tvm.register_func(utils.get_tvm_callback_cuda_compile(256))
 _ = tvm.register_func(
     utils.get_tvm_callback_cuda_postproc(args, os.path.realpath(__file__), fileprefix=gen_prefix))
 
-inputs = [[lens], [A, O]]
+def size_fn(l_inputs):
+    lens = l_inputs[0]
+    return {
+        A: NUM_HEADS * run_utils.prefix_sum(len(lens),
+                                            lambda b: (lufw64.get_fn(lens)(b) *
+                                                       lufw64.get_fn(lens)(b))),
+        O: NUM_HEADS * run_utils.prefix_sum(len(lens),
+                                            lambda b: (lufw64.get_fn(lens)(b) *
+                                                       lufw64.get_fn(lens)(b)))
+    }
+
 with tvm.build_config(prep_code_mode='with_prep_code', fill_in_function_bodies=True):
     if args.debug_code:
         lowered = tvm.lower(s, inputs, args.target, simple_mode = True)
@@ -127,9 +127,8 @@ with tvm.build_config(prep_code_mode='with_prep_code', fill_in_function_bodies=T
     else:
         fadd, i_bufs = tvm.build(s, inputs, args.target)
         # fadd = tvm.runtime.module.load_module('/home/ppf/rnn_compilers/ragged_tensors/incubator-tvm/build/qkt.so')
-        out, batches = run_utils.run(fadd, i_bufs, inputs[1], args.batch_size, args.max_batches,
-                                     args.dataset, args.datadir, args.target, args.debug)
-        out = out[1].asnumpy()
-        for i in range(args.batch_size):
-            rounded = utils.ceilmult(batches[0][i], 32)
-            print(1 / rounded, np.mean(out[i, 0, 0, 0:rounded]))
+        out, batches = run_utils.run2(fadd, i_bufs, inputs[1], size_fn, args)
+        # out = out[1].asnumpy()
+        # for i in range(args.batch_size):
+        #     rounded = utils.ceilmult(batches[0][i], 32)
+        #     print(1 / rounded, np.mean(out[i, 0, 0, 0:rounded]))
