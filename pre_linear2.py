@@ -12,13 +12,14 @@ from tvm.tir import UninterpFun as Uf, UfWrapper as Ufw
 parser = run_utils.get_cmd_parser()
 args = parser.parse_args()
 
+BATCH_SIZE = args.batch_size + 1
 NUM_HEADS = 8
 IN_SIZE = 512
 OUT_SIZE = 64
 QKV_NUM = 3
 MAX_LEN = utils.ceilmult(run_utils.get_dataset_max_len(args.dataset), 64)
 
-lens = te.placeholder((args.batch_size,), name = 'lens', dtype = 'int32')
+lens = te.placeholder((BATCH_SIZE,), name = 'lens', dtype = 'int32')
 
 bd = Dim('bd')
 qkv = Dim('qkv')
@@ -33,7 +34,7 @@ lufw64 = len_ufw('s2', 64)
 
 ls =  {
     0: Uf.from_constant('qkv', QKV_NUM, "l"),
-    1: Uf.from_constant('bd', args.batch_size, "l"),
+    1: Uf.from_constant('bd', BATCH_SIZE, "l"),
     2: Uf.from_constant('md', NUM_HEADS, "l"),
     3: lufw1.get_uf(),
     4: Uf.from_constant('id', IN_SIZE, "l"),
@@ -42,7 +43,7 @@ ls =  {
 
 loop_ufs=[ls[1], ls[3], ls[4]]
 width_ufs=loop_ufs
-QKV = te.ragged_placeholder((args.batch_size, MAX_LEN, IN_SIZE), [bd, s1, id], loop_ufs,
+QKV = te.ragged_placeholder((BATCH_SIZE, MAX_LEN, IN_SIZE), [bd, s1, id], loop_ufs,
                             name='QKV', width_ufs=width_ufs)
 
 W = te.placeholder((QKV_NUM, NUM_HEADS, OUT_SIZE, IN_SIZE), name='W')
@@ -50,7 +51,7 @@ W = te.placeholder((QKV_NUM, NUM_HEADS, OUT_SIZE, IN_SIZE), name='W')
 loop_ufs=[ls[0], ls[1], ls[3], ls[2], ls[5]]
 width_ufs=None if args.dense_storage else [[ls[0], ls[1], lufw64.get_uf(), ls[2], ls[5]]]
 k = tvm.reduce_axis((0, IN_SIZE), name = 'k')
-O = te.ragged_compute((QKV_NUM, args.batch_size, MAX_LEN, NUM_HEADS, OUT_SIZE), [qkv, bd, s1, md, od], loop_ufs,
+O = te.ragged_compute((QKV_NUM, BATCH_SIZE, MAX_LEN, NUM_HEADS, OUT_SIZE), [qkv, bd, s1, md, od], loop_ufs,
                       lambda ds: tvm.sum(W[ds[qkv], ds[md], ds[od], k] * QKV[ds[bd], ds[s1], k],
                                          axis = k, dimensions = [id]),
                       name = 'O', width_uf_lists=width_ufs)
@@ -132,18 +133,18 @@ def size_fn(l_inputs):
     lens = l_inputs[0]
     return {
         QKV: IN_SIZE * run_utils.prefix_sum(len(lens), lambda b: lufw1.get_fn(lens)(b)),
-        O: QKV_NUM * NUM_HEADS * OUT_SIZE * (args.batch_size * MAX_LEN if args.dense_storage else
+        O: QKV_NUM * NUM_HEADS * OUT_SIZE * (BATCH_SIZE * MAX_LEN if args.dense_storage else
                                              run_utils.prefix_sum(len(lens), lambda b: lufw64.get_fn(lens)(b)))
     }
 
-bQKV = tvm.decl_buffer([args.batch_size*MAX_LEN, IN_SIZE], name = "bQKV")
+bQKV = tvm.decl_buffer([BATCH_SIZE*MAX_LEN, IN_SIZE], name = "bQKV")
 binds = {QKV: bQKV}
 inputs = [[lens], [bQKV, W, O]]
 
 name = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0]
-out, batches = run_utils.lower_or_build(name, s, inputs, args, size_fn=size_fn, binds=binds)
+out, batches = run_utils.lower_or_build(name, s, inputs, args, size_fn=size_fn, binds=binds, pad_sum=64)
 
 # QKV, W, O  = outs
-# for i in range(args.batch_size):
+# for i in range(BATCH_SIZE):
     # length = batches[0][i]
     # print(batches[0][i], np.mean(O[:,i,0:length,:,:]))

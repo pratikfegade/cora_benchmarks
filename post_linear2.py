@@ -12,12 +12,13 @@ from tvm.tir import UninterpFun as Uf, UfWrapper as Ufw
 parser = run_utils.get_cmd_parser()
 args = parser.parse_args()
 
+BATCH_SIZE = args.batch_size + 1
 MAX_LEN = utils.ceilmult(run_utils.get_dataset_max_len(args.dataset), 64)
 NUM_HEADS = 8
 HEAD_SIZE = 64
 OUT_SIZE = 512
 
-lens = te.placeholder((args.batch_size,), name = 'lens', dtype = 'int32')
+lens = te.placeholder((BATCH_SIZE,), name = 'lens', dtype = 'int32')
 
 bd = Dim('bd')
 md = Dim('md')
@@ -31,7 +32,7 @@ lufw1 = len_ufw('s1', 1)
 lufw64 = len_ufw('s2', 64)
 
 ls =  {
-    0: Uf.from_constant('bd', args.batch_size, 'l'),
+    0: Uf.from_constant('bd', BATCH_SIZE, 'l'),
     1: Uf.from_constant('md', NUM_HEADS, 'l'),
     2: lufw1.get_uf(),
     3: Uf.from_constant('hd', HEAD_SIZE, 'l'),
@@ -40,7 +41,7 @@ ls =  {
 
 loop_ufs=[ls[0], ls[1], ls[2], ls[3]]
 width_ufs=[ls[0], ls[1], lufw64.get_uf(), ls[3]]
-A = te.ragged_placeholder((args.batch_size, NUM_HEADS, MAX_LEN, HEAD_SIZE), [bd, md, s1, hd], loop_ufs,
+A = te.ragged_placeholder((BATCH_SIZE, NUM_HEADS, MAX_LEN, HEAD_SIZE), [bd, md, s1, hd], loop_ufs,
                           name='A', width_ufs=width_ufs)
 
 W = te.placeholder((NUM_HEADS * HEAD_SIZE, OUT_SIZE), name='W')
@@ -48,7 +49,7 @@ W = te.placeholder((NUM_HEADS * HEAD_SIZE, OUT_SIZE), name='W')
 loop_ufs=[ls[0], ls[2], ls[4]]
 width_ufs=None if args.dense_storage else [loop_ufs]
 k = tvm.reduce_axis((0, NUM_HEADS * HEAD_SIZE), name = 'k')
-O = te.ragged_compute((args.batch_size, MAX_LEN, OUT_SIZE), [bd, s1, od], loop_ufs,
+O = te.ragged_compute((BATCH_SIZE, MAX_LEN, OUT_SIZE), [bd, s1, od], loop_ufs,
                       lambda ds: tvm.sum(A[ds[bd], tvm.floordiv(k, HEAD_SIZE), ds[s1], tvm.floormod(k, HEAD_SIZE)] *
                                          W[k, ds[od]], axis=k, dimensions = [mdhd]),
                       name = 'O', width_uf_lists=width_ufs)
@@ -112,7 +113,7 @@ if args.target == 'cuda':
     s.reorder_tensor_dimensions(As, 0, 1)
     s.fuse_tensor_dimensions(As, 1, 2)
 
-    s.fuse_tensor_dimensions(O, 0, 1)
+    # s.fuse_tensor_dimensions(O, 0, 1)
 
     x, y = s[Ws].leaf_iter_vars
     f = s[Ws].fuse(x, y)
@@ -132,18 +133,20 @@ def size_fn(l_inputs):
     lens = l_inputs[0]
     return {
         A: NUM_HEADS * HEAD_SIZE * run_utils.prefix_sum(len(lens), lambda b: lufw64.get_fn(lens)(b)),
-        O: OUT_SIZE * (args.batch_size * MAX_LEN if args.dense_storage else
+        O: OUT_SIZE * (BATCH_SIZE * MAX_LEN if args.dense_storage else
                        run_utils.prefix_sum(len(lens), lambda b: lufw1.get_fn(lens)(b)))
     }
 
-bO = tvm.decl_buffer([args.batch_size * MAX_LEN, OUT_SIZE], name = "bA")
-inputs = [[lens], [A, W, bO]]
-binds = {O: bO}
+# bO = tvm.decl_buffer([BATCH_SIZE * MAX_LEN, OUT_SIZE], name = "bO")
+# inputs = [[lens], [A, W, bO]]
+# binds = {O: bO}
+inputs = [[lens], [A, W, O]]
+binds = {}
 
 name = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0]
-out, batches = run_utils.lower_or_build(name, s, inputs, args, size_fn=size_fn, binds=binds)
+out, batches = run_utils.lower_or_build(name, s, inputs, args, size_fn=size_fn, binds=binds, pad_sum=128)
 
 # A, W, O = out
-# for i in range(args.batch_size):
+# for i in range(BATCH_SIZE):
     # length = batches[0][i]
     # print(batches[0][i], np.mean(O[i,0:length,:]))

@@ -1,3 +1,4 @@
+import utils
 import argparse
 import os
 import numpy as np
@@ -129,7 +130,8 @@ def execute(target, built, inputs, ctx, debug = False):
             return -100000000
             evaluator = built.time_evaluator('default_function', ctx, 1, repeat=10)
         else:
-            evaluator = built.time_evaluator(built.entry_name, ctx, number=10, repeat=10)
+            # evaluator = built.time_evaluator(built.entry_name, ctx, number=10, repeat=10)
+            evaluator = built.time_evaluator(built.entry_name, ctx, number=1, repeat=1)
         eval_result = evaluator(*inputs)
         return eval_result.mean * 1000
 
@@ -187,7 +189,18 @@ def run(built, i_inputs_tensors, t_inputs_tensors, batch_size, num_batches, data
     print("RESULT", time / len(batches))
     return [t.asnumpy() for t in t_inputs], batches
 
-def run2(built, i_inputs_tensors, t_inputs_tensors, lw_args, args):
+def add_padded_sum(batches, factor):
+    ret = []
+    for batch in batches:
+        batch_sum = np.sum(batch)
+        padding_length = utils.ceilmult(batch_sum, factor) - batch_sum
+        if padding_length == 0: padding_length = factor
+        padded = np.append(batch, padding_length).astype('int32')
+        # print('PADDING', padding_length, batch_sum, np.sum(padded))
+        ret.append(padded)
+    return ret
+
+def run2(built, i_inputs_tensors, t_inputs_tensors, lw_args, args, pad_sum=None):
     ctx = get_ctx(args.target)
     cpu_ctx = get_ctx("llvm")
     host_i_inputs, dev_i_inputs = [], []
@@ -203,6 +216,9 @@ def run2(built, i_inputs_tensors, t_inputs_tensors, lw_args, args):
         batches = [random_lengths(args.batch_size, int(avg_seq_len), int(max_seq_len)) for i in range(num_batches)]
     else:
         batches = read_and_chunk_lengths(args.batch_size, num_batches, args.datadir + "/" + dataset_files[args.dataset])
+
+    if pad_sum:
+        batches = add_padded_sum(batches, pad_sum)
 
     time = 0
     for batch in batches:
@@ -222,7 +238,7 @@ def run2(built, i_inputs_tensors, t_inputs_tensors, lw_args, args):
     return t_inputs, batches
 
 
-def lower_or_build(name, s, inputs, args, prep_code_mode='with_prep_code', binds=None, size_fn={}):
+def lower_or_build(name, s, inputs, args, prep_code_mode='with_prep_code', binds=None, size_fn={}, pad_sum=None):
     with tvm.build_config(prep_code_mode=prep_code_mode, fill_in_function_bodies=not args.debug_functions):
         if args.gen_lib:
             fadd, i_bufs = tvm.build(s, inputs, args.target, binds=binds)
@@ -249,5 +265,5 @@ def lower_or_build(name, s, inputs, args, prep_code_mode='with_prep_code', binds
                 assert args.debug_code is None
                 fadd, i_bufs = tvm.build(s, inputs, args.target, binds=binds)
                 # fadd = tvm.runtime.module.load_module('/home/ppf/rnn_compilers/ragged_tensors/incubator-tvm/build/qkt.so')
-                out, batches = run2(fadd, i_bufs, inputs[1], size_fn, args)
+                out, batches = run2(fadd, i_bufs, inputs[1], size_fn, args, pad_sum=pad_sum)
                 return out, batches
