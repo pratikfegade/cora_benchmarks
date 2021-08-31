@@ -1,2 +1,5 @@
 perf/
+**/dump
+**/gemm
+**/log
 genlibs/

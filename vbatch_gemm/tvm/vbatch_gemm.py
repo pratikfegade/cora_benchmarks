@@ -1,13 +1,15 @@
 import numpy as np
 import math
 import os
-import utils
-import run_utils
 import argparse
 import tvm
 from tvm import tir, te
 from tvm.te import RangeDimension as Dim
 from tvm.tir import UninterpFun as Uf, UfWrapper as Ufw
+import sys
+sys.path.append("../../")
+import utils
+import run_utils
 
 parser = run_utils.get_cmd_parser(no_options=True)
 parser.add_argument('--target', nargs='?', default='llvm')
@@ -51,9 +53,9 @@ ls =  {
 }
 
 loop_ufs=[ls[0], ls[1], ls[3]]
-A = te.ragged_placeholder((BATCH_SIZE, MAX_DIM, MAX_DIM), [bd, md, kd], loop_ufs, name='A', width_ufs=None)
+A = te.ragged_placeholder((BATCH_SIZE, MAX_DIM, MAX_DIM), [bd, md, kd], loop_ufs, name='A', width_ufs=None, dtype='float32')
 loop_ufs=[ls[0], ls[2], ls[3]]
-B = te.ragged_placeholder((BATCH_SIZE, MAX_DIM, MAX_DIM), [bd, nd, kd], loop_ufs, name='B', width_ufs=None)
+B = te.ragged_placeholder((BATCH_SIZE, MAX_DIM, MAX_DIM), [bd, nd, kd], loop_ufs, name='B', width_ufs=None, dtype='float32')
 
 loop_ufs=[ls[0], ls[1], ls[2]]
 O = te.ragged_compute((BATCH_SIZE, MAX_DIM, MAX_DIM), [bd, md, nd], loop_ufs,
@@ -94,6 +96,7 @@ if args.target == "cuda":
     O_o_o_o_i, O_o_o_i = s[O].split(O_o_o_i, factor=16)
     O_o_o_o_o, O_o_o_o_i = s[O].split(O_o_o_o_i, factor=1)
     s[O].reorder(O_l_o_o_o, O_o_o_o_o, O_l_o_o_i, O_o_o_o_i, O_l_o_i, O_o_o_i, O_l_i, O_o_i)
+    if not args.debug_functions: s[O].vectorize(O_o_i)
 
     A_shared = s.cache_read(A, "shared", [O_local])
     A_shared_ax01, A_shared_ax0, A_shared_ax1 = tuple(A_shared.op.axis)
@@ -141,7 +144,7 @@ def size_fn(l_inputs):
 
 inputs = [[ms, ns, ks], [A, B, O]]
 name = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0]
-out, batches = run_utils.lower_or_build_vbatch_gemm(name, s, inputs, args, size_fn=size_fn, run_function=run_utils.run_vbatch_gemm)
+out = run_utils.lower_or_build(name, s, inputs, args, size_fn=size_fn, run_function=run_utils.run_vbatch_gemm)
 
 # A, W, O  = out
 # for i in range(BATCH_SIZE):

@@ -149,7 +149,7 @@ def read_and_chunk_lengths(batch_size, max_batches, lengths_file):
     data_lines = read_lengths(lengths_file)
     return list(chunks(data_lines, batch_size, max_batches))
 
-def read_and_chunk_gemm_dims(batch_size, max_batches, lengths_file):
+def read_and_chunk_gemm_dims(batch_size, max_batches, filename):
     curr_dir = os.path.dirname(os.path.realpath(__file__))
     data_lines = [line.strip().split(' ') for line in open(filename, "r", errors='replace')]
     ms = [int(l[0]) for l in data_lines]
@@ -261,24 +261,24 @@ def run_vbatch_gemm(built, i_inputs_tensors, t_inputs_tensors, lw_args, args, pa
 
     ms, ks, ns = read_and_chunk_gemm_dims(args.batch_size, num_batches, args.data_file)
 
-    t_inputs = [create_tvm_array(i, "float32", ctx, lw_args=lw_args([batch])) for i in t_inputs_tensors]
+    t_inputs = [create_tvm_array(i, "float32", ctx, lw_args={}) for i in t_inputs_tensors]
     time = 0
     for i in range(len(ms)):
-        mb = ms[i] / args.tile_size
-        nb = ns[i] / args.tile_size
-        kb = ks[i] / args.tile_size
+        mb = (ms[i] / args.tile_size).astype('int32')
+        nb = (ns[i] / args.tile_size).astype('int32')
+        kb = (ks[i] / args.tile_size).astype('int32')
         l_inputs = [tvm.nd.array(mb, cpu_ctx), tvm.nd.array(nb, cpu_ctx), tvm.nd.array(kb, cpu_ctx)]
         inputs = t_inputs + l_inputs + host_i_inputs + dev_i_inputs
         time += execute(args.target, built, inputs, ctx, args.debug)
 
-    print("RESULT", time / len(batches))
+    print("RESULT", time / len(ms))
     for i in range(len(t_inputs)):
-        size_fn = lw_args([batch])
+        size_fn = {}
         target = None
         if t_inputs_tensors[i] in size_fn:
             target = np.empty(size_fn[t_inputs_tensors[i]], dtype='float32')
         t_inputs[i] = t_inputs[i].asnumpy(target=target, is_src_ragged=is_ragged(t_inputs_tensors[i]))
-    return t_inputs, batches
+    return t_inputs
 
 def lower_or_build(name, s, inputs, args, prep_code_mode='with_prep_code', binds=None, size_fn={}, pad_sum=None, run_function=run2):
     with tvm.build_config(prep_code_mode=prep_code_mode, fill_in_function_bodies=not args.debug_functions):
