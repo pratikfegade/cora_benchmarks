@@ -3,3 +3,4 @@ perf/
 **/gemm
 **/log
 genlibs/
+**/ansor_out_*

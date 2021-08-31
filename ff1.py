@@ -105,6 +105,7 @@ if args.target == "cuda":
         O_l_o_i_o_o_i_fused = s[O].fuse(O_l_o_i, O_o_o_i)
         s[O].bind(O_l_o_i_o_o_i_fused, te.thread_axis("threadIdx.x"))
         s[S].compute_at(s[O], O_l_o_i_o_o_i_fused)
+        s[B_shared].compute_at(s[O], O_l_o_i_o_o_i_fused)
 
         A_shared_ax0_ax1_fused = s[A_shared].fuse(A_shared_ax0, A_shared_ax1)
         A_shared_ax0_ax1_fused_o, A_shared_ax0_ax1_fused_i = s[A_shared].split(A_shared_ax0_ax1_fused, factor=1)
