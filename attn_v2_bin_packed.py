@@ -129,7 +129,8 @@ def schedule_op(O, tile, suffix):
     s[Vs].bind(fiio, thread_x())
     if not args.debug_functions: s[Vs].vectorize(fiii)
 
-O1, O2 = s.split_for_bin_packing(O, {O.op.axis[1]: lb_uf})
+G1, G2 = s.split_for_bin_packing([O], O, {O.op.axis[1]: lb_uf}, include_inputs=True)
+O1, O2 = G1[0], G2[0]
 schedule_op(O1, 64, '1')
 schedule_op(O2, 32, '2')
 

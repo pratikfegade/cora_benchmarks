@@ -1,2 +1,4 @@
 perf/
 genlibs/
+**/dump
+**/core
