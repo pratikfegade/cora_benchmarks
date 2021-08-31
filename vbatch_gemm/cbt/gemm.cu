@@ -1,11 +1,11 @@
-#include <cstdlib>
-#include <cstdio>
 #include <fstream>
+#include <vector>
+#include <iostream>
 #include <cublas_v2.h>
 #include "util.h"
 #include "kernel.h"
 
-double runBatch(int batch_size, int* M, int* N, int* K, int iters, bool warmup) {
+double runBatch(int batch_size, int* M, int* N, int* K, int iters, bool warmup, int TLP_thres) {
   int BATCH = batch_size;
   float **A;
   float **B;
@@ -159,7 +159,7 @@ double runBatch(int batch_size, int* M, int* N, int* K, int iters, bool warmup) 
   //	printf("%d %d %d\n", grid_size.x, grid_size.y, grid_size.z);
 
   //warm-up
-  if (warm) {
+  if (warmup) {
     gemm_256<<<grid_size, block_size, sizeof(float)*4*128*8>>>(dev_M, dev_N, dev_K, dev_A, dev_B, dev_C, dev_T, dev_Ba);
     KernelErrChk();
   }
@@ -189,9 +189,6 @@ double runBatch(int batch_size, int* M, int* N, int* K, int iters, bool warmup) 
     ErrChk(cudaFree(C[i]));
   }
 
-  free(M);
-  free(N);
-  free(K);
   free(A);
   free(B);
   free(C);
@@ -223,10 +220,7 @@ int main(int argc, char** argv) {
   std::string data_file = argv[3];
   int iters = std::stoi(argv[4]);
   int warmup = std::stoi(argv[5]);
-
-  int batch_size = atoi(argv[1]);
-  std::string data_file = argv[2];
-  //int TLP_thres = atoi(argv[2]);
+  //int TLP_thres = atoi(argv[6]);
   int TLP_thres = 65536*2;
 
   std::fstream fs;
@@ -238,16 +232,16 @@ int main(int argc, char** argv) {
 
   double total_time = 0;
   for (int i = 0; i < num_batches; ++i) {
-    std::vector<int> Ms;
-    std::vector<int> Ns;
-    std::vector<int> Ks;
+    std::vector<int> Ms(batch_size, -1);
+    std::vector<int> Ns(batch_size, -1);
+    std::vector<int> Ks(batch_size, -1);
 
     //read matrix config
     for (int i = 0; i < batch_size; ++i){
       fs >> Ms[i] >> Ns[i] >> Ks[i];
     }
 
-    total_time += runBatch(batch_size, Ms, Ns, Ks, iters, warmup);
+    total_time += runBatch(batch_size, Ms.data(), Ns.data(), Ks.data(), iters, warmup, TLP_thres);
   }
 
   total_time /= num_batches;
