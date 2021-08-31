@@ -2,3 +2,7 @@ perf/
 genlibs/
 **/dump
 **/core
+**/dump
+**/gemm
+**/log
+**/ansor_out_*

@@ -1,9 +1,11 @@
 import time
-import run_utils
-import utils
 import tvm
 import argparse
 import ast
+import sys
+sys.path.append("../")
+import run_utils
+import utils
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--target', nargs='?', default='llvm')

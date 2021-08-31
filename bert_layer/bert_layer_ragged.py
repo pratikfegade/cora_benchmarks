@@ -1,11 +1,12 @@
 import sys
 import numpy as np
 import time
-import run_utils
-import utils
 import tvm
 import argparse
 import ast
+sys.path.append("../")
+import run_utils
+import utils
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--target', nargs='?', default='llvm')
@@ -87,8 +88,7 @@ ops_order = [
 ]
 
 # l_inputs: Allocate tensors
-_, avg_seq_len, max_seq_len = args.dataset.split("_")
-batches = [run_utils.random_lengths(args.batch_size, int(avg_seq_len), int(max_seq_len)) for i in range(args.max_batches)]
+batches = run_utils.get_nlp_batches(args.dataset, args.datadir)
 batches = run_utils.add_padded_sum(batches, 128)
 
 pre_linear_in_w = run_utils.create_tvm_array((3, NUM_HEADS, HEAD_SIZE, MODEL_DIM), "float32", dev_ctx, lw_args={})

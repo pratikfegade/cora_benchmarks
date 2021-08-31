@@ -43,6 +43,7 @@ def get_cmd_parser(no_options=False):
         parser.add_argument('--gen-lib', dest='gen_lib', default=False, action='store_true')
         parser.add_argument('--dataset', nargs='?', default='random')
         parser.add_argument('--datadir', nargs='?', default='random')
+        parser.add_argument('--gpu', nargs='?', default='v100', choices=['titanx', 'v100'])
     return parser
 
 def prefix_sum(extent, fn):
@@ -149,6 +150,16 @@ def read_and_chunk_lengths(batch_size, max_batches, lengths_file):
     data_lines = read_lengths(lengths_file)
     return list(chunks(data_lines, batch_size, max_batches))
 
+def read_and_chunk_gemm_dims(batch_size, max_batches, filename):
+    curr_dir = os.path.dirname(os.path.realpath(__file__))
+    data_lines = [line.strip().split(' ') for line in open(filename, "r", errors='replace')]
+    ms = [int(l[0]) for l in data_lines]
+    ns = [int(l[1]) for l in data_lines]
+    ks = [int(l[2]) for l in data_lines]
+    return (list(chunks(ms, batch_size, max_batches)),
+            list(chunks(ns, batch_size, max_batches)),
+            list(chunks(ks, batch_size, max_batches)))
+
 def is_ragged(t):
     if isinstance(t, tvm.te.Tensor):
         if t.op.output_layout(0) is None:
@@ -161,6 +172,13 @@ def is_ragged(t):
         print(t)
         assert False
 
+def get_nlp_batches(batch_size, num_batches, dataset, datadir):
+    if dataset.startswith("random"):
+        _, avg_seq_len, max_seq_len = dataset.split("_")
+        return [random_lengths(batch_size, int(avg_seq_len), int(max_seq_len)) for i in range(num_batches)]
+    else:
+        return read_and_chunk_lengths(batch_size, num_batches, datadir + "/" + dataset_files[dataset])
+
 def run(built, i_inputs_tensors, t_inputs_tensors, batch_size, num_batches, dataset, datadir, target, debug):
     ctx = get_ctx(target)
     cpu_ctx = get_ctx("llvm")
@@ -171,13 +189,7 @@ def run(built, i_inputs_tensors, t_inputs_tensors, batch_size, num_batches, data
     t_inputs = [tvm.nd.array(create_numpy_array(i, "float32"), ctx) for i in t_inputs_tensors]
     if debug: num_batches = 1
 
-    # print([np.mean(t.asnumpy()) for t in t_inputs])
-
-    if dataset.startswith("random"):
-        _, avg_seq_len, max_seq_len = dataset.split("_")
-        batches = [random_lengths(batch_size, int(avg_seq_len), int(max_seq_len)) for i in range(num_batches)]
-    else:
-        batches = read_and_chunk_lengths(batch_size, num_batches, datadir + "/" + dataset_files[dataset])
+    batches = get_nlp_batches(args.batch_size, num_batches, args.dataset, args.datadir)
 
     time = 0
     for batch in batches:
@@ -211,14 +223,8 @@ def run2(built, i_inputs_tensors, t_inputs_tensors, lw_args, args, pad_sum=None)
     num_batches = args.max_batches
     if args.debug: num_batches = 1
 
-    if args.dataset.startswith("random"):
-        _, avg_seq_len, max_seq_len = args.dataset.split("_")
-        batches = [random_lengths(args.batch_size, int(avg_seq_len), int(max_seq_len)) for i in range(num_batches)]
-    else:
-        batches = read_and_chunk_lengths(args.batch_size, num_batches, args.datadir + "/" + dataset_files[args.dataset])
-
-    if pad_sum:
-        batches = add_padded_sum(batches, pad_sum)
+    batches = get_nlp_batches(args.batch_size, num_batches, args.dataset, args.datadir)
+    if pad_sum: batches = add_padded_sum(batches, pad_sum)
 
     time = 0
     for batch in batches:
@@ -238,7 +244,39 @@ def run2(built, i_inputs_tensors, t_inputs_tensors, lw_args, args, pad_sum=None)
     return t_inputs, batches
 
 
-def lower_or_build(name, s, inputs, args, prep_code_mode='with_prep_code', binds=None, size_fn={}, pad_sum=None):
+def run_vbatch_gemm(built, i_inputs_tensors, t_inputs_tensors, lw_args, args, pad_sum=None):
+    ctx = get_ctx(args.target)
+    cpu_ctx = get_ctx("llvm")
+    host_i_inputs, dev_i_inputs = [], []
+    if len(i_inputs_tensors) == 2:
+        host_i_inputs = [tvm.nd.array(create_numpy_array(i, "int32"), cpu_ctx) for i in i_inputs_tensors[0]]
+        dev_i_inputs = [tvm.nd.array(create_numpy_array(i, "int32"), ctx) for i in i_inputs_tensors[1]]
+
+    num_batches = args.max_batches
+    if args.debug: num_batches = 1
+
+    ms, ks, ns = read_and_chunk_gemm_dims(args.batch_size, num_batches, args.data_file)
+
+    t_inputs = [create_tvm_array(i, "float32", ctx, lw_args={}) for i in t_inputs_tensors]
+    time = 0
+    for i in range(len(ms)):
+        mb = (ms[i] / args.tile_size).astype('int32')
+        nb = (ns[i] / args.tile_size).astype('int32')
+        kb = (ks[i] / args.tile_size).astype('int32')
+        l_inputs = [tvm.nd.array(mb, cpu_ctx), tvm.nd.array(nb, cpu_ctx), tvm.nd.array(kb, cpu_ctx)]
+        inputs = t_inputs + l_inputs + host_i_inputs + dev_i_inputs
+        time += execute(args.target, built, inputs, ctx, args.debug)
+
+    print("RESULT", time / len(ms))
+    for i in range(len(t_inputs)):
+        size_fn = {}
+        target = None
+        if t_inputs_tensors[i] in size_fn:
+            target = np.empty(size_fn[t_inputs_tensors[i]], dtype='float32')
+        t_inputs[i] = t_inputs[i].asnumpy(target=target, is_src_ragged=is_ragged(t_inputs_tensors[i]))
+    return t_inputs
+
+def lower_or_build(name, s, inputs, args, prep_code_mode='with_prep_code', binds=None, size_fn={}, pad_sum=None, run_function=run2):
     with tvm.build_config(prep_code_mode=prep_code_mode, fill_in_function_bodies=not args.debug_functions):
         if args.gen_lib:
             fadd, i_bufs = tvm.build(s, inputs, args.target, binds=binds)
@@ -265,5 +303,4 @@ def lower_or_build(name, s, inputs, args, prep_code_mode='with_prep_code', binds
                 assert args.debug_code is None
                 fadd, i_bufs = tvm.build(s, inputs, args.target, binds=binds)
                 # fadd = tvm.runtime.module.load_module('/home/ppf/rnn_compilers/ragged_tensors/incubator-tvm/build/qkt.so')
-                out, batches = run2(fadd, i_bufs, inputs[1], size_fn, args, pad_sum=pad_sum)
-                return out, batches
+                return run_function(fadd, i_bufs, inputs[1], size_fn, args, pad_sum=pad_sum)
