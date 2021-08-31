@@ -43,6 +43,7 @@ def get_cmd_parser(no_options=False):
         parser.add_argument('--gen-lib', dest='gen_lib', default=False, action='store_true')
         parser.add_argument('--dataset', nargs='?', default='random')
         parser.add_argument('--datadir', nargs='?', default='random')
+        parser.add_argument('--gpu', nargs='?', default='v100', choices=['titanx', 'v100'])
     return parser
 
 def prefix_sum(extent, fn):
@@ -171,12 +172,12 @@ def is_ragged(t):
         print(t)
         assert False
 
-def get_nlp_batches(dataset, datadir):
+def get_nlp_batches(batch_size, num_batches, dataset, datadir):
     if dataset.startswith("random"):
         _, avg_seq_len, max_seq_len = dataset.split("_")
-        batches = [random_lengths(batch_size, int(avg_seq_len), int(max_seq_len)) for i in range(num_batches)]
+        return [random_lengths(batch_size, int(avg_seq_len), int(max_seq_len)) for i in range(num_batches)]
     else:
-        batches = read_and_chunk_lengths(batch_size, num_batches, datadir + "/" + dataset_files[dataset])
+        return read_and_chunk_lengths(batch_size, num_batches, datadir + "/" + dataset_files[dataset])
 
 def run(built, i_inputs_tensors, t_inputs_tensors, batch_size, num_batches, dataset, datadir, target, debug):
     ctx = get_ctx(target)
@@ -188,7 +189,7 @@ def run(built, i_inputs_tensors, t_inputs_tensors, batch_size, num_batches, data
     t_inputs = [tvm.nd.array(create_numpy_array(i, "float32"), ctx) for i in t_inputs_tensors]
     if debug: num_batches = 1
 
-    batches = get_nlp_batches(args.dataset, args.datadir)
+    batches = get_nlp_batches(args.batch_size, num_batches, args.dataset, args.datadir)
 
     time = 0
     for batch in batches:
@@ -222,7 +223,7 @@ def run2(built, i_inputs_tensors, t_inputs_tensors, lw_args, args, pad_sum=None)
     num_batches = args.max_batches
     if args.debug: num_batches = 1
 
-    batches = get_nlp_batches(args.dataset, args.datadir)
+    batches = get_nlp_batches(args.batch_size, num_batches, args.dataset, args.datadir)
     if pad_sum: batches = add_padded_sum(batches, pad_sum)
 
     time = 0
