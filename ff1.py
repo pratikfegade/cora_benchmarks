@@ -56,7 +56,7 @@ O = te.ragged_compute((BATCH_SIZE, MAX_LEN, OUT_SIZE), [bd, s1, od], loop_ufs,
 s = tvm.create_schedule([O.op])
 
 if args.target == "cuda":
-    if args.gpu == 'v100':
+    if False:
         S_b, S_l, S_o, S_k = tuple(S.op.axis) + tuple(S.op.reduce_axis)
         S_l = s[S].fuse(S_b, S_l, padding = 1)
 
@@ -67,8 +67,8 @@ if args.target == "cuda":
         s[S].reorder(S_k_o_o, S_k_o_i, S_l_o_i, S_o, S_k_i, S_l_i)
 
         if not args.debug_code:
-            s[S].unroll(S_k_o_i)
-            s[S].unroll(S_l_o_i)
+            # s[S].unroll(S_k_o_i)
+            # s[S].unroll(S_l_o_i)
             s[S].unroll(S_o)
             s[S].unroll(S_k_i)
             s[S].unroll(S_l_i)
@@ -121,7 +121,7 @@ if args.target == "cuda":
 
         B_shared_ax0_o, B_shared_ax0_i = s[B_shared].split(B_shared_ax0, factor=2)
         s[B_shared].vectorize(B_shared_ax0_i)
-        B_shared_ax0_o_o, B_shared_ax0_o_i = s[B_shared].split(B_shared_ax0_o, factor=32)
+        B_shared_ax0_o_o, B_shared_ax0_o_i = s[B_shared].split(B_shared_ax0_o, factor=128)
         s[B_shared].bind(B_shared_ax0_o_i, te.thread_axis("threadIdx.x"))
 
         # s[S].pragma(S_l_o_o_o_o, "auto_unroll_max_step", 1024)

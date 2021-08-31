@@ -51,7 +51,6 @@ O = te.ragged_compute((BATCH_SIZE, MAX_LEN, OUT_SIZE), [bd, s1, od], loop_ufs,
 s = tvm.create_schedule([O.op])
 
 if args.target == "cuda":
-    # O_local, = s.cache_write([O], "local", pass_storage_layouts=True)
     O_local, = s.cache_write([O], "local", storage_layout_mode='loop_layout')
 
     b, l, o, k = tuple(O_local.op.axis) + tuple(O_local.op.reduce_axis)
