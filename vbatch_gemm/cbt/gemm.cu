@@ -5,42 +5,8 @@
 #include "util.h"
 #include "kernel.h"
 
-#define N_RUNS 10
-
-int  main (int argc, char** argv) {
-
-  ErrChk(cudaSetDevice(0));
-
-  if(argc<3){
-    printf("Usage: input the batch size and the data file\n");
-    exit(EXIT_FAILURE);
-  }
-
-  int BATCH = atoi(argv[1]);
-  std::string data_file = argv[2];
-  //int TLP_thres = atoi(argv[2]);
-  int TLP_thres = 65536*2;
-
-  int *M;
-  int *N;
-  int *K;
-
-  M = (int*) malloc(BATCH * sizeof(int));
-  N = (int*) malloc(BATCH * sizeof(int));
-  K = (int*) malloc(BATCH * sizeof(int));
-
-  std::fstream fs;
-  fs.open(data_file);
-  if (!fs.is_open()){
-    printf("Error opening input\n");
-    exit(EXIT_FAILURE);
-  }
-
-  //read matrix config
-  for (int i=0; i<BATCH; ++i){
-    fs>>M[i]>>N[i]>>K[i];
-  }
-
+double runBatch(int batch_size, int* M, int* N, int* K, int iters, bool warmup) {
+  int BATCH = batch_size;
   float **A;
   float **B;
   float **C;
@@ -193,13 +159,15 @@ int  main (int argc, char** argv) {
   //	printf("%d %d %d\n", grid_size.x, grid_size.y, grid_size.z);
 
   //warm-up
-  gemm_256<<<grid_size, block_size, sizeof(float)*4*128*8>>>(dev_M, dev_N, dev_K, dev_A, dev_B, dev_C, dev_T, dev_Ba);
-  KernelErrChk();
+  if (warm) {
+    gemm_256<<<grid_size, block_size, sizeof(float)*4*128*8>>>(dev_M, dev_N, dev_K, dev_A, dev_B, dev_C, dev_T, dev_Ba);
+    KernelErrChk();
+  }
 
   ErrChk(cudaEventCreate(&start));
   ErrChk(cudaEventRecord(start,0));
 
-  for (int run = 0; run<N_RUNS; ++run){
+  for (int run = 0; run < iters; ++run){
     gemm_256<<<grid_size, block_size, sizeof(float)*4*128*8>>>(dev_M, dev_N, dev_K, dev_A, dev_B, dev_C, dev_T, dev_Ba);
     KernelErrChk();
   }
@@ -209,10 +177,10 @@ int  main (int argc, char** argv) {
   ErrChk(cudaEventSynchronize(stop));
   ErrChk(cudaEventElapsedTime(&elapsedTime, start,stop));
 
-  time = elapsedTime/N_RUNS;
-  printf("Execution time: %f\n", time);
-  time /= 1.0e3; //convert time unit from millisecond to second
-  gflops_per_sec   = gflops / time;
+  time = elapsedTime/iters;
+  // printf("Execution time: %f\n", time);
+  // time /= 1.0e3; //convert time unit from millisecond to second
+  // gflops_per_sec   = gflops / time;
   // printf("GLOPS/sec: %f\n", gflops_per_sec);
 
   for (int i=0; i<BATCH; ++i){
@@ -238,5 +206,52 @@ int  main (int argc, char** argv) {
   ErrChk(cudaFree(dev_B));
   ErrChk(cudaFree(dev_C));
 
+  return time;
+}
+
+
+int main(int argc, char** argv) {
+  ErrChk(cudaSetDevice(0));
+
+  if(argc < 6){
+    printf("Usage: input the batch size and the data file\n");
+    exit(EXIT_FAILURE);
+  }
+
+  int batch_size = std::stoi(argv[1]);
+  int num_batches = std::stoi(argv[2]);
+  std::string data_file = argv[3];
+  int iters = std::stoi(argv[4]);
+  int warmup = std::stoi(argv[5]);
+
+  int batch_size = atoi(argv[1]);
+  std::string data_file = argv[2];
+  //int TLP_thres = atoi(argv[2]);
+  int TLP_thres = 65536*2;
+
+  std::fstream fs;
+  fs.open(data_file);
+  if (!fs.is_open()){
+    printf("Error opening input\n");
+    exit(EXIT_FAILURE);
+  }
+
+  double total_time = 0;
+  for (int i = 0; i < num_batches; ++i) {
+    std::vector<int> Ms;
+    std::vector<int> Ns;
+    std::vector<int> Ks;
+
+    //read matrix config
+    for (int i = 0; i < batch_size; ++i){
+      fs >> Ms[i] >> Ns[i] >> Ks[i];
+    }
+
+    total_time += runBatch(batch_size, Ms, Ns, Ks, iters, warmup);
+  }
+
+  total_time /= num_batches;
+
+  std::cout << total_time << std::endl;
   return 0;
 }

@@ -89,10 +89,11 @@ float testCuBLAS(int batch_size, std::vector<int> ms, std::vector<int> ns, std::
 
 int main(int argc, char *argv[]) {
   int batch_size = std::stoi(argv[1]);
-  std::string data_file = argv[2];
-  std::string mode = argv[3];
-  int iters = std::stoi(argv[4]);
-  int warmup = std::stoi(argv[5]);
+  int num_batches = std::stoi(argv[2]);
+  std::string data_file = argv[3];
+  std::string mode = argv[4];
+  int iters = std::stoi(argv[5]);
+  int warmup = std::stoi(argv[6]);
 
   std::vector<int> ms;
   std::vector<int> ns;
@@ -106,5 +107,21 @@ int main(int argc, char *argv[]) {
     ks.push_back(k);
   }
 
-  std::cout << testCuBLAS(batch_size, ms, ns, ks, mode, iters, warmup) << std::endl;
+  float total_time = 0;
+  for (int i = 0; i < num_batches; ++i) {
+    std::vector<int> bms;
+    std::vector<int> bns;
+    std::vector<int> bks;
+
+    for (int j = 0; j < batch_size; ++j) {
+      bms.push_back(ms[i * batch_size + j]);
+      bns.push_back(ns[i * batch_size + j]);
+      bks.push_back(ks[i * batch_size + j]);
+    }
+    total_time += testCuBLAS(batch_size, bms, bns, bks, mode, iters, warmup);
+  }
+
+  total_time /= num_batches;
+
+  std::cout << total_time << std::endl;
 }
