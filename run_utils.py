@@ -171,6 +171,13 @@ def is_ragged(t):
         print(t)
         assert False
 
+def get_nlp_batches(dataset, datadir):
+    if dataset.startswith("random"):
+        _, avg_seq_len, max_seq_len = dataset.split("_")
+        batches = [random_lengths(batch_size, int(avg_seq_len), int(max_seq_len)) for i in range(num_batches)]
+    else:
+        batches = read_and_chunk_lengths(batch_size, num_batches, datadir + "/" + dataset_files[dataset])
+
 def run(built, i_inputs_tensors, t_inputs_tensors, batch_size, num_batches, dataset, datadir, target, debug):
     ctx = get_ctx(target)
     cpu_ctx = get_ctx("llvm")
@@ -181,13 +188,7 @@ def run(built, i_inputs_tensors, t_inputs_tensors, batch_size, num_batches, data
     t_inputs = [tvm.nd.array(create_numpy_array(i, "float32"), ctx) for i in t_inputs_tensors]
     if debug: num_batches = 1
 
-    # print([np.mean(t.asnumpy()) for t in t_inputs])
-
-    if dataset.startswith("random"):
-        _, avg_seq_len, max_seq_len = dataset.split("_")
-        batches = [random_lengths(batch_size, int(avg_seq_len), int(max_seq_len)) for i in range(num_batches)]
-    else:
-        batches = read_and_chunk_lengths(batch_size, num_batches, datadir + "/" + dataset_files[dataset])
+    batches = get_nlp_batches(args.dataset, args.datadir)
 
     time = 0
     for batch in batches:
@@ -221,14 +222,8 @@ def run2(built, i_inputs_tensors, t_inputs_tensors, lw_args, args, pad_sum=None)
     num_batches = args.max_batches
     if args.debug: num_batches = 1
 
-    if args.dataset.startswith("random"):
-        _, avg_seq_len, max_seq_len = args.dataset.split("_")
-        batches = [random_lengths(args.batch_size, int(avg_seq_len), int(max_seq_len)) for i in range(num_batches)]
-    else:
-        batches = read_and_chunk_lengths(args.batch_size, num_batches, args.datadir + "/" + dataset_files[args.dataset])
-
-    if pad_sum:
-        batches = add_padded_sum(batches, pad_sum)
+    batches = get_nlp_batches(args.dataset, args.datadir)
+    if pad_sum: batches = add_padded_sum(batches, pad_sum)
 
     time = 0
     for batch in batches:
