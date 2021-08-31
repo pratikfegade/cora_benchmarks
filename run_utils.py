@@ -302,5 +302,4 @@ def lower_or_build(name, s, inputs, args, prep_code_mode='with_prep_code', binds
                 assert args.debug_code is None
                 fadd, i_bufs = tvm.build(s, inputs, args.target, binds=binds)
                 # fadd = tvm.runtime.module.load_module('/home/ppf/rnn_compilers/ragged_tensors/incubator-tvm/build/qkt.so')
-                out, batches = run_function(fadd, i_bufs, inputs[1], size_fn, args, pad_sum=pad_sum)
-                return out, batches
+                return run_function(fadd, i_bufs, inputs[1], size_fn, args, pad_sum=pad_sum)
