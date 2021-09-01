@@ -1,11 +1,12 @@
+import os
 import time
 import tvm
 import argparse
 import ast
 import sys
-sys.path.append("../")
-import run_utils
+sys.path.append(os.path.dirname(os.path.realpath(__file__)) + "/../../")
 import utils
+import run_utils
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--target', nargs='?', default='llvm')
@@ -15,7 +16,6 @@ parser.add_argument('--batch-size', dest='batch_size', default=32, type=int)
 parser.add_argument('--dense-storage', dest='dense_storage', default=False, action='store_true')
 parser.add_argument('--bin-packed', dest='bin_packed', default=False, action='store_true')
 parser.add_argument('--dataset', nargs='?', default='random_384_512')
-parser.add_argument('--datadir', nargs='?', default='random')
 args = parser.parse_args()
 
 BATCH_SIZE = args.batch_size
@@ -81,10 +81,12 @@ attn_v_out = run_utils.create_tvm_array((BATCH_SIZE, MAX_LEN, NUM_HEADS, HEAD_SI
 post_linear_in_a = attn_v_out
 post_linear_in_w = run_utils.create_tvm_array((NUM_HEADS * HEAD_SIZE, MODEL_DIM), "float32", dev_ctx, lw_args={})
 post_linear_in_b = run_utils.create_tvm_array((MODEL_DIM,), "float32", dev_ctx, lw_args={})
-post_linear_out = run_utils.create_tvm_array((BATCH_SIZE * MAX_LEN, MODEL_DIM), "float32", dev_ctx, lw_args={})
+# post_linear_out = run_utils.create_tvm_array((BATCH_SIZE * MAX_LEN, MODEL_DIM), "float32", dev_ctx, lw_args={})
+post_linear_out = run_utils.create_tvm_array((BATCH_SIZE, MAX_LEN, MODEL_DIM), "float32", dev_ctx, lw_args={})
 
 norm_add1_in_a1 = pre_linear_in_qkv.create_view((BATCH_SIZE, MAX_LEN, MODEL_DIM))
-norm_add1_in_a2 = post_linear_out.create_view((BATCH_SIZE, MAX_LEN, MODEL_DIM))
+# norm_add1_in_a2 = post_linear_out.create_view((BATCH_SIZE, MAX_LEN, MODEL_DIM))
+norm_add1_in_a2 = post_linear_out
 norm_add1_out = run_utils.create_tvm_array((BATCH_SIZE, MAX_LEN, MODEL_DIM), "float32", dev_ctx, lw_args={})
 
 ff1_in_a = norm_add1_out
@@ -113,20 +115,26 @@ ops = [
 ]
 
 # l_inputs: Allocate tensors
-_, avg_seq_len, max_seq_len = args.dataset.split("_")
-batches = [run_utils.random_lengths(args.batch_size, int(avg_seq_len), int(max_seq_len)) for i in range(args.max_batches)]
+batches = run_utils.get_nlp_batches(args.batch_size, args.max_batches, args.dataset, run_utils.DATA_DIR)
+batches = run_utils.add_padded_sum(batches, 128)
 
 times = []
+witers = 10
+iters = 10
 for batch in batches:
     sorted(batch)
     l_inputs = [tvm.nd.array(batch, cpu_ctx)]
 
+    for i in range(witers):
+        for op in ops: op.execute(l_inputs)
+        dev_ctx.sync()
+
     start = time.perf_counter()
-    for op in ops:
-        op.execute(l_inputs)
-    dev_ctx.sync()
+    for i in range(iters):
+        for op in ops: op.execute(l_inputs)
+        dev_ctx.sync()
     end = time.perf_counter()
     times.append(end - start)
 
-total_time = sum(times[50:])*1000.0
-print(total_time / (len(batches) - 50))
+total_time = sum(times)*1000.0
+print(total_time / (len(batches) * iters))

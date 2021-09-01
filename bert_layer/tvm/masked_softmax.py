@@ -1,11 +1,13 @@
 import os
-import run_utils
 import argparse
-import utils
 import tvm
 from tvm import tir, te
 from tvm.te import RangeDimension as Dim
 from tvm.tir import UninterpFun as Uf
+import sys
+sys.path.append(os.path.dirname(os.path.realpath(__file__)) + "/../../")
+import utils
+import run_utils
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--target', nargs='?', default='llvm')
