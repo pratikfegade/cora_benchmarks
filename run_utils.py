@@ -26,7 +26,8 @@ dataset_max_lens = {
     "race" : 512,
 }
 
-MODULE_DIR = os.path.dirname(os.path.realpath(__file__)) + '/genlibs/'
+MODULE_DIR = os.path.dirname(os.path.realpath(__file__)) + '/bert_layer/tvm/genlibs/'
+DATA_DIR = os.path.dirname(os.path.realpath(__file__)) + '/data/'
 
 def get_cmd_parser(no_options=False):
     parser = argparse.ArgumentParser()
@@ -42,7 +43,6 @@ def get_cmd_parser(no_options=False):
         parser.add_argument('--dense-storage', dest='dense_storage', default=False, action='store_true')
         parser.add_argument('--gen-lib', dest='gen_lib', default=False, action='store_true')
         parser.add_argument('--dataset', nargs='?', default='random')
-        parser.add_argument('--datadir', nargs='?', default='random')
         parser.add_argument('--gpu', nargs='?', default='v100', choices=['titanx', 'v100'])
     return parser
 
@@ -190,7 +190,7 @@ def run(built, i_inputs_tensors, t_inputs_tensors, batch_size, num_batches, data
     t_inputs = [tvm.nd.array(create_numpy_array(i, "float32"), ctx) for i in t_inputs_tensors]
     if debug: num_batches = 1
 
-    batches = get_nlp_batches(args.batch_size, num_batches, args.dataset, args.datadir)
+    batches = get_nlp_batches(args.batch_size, num_batches, args.dataset, DATA_DIR)
 
     time = 0
     for batch in batches:
@@ -224,7 +224,7 @@ def run2(built, i_inputs_tensors, t_inputs_tensors, lw_args, args, pad_sum=None)
     num_batches = args.max_batches
     if args.debug: num_batches = 1
 
-    batches = get_nlp_batches(args.batch_size, num_batches, args.dataset, args.datadir)
+    batches = get_nlp_batches(args.batch_size, num_batches, args.dataset, DATA_DIR)
     if pad_sum: batches = add_padded_sum(batches, pad_sum)
 
     time = 0

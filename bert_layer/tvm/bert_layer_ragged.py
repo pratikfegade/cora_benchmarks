@@ -64,11 +64,11 @@ dev_ctx = run_utils.get_ctx(args.target)
 cpu_ctx = run_utils.get_ctx("llvm")
 
 ops = {
-    'pre_linear2': Op('pre_linear2', 'pre_linear2', [], cpu_ctx, dev_ctx),
-    'qkt2': Op('qkt2', 'qkt2', [], cpu_ctx, dev_ctx),
-    'softmax2': Op('softmax2', 'softmax2', [], cpu_ctx, dev_ctx),
-    'attn_v2': Op('attn_v2', 'attn_v2', [], cpu_ctx, dev_ctx),
-    'post_linear2': Op('post_linear2', 'post_linear2', [], cpu_ctx, dev_ctx),
+    'pre_linear': Op('pre_linear', 'pre_linear', [], cpu_ctx, dev_ctx),
+    'qkt': Op('qkt', 'qkt', [], cpu_ctx, dev_ctx),
+    'softmax': Op('softmax', 'softmax', [], cpu_ctx, dev_ctx),
+    'attn_v': Op('attn_v', 'attn_v', [], cpu_ctx, dev_ctx),
+    'post_linear': Op('post_linear', 'post_linear', [], cpu_ctx, dev_ctx),
     'norm_add1': Op('norm_add1', 'norm_add', [], cpu_ctx, dev_ctx),
     'ff1': Op('ff1', 'ff1', [], cpu_ctx, dev_ctx),
     'ff2': Op('ff2', 'ff2', [], cpu_ctx, dev_ctx),
@@ -76,11 +76,11 @@ ops = {
 }
 
 ops_order = [
-    ops['pre_linear2'],
-    ops['qkt2'],
-    ops['softmax2'],
-    ops['attn_v2'],
-    ops['post_linear2'],
+    ops['pre_linear'],
+    ops['qkt'],
+    ops['softmax'],
+    ops['attn_v'],
+    ops['post_linear'],
     ops['norm_add1'],
     ops['ff1'],
     ops['ff2'],
@@ -150,11 +150,11 @@ for batch in batches:
     norm_add2_out = run_utils.create_ragged_array((batch_size_, MAX_LEN, MODEL_DIM), MODEL_DIM*sum1, "float32", dev_ctx)
 
 
-    ops['pre_linear2'].tensor_inputs = [pre_linear_in_qkv, pre_linear_in_w, pre_linear_in_b, pre_linear_out]
-    ops['qkt2'].tensor_inputs = [qkt_in_q, qkt_in_k, qkt_out]
-    ops['softmax2'].tensor_inputs = [softmax_in, softmax_out]
-    ops['attn_v2'].tensor_inputs = [attn_v_in_v, attn_v_in_attn, attn_v_out]
-    ops['post_linear2'].tensor_inputs = [post_linear_in_a, post_linear_in_w, post_linear_in_b, post_linear_out]
+    ops['pre_linear'].tensor_inputs = [pre_linear_in_qkv, pre_linear_in_w, pre_linear_in_b, pre_linear_out]
+    ops['qkt'].tensor_inputs = [qkt_in_q, qkt_in_k, qkt_out]
+    ops['softmax'].tensor_inputs = [softmax_in, softmax_out]
+    ops['attn_v'].tensor_inputs = [attn_v_in_v, attn_v_in_attn, attn_v_out]
+    ops['post_linear'].tensor_inputs = [post_linear_in_a, post_linear_in_w, post_linear_in_b, post_linear_out]
     ops['norm_add1'].tensor_inputs = [norm_add1_in_a1, norm_add1_in_a2, norm_add1_out]
     ops['ff1'].tensor_inputs = [ff1_in_a, ff1_in_w, ff1_in_b, ff1_out]
     ops['ff2'].tensor_inputs = [ff2_in_a, ff2_in_w, ff2_out]

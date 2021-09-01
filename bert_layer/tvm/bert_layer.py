@@ -13,6 +13,7 @@ parser.add_argument('--dtype', dest='dtype', nargs='?', default='float32')
 parser.add_argument('--max-batches', dest='max_batches', default=200, type=int)
 parser.add_argument('--batch-size', dest='batch_size', default=32, type=int)
 parser.add_argument('--dense-storage', dest='dense_storage', default=False, action='store_true')
+parser.add_argument('--bin-packed', dest='bin_packed', default=False, action='store_true')
 parser.add_argument('--dataset', nargs='?', default='random_384_512')
 parser.add_argument('--datadir', nargs='?', default='random')
 args = parser.parse_args()
@@ -100,11 +101,11 @@ norm_add2_in_a2 = ff2_out
 norm_add2_out = run_utils.create_tvm_array((BATCH_SIZE, MAX_LEN, MODEL_DIM), "float32", dev_ctx, lw_args={})
 
 ops = [
-    Op('pre_linear2', 'pre_linear2', [pre_linear_in_qkv, pre_linear_in_w, pre_linear_in_b, pre_linear_out], cpu_ctx, dev_ctx),
-    Op('qkt2', 'qkt2', [qkt_in_q, qkt_in_k, qkt_out], cpu_ctx, dev_ctx),
-    Op('softmax2', 'softmax2', [softmax_in, softmax_out], cpu_ctx, dev_ctx),
-    Op('attn_v2', 'attn_v2', [attn_v_in_v, attn_v_in_attn, attn_v_out], cpu_ctx, dev_ctx),
-    Op('post_linear2', 'post_linear2', [post_linear_in_a, post_linear_in_w, post_linear_in_b, post_linear_out], cpu_ctx, dev_ctx),
+    Op('pre_linear', 'pre_linear', [pre_linear_in_qkv, pre_linear_in_w, pre_linear_in_b, pre_linear_out], cpu_ctx, dev_ctx),
+    Op('qkt', 'qkt_bin_packed' if args.bin_packed else 'qkt', [qkt_in_q, qkt_in_k, qkt_out], cpu_ctx, dev_ctx),
+    Op('softmax', 'softmax', [softmax_in, softmax_out], cpu_ctx, dev_ctx),
+    Op('attn_v', 'attn_v_bin_packed' if args.bin_packed else 'attn_v', [attn_v_in_v, attn_v_in_attn, attn_v_out], cpu_ctx, dev_ctx),
+    Op('post_linear', 'post_linear', [post_linear_in_a, post_linear_in_w, post_linear_in_b, post_linear_out], cpu_ctx, dev_ctx),
     Op('norm_add1', 'norm_add', [norm_add1_in_a1, norm_add1_in_a2, norm_add1_out], cpu_ctx, dev_ctx),
     Op('ff1', 'ff1', [ff1_in_a, ff1_in_w, ff1_in_b, ff1_out], cpu_ctx, dev_ctx),
     Op('ff2', 'ff2', [ff2_in_a, ff2_in_w, ff2_out], cpu_ctx, dev_ctx),
