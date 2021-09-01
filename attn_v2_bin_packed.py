@@ -1,3 +1,4 @@
+import numpy as np
 import os
 import argparse
 import run_utils
@@ -5,22 +6,9 @@ import utils
 import tvm
 from tvm import tir, te
 from tvm.te import RangeDimension as Dim
-from tvm.tir import UninterpFun as Uf
+from tvm.tir import UninterpFun as Uf, UfWrapper as Ufw
 
-parser = argparse.ArgumentParser()
-parser.add_argument('--target', nargs='?', default='llvm')
-parser.add_argument('--dtype', dest='dtype', nargs='?', default='float32')
-parser.add_argument('--max-batches', dest='max_batches', default=10, type=int)
-parser.add_argument('--batch-size', dest='batch_size', default=32, type=int)
-parser.add_argument('--peel-loops', dest='peel_loops', default=False, action='store_true')
-parser.add_argument('--unroll-loops', dest='unroll_loops', default=False, action='store_true')
-parser.add_argument('--debug', dest='debug', default=False, action='store_true')
-parser.add_argument('--debug-code', dest='debug_code', default=False, action='store_true')
-parser.add_argument('--debug-functions', dest='debug_functions', default=False, action='store_true')
-parser.add_argument('--manual-code', dest='manual_code', default=False, action='store_true')
-parser.add_argument('--dense-storage', dest='dense_storage', default=False, action='store_true')
-parser.add_argument('--dataset', nargs='?', default='random')
-parser.add_argument('--datadir', nargs='?', default='random')
+parser = run_utils.get_cmd_parser()
 args = parser.parse_args()
 
 MAX_LEN = utils.ceilmult(run_utils.get_dataset_max_len(args.dataset), 64)
@@ -35,32 +23,40 @@ md = Dim('md')
 s1 = Dim('s1')
 s2 = Dim('s2')
 hd = Dim('hd')
+qk = Dim('qk')
+
+def ubpw(name, pad): return Ufw(name, "l", (pad, MAX_LEN), [bd], [lens], lambda lens: lambda b: utils.ceilmult(lens[b], pad))
+def lbw(name): return Ufw(name, "l", (0, MAX_LEN), [bd], [lens], lambda lens: lambda b: utils.floormult(lens[b], 64))
+ubufw32 = ubpw('ub', 32)
+ubufwrt = ubpw('ub', red_tile)
+lbufw = lbw('lb')
 
 def ub_pad(name, pad): return Uf(name, 'l', (pad, MAX_LEN), [bd], lambda b: utils.ceilmult(lens[b], pad))
 def lb(name): return Uf(name, 'l', (0, MAX_LEN), [bd], lambda b: utils.floormult(lens[b], 64))
 
+qk_uf = Uf.from_constant('qk', 3, 'l')
 bd_uf = Uf.from_constant('bd', args.batch_size, 'l')
 md_uf = Uf.from_constant('md', NUM_HEADS, 'l')
-lb_uf = lb('lb')
-ub_uf = ub_pad('ub', 32)
+lb_uf = lbufw.get_uf()
+ub_uf = ubufw32.get_uf()
 hd_uf = Uf.from_constant('hd', HEAD_SIZE, 'l')
-s1_uf = ub_pad('k', red_tile)
+s1_uf = ubufwrt.get_uf()
 
 loop_ufs=[bd_uf, ub_uf, md_uf, s1_uf]
 width_ufs=loop_ufs
 A = te.ragged_placeholder((args.batch_size, MAX_LEN, NUM_HEADS, MAX_LEN), [bd, s2, md, s1], loop_ufs,
                           name='A', width_ufs=width_ufs)
 
-loop_ufs=[bd_uf, s1_uf, md_uf, hd_uf]
+loop_ufs=[qk_uf, bd_uf, s1_uf, md_uf, hd_uf]
 width_ufs=loop_ufs
-V = te.ragged_placeholder((args.batch_size, MAX_LEN, NUM_HEADS, HEAD_SIZE), [bd, s1, md, hd], loop_ufs,
+V = te.ragged_placeholder((3, args.batch_size, MAX_LEN, NUM_HEADS, HEAD_SIZE), [qk, bd, s1, md, hd], loop_ufs,
                           name='V', width_ufs=width_ufs)
 
 loop_ufs=[bd_uf, ub_uf, md_uf, hd_uf]
 width_ufs=[loop_ufs]
 O = te.ragged_compute((args.batch_size, MAX_LEN, NUM_HEADS, HEAD_SIZE), [bd, s2, md, hd], loop_ufs,
                       lambda ds, rds: tvm.sum(A[ds[bd], ds[s2], ds[md], rds['k']] *
-                                              V(ds[bd], rds['k'], ds[md], ds[hd]),
+                                              V(2, ds[bd], rds['k'], ds[md], ds[hd]),
                                               axis=rds['k'], dimensions=[s1]),
                       name = 'O', reduce_axis_ufs = [('k', s1_uf)],
                       width_uf_lists=width_ufs)
@@ -119,7 +115,7 @@ def schedule_op(O, tile, suffix):
     s[As].bind(fiio, thread_x())
     if not args.debug_functions: s[As].vectorize(fiii)
 
-    _, x, h, y = s[Vs].leaf_iter_vars
+    _, _, x, h, y = s[Vs].leaf_iter_vars
     s[Vs].reorder(h, x, y)
     f = s[Vs].fuse(x, y)
     fo, fi = s[Vs].split(f, factor = ntx * nty * 4)
@@ -141,20 +137,22 @@ _ = tvm.register_func(utils.get_tvm_callback_cuda_compile(256))
 _ = tvm.register_func(
     utils.get_tvm_callback_cuda_postproc(args, os.path.realpath(__file__), fileprefix=gen_prefix))
 
+def size_fn(l_inputs):
+    lens = l_inputs[0]
+    return {
+        # V: 3 * NUM_HEADS * HEAD_SIZE * run_utils.prefix_sum(len(lens), lambda b: (ubufwrt.get_fn(lens)(b))),
+        # A: NUM_HEADS * run_utils.prefix_sum(len(lens), lambda b: (ubufwrt.get_fn(lens)(b) *
+                                                                  # ubufw32.get_fn(lens)(b))),
+        # O: NUM_HEADS * HEAD_SIZE * run_utils.prefix_sum(len(lens), lambda b: lufw64.get_fn(lens)(b))
+    }
+
 bO = tvm.tir.decl_buffer(output_layout, name="bO")
 binds = {O1:bO, O2:bO}
 inputs = [[lens], [V, A, bO]]
-with tvm.build_config(prep_code_mode='with_prep_code', fill_in_function_bodies=not args.debug_functions):
-    if args.debug_code:
-        # lowered = tvm.lower(s, inputs, args.target, simple_mode=True, binds=binds)
-        # print(lowered)
-        fadd, _ = tvm.build(s, inputs, args.target, binds=binds)
-        if args.target == 'cuda':
-            print('-----GPU code-----\n' + fadd.imported_modules[0].get_source())
-        else:
-            print('-----CPU code-----\n' + fadd.get_source())
-    else:
-        fadd, i_bufs = tvm.build(s, inputs, args.target, binds=binds)
-        # fadd = tvm.runtime.module.load_module('/home/ppf/rnn_compilers/ragged_tensors/incubator-tvm/build/qkt.so')
-        run_utils.run(fadd, i_bufs, [V, A, O], args.batch_size, args.max_batches,
-                      args.dataset, args.datadir, args.target, args.debug)
+
+name = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0]
+out, batches = run_utils.lower_or_build(name, s, inputs, args, size_fn=size_fn, binds=binds)
+V, A, O  = out
+for i in range(args.batch_size):
+    rounded64 = utils.ceilmult(batches[0][i], 64)
+    print(batches[0][i], np.mean(O[i,0:rounded64,:,:]))
