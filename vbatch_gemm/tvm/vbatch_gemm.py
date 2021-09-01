@@ -7,8 +7,7 @@ from tvm import tir, te
 from tvm.te import RangeDimension as Dim
 from tvm.tir import UninterpFun as Uf, UfWrapper as Ufw
 import sys
-sys.path.append("../../")
-
+sys.path.append(os.path.dirname(os.path.realpath(__file__)) + "/../../")
 import utils
 import run_utils
 
@@ -124,7 +123,36 @@ if args.target == "cuda":
     _ = tvm.register_func(
         utils.get_tvm_callback_cuda_postproc(args, os.path.realpath(__file__), fileprefix=gen_prefix))
 else:
-    pass
+    O_b, O_m, O_n, O_k = tuple(O.op.axis) + tuple(O.op.reduce_axis)
+
+    O_local, = s.cache_write([O], "local")
+    O_l_b_c, O_l_m_c, O_l_n_c, O_l_k = tuple(O_local.op.axis) + tuple(O_local.op.reduce_axis)
+
+    O_l_m_c_o, O_l_m_c_i = s[O_local].split(O_l_m_c, factor=4)
+    O_l_n_c_o, O_l_n_c_i = s[O_local].split(O_l_n_c, factor=4)
+
+    O_l_k_o, O_l_k_i = s[O_local].split(O_l_k, factor=32)
+    s[O_local].reorder(O_l_k_o, O_l_m_c_o, O_l_n_c_o, O_l_k_i, O_l_m_c_i, O_l_n_c_i)
+
+    O_m_o_i, O_m_i = s[O].split(O_m, factor=32)
+    O_m_o_o, O_m_o_i = s[O].split(O_m_o_i, factor=4)
+
+    O_n_o_i, O_n_i = s[O].split(O_n, factor=32)
+    O_n_o_o, O_n_o_i = s[O].split(O_n_o_i, factor=4)
+
+    s[O].reorder(O_b, O_m_o_o, O_n_o_o, O_m_o_i, O_n_o_i, O_m_i, O_n_i)
+    s[O_local].compute_at(s[O], O_n_o_i)
+
+    O_m_o_o_n_o_o_fused = s[O].fuse(O_m_o_o, O_n_o_o)
+    O_b_m_o_o_n_o_o_fused = s[O].fuse(O_b, O_m_o_o_n_o_o_fused)
+    s[O].parallel(O_b_m_o_o_n_o_o_fused)
+    O_n_i_o, O_n_i_i = s[O].split(O_n_i, factor=4)
+    s[O].vectorize(O_n_i_i)
+
+    if not args.debug_code:
+        s[O_local].unroll(O_l_k_i)
+        s[O_local].unroll(O_l_m_c_i)
+    s[O_local].vectorize(O_l_n_c_i)
 
 def size_fn(l_inputs):
     lens = l_inputs[0]
@@ -136,7 +164,8 @@ def size_fn(l_inputs):
 
 inputs = [[ms, ns, ks], [A, B, O]]
 name = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0]
-out = run_utils.lower_or_build(name, s, inputs, args, size_fn=size_fn, run_function=run_utils.run_vbatch_gemm)
+out = run_utils.lower_or_build(name, s, inputs, args, size_fn=size_fn,
+                               run_function=run_utils.run_vbatch_gemm)
 
 # A, W, O  = out
 # for i in range(BATCH_SIZE):
