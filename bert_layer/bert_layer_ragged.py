@@ -92,7 +92,9 @@ batches = run_utils.get_nlp_batches(args.dataset, args.datadir)
 batches = run_utils.add_padded_sum(batches, 128)
 
 pre_linear_in_w = run_utils.create_tvm_array((3, NUM_HEADS, HEAD_SIZE, MODEL_DIM), "float32", dev_ctx, lw_args={})
+pre_linear_in_b = run_utils.create_tvm_array((3, NUM_HEADS, HEAD_SIZE,), "float32", dev_ctx, lw_args={})
 post_linear_in_w = run_utils.create_tvm_array((NUM_HEADS * HEAD_SIZE, MODEL_DIM), "float32", dev_ctx, lw_args={})
+post_linear_in_b = run_utils.create_tvm_array((MODEL_DIMm), "float32", dev_ctx, lw_args={})
 ff1_in_w = run_utils.create_tvm_array((MODEL_DIM, FF_DIM), "float32", dev_ctx, lw_args={})
 ff1_in_b = run_utils.create_tvm_array((FF_DIM,), "float32", dev_ctx, lw_args={})
 ff2_in_w = run_utils.create_tvm_array((FF_DIM, MODEL_DIM), "float32", dev_ctx, lw_args={})
@@ -148,11 +150,11 @@ for batch in batches:
     norm_add2_out = run_utils.create_ragged_array((batch_size_, MAX_LEN, MODEL_DIM), MODEL_DIM*sum1, "float32", dev_ctx)
 
 
-    ops['pre_linear2'].tensor_inputs = [pre_linear_in_qkv, pre_linear_in_w, pre_linear_out]
+    ops['pre_linear2'].tensor_inputs = [pre_linear_in_qkv, pre_linear_in_w, pre_linear_in_b, pre_linear_out]
     ops['qkt2'].tensor_inputs = [qkt_in_q, qkt_in_k, qkt_out]
     ops['softmax2'].tensor_inputs = [softmax_in, softmax_out]
     ops['attn_v2'].tensor_inputs = [attn_v_in_v, attn_v_in_attn, attn_v_out]
-    ops['post_linear2'].tensor_inputs = [post_linear_in_a, post_linear_in_w, post_linear_out]
+    ops['post_linear2'].tensor_inputs = [post_linear_in_a, post_linear_in_w, post_linear_in_b, post_linear_out]
     ops['norm_add1'].tensor_inputs = [norm_add1_in_a1, norm_add1_in_a2, norm_add1_out]
     ops['ff1'].tensor_inputs = [ff1_in_a, ff1_in_w, ff1_in_b, ff1_out]
     ops['ff2'].tensor_inputs = [ff2_in_a, ff2_in_w, ff2_out]

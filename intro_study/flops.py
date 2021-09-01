@@ -34,7 +34,8 @@ for batch in batches:
     sum2 = run_utils.prefix_sum(BATCH_SIZE, lambda i: batch[i] * batch[i])
 
     def get_pre_linear_flops():
-        dense_flops = QKV_NUM * BATCH_SIZE * batch_max_len * NUM_HEADS * HEAD_SIZE * MODEL_DIM
+        dense_flops = (QKV_NUM * BATCH_SIZE * batch_max_len * NUM_HEADS * HEAD_SIZE * MODEL_DIM + # MM
+                       QKV_NUM * BATCH_SIZE * batch_max_len * NUM_HEADS * HEAD_SIZE)  # Bias add
         ragged_flops = QKV_NUM * sum1 * NUM_HEADS * HEAD_SIZE * MODEL_DIM
         return dense_flops, ragged_flops
 
@@ -54,7 +55,8 @@ for batch in batches:
         return dense_flops, ragged_flops
 
     def get_post_linear_flops():
-        dense_flops = BATCH_SIZE * batch_max_len * NUM_HEADS * HEAD_SIZE * MODEL_DIM
+        dense_flops = (BATCH_SIZE * batch_max_len * NUM_HEADS * HEAD_SIZE * MODEL_DIM + # MM
+                       BATCH_SIZE * batch_max_len * MODEL_DIM)                          # Bias add
         ragged_flops = sum1 * NUM_HEADS * HEAD_SIZE * MODEL_DIM
         return dense_flops, ragged_flops
 

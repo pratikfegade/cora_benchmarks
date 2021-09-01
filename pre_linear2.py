@@ -47,13 +47,18 @@ QKV = te.ragged_placeholder((BATCH_SIZE, MAX_LEN, IN_SIZE), [bd, s1, id], loop_u
                             name='QKV', width_ufs=width_ufs)
 
 W = te.placeholder((QKV_NUM, NUM_HEADS, OUT_SIZE, IN_SIZE), name='W')
+B = te.placeholder((QKV_NUM, NUM_HEADS, OUT_SIZE), name='B')
 
 loop_ufs=[ls[0], ls[1], ls[3], ls[2], ls[5]]
-width_ufs=None if args.dense_storage else [[ls[0], ls[1], lufw64.get_uf(), ls[2], ls[5]]]
+width_ufs=None if args.dense_storage else [[ls[0], ls[1], ls[3], ls[2], ls[5]]]
 k = tvm.reduce_axis((0, IN_SIZE), name = 'k')
-O = te.ragged_compute((QKV_NUM, BATCH_SIZE, MAX_LEN, NUM_HEADS, OUT_SIZE), [qkv, bd, s1, md, od], loop_ufs,
+S = te.ragged_compute((QKV_NUM, BATCH_SIZE, MAX_LEN, NUM_HEADS, OUT_SIZE), [qkv, bd, s1, md, od], loop_ufs,
                       lambda ds: tvm.sum(W[ds[qkv], ds[md], ds[od], k] * QKV[ds[bd], ds[s1], k],
                                          axis = k, dimensions = [id]),
+                      name = 'S', width_uf_lists=width_ufs)
+
+O = te.ragged_compute((QKV_NUM, BATCH_SIZE, MAX_LEN, NUM_HEADS, OUT_SIZE), [qkv, bd, s1, md, od], loop_ufs,
+                      lambda ds: S[ds[qkv], ds[bd], ds[s1], ds[md], ds[od]] + B[ds[qkv], ds[md], ds[od]],
                       name = 'O', width_uf_lists=width_ufs)
 
 s = tvm.create_schedule([O.op])
@@ -61,7 +66,8 @@ s = tvm.create_schedule([O.op])
 if args.target == "cuda":
     s.fuse_tensor_dimensions(QKV, 0, 1)
 
-    O_local, = s.cache_write([O], "local", storage_layout_mode='loop_layout')
+    # O_local, = s.cache_write([O], "local", storage_layout_mode='loop_layout')
+    O_local = S
     s.fuse_tensor_dimensions(O_local, 1, 2)
     q_c, b_c, l_c, n_c, h_c, k = tuple(O_local.op.axis) + tuple(O_local.op.reduce_axis)
     l_c = s[O_local].fuse(b_c, l_c)
@@ -70,7 +76,7 @@ if args.target == "cuda":
     s[O_local].reorder(q_c, h_c, koo, koi, l_coi, l_ci, n_c)
     s[O_local].mark_no_bounds_check()
 
-    O_q, O_b, O_l, O_n, O_h, O_k = tuple(O.op.axis) + tuple(O.op.reduce_axis)
+    O_q, O_b, O_l, O_n, O_h = tuple(O.op.axis) + tuple(O.op.reduce_axis)
     O_l = s[O].fuse(O_b, O_l, padding = 64)
 
     O_loi, O_li = s[O].split(O_l, factor=8)
@@ -106,6 +112,10 @@ if args.target == "cuda":
     s[O].bind(O_qoi_loi_f_noi_f_hoi_f, te.thread_axis("threadIdx.x"))
     s[O_local].compute_at(s[O], O_qoi_loi_f_noi_f_hoi_f)
 
+    B_sh = s.cache_read(B, "shared", [O], vanilla = True)
+    B_sh_ax0, B_sh_ax1, B_sh_ax2 = tuple(B_sh.op.axis)
+    s[B_sh].compute_at(s[O], O_qoi_loi_f_noi_f_hoi_f)
+
     QKV_sh_ax0_ax1_f = s[QKV_sh].fuse(QKV_sh_ax0, QKV_sh_ax1)
     QKV_sh_ax0_ax1_f_o, QKV_sh_ax0_ax1_f_i = s[QKV_sh].split(QKV_sh_ax0_ax1_f, factor=4)
     s[QKV_sh].vectorize(QKV_sh_ax0_ax1_f_i)
@@ -117,6 +127,12 @@ if args.target == "cuda":
     s[W_sh].vectorize(W_sh_ax0_ax1_f_ax2_f_ax3_f_i)
     W_sh_ax0_ax1_f_ax2_f_ax3_f_o_o, W_sh_ax0_ax1_f_ax2_f_ax3_f_o_i = s[W_sh].split(W_sh_ax0_ax1_f_ax2_f_ax3_f_o, factor=64)
     s[W_sh].bind(W_sh_ax0_ax1_f_ax2_f_ax3_f_o_i, te.thread_axis("threadIdx.x"))
+
+    B_sh_ax0_ax1_f_ax2_f_ax3_f = s[B_sh].fuse(B_sh_ax0, B_sh_ax1, B_sh_ax2)
+    B_sh_ax0_ax1_f_ax2_f_ax3_f_o_o, B_sh_ax0_ax1_f_ax2_f_ax3_f_o_i = s[B_sh].split(B_sh_ax0_ax1_f_ax2_f_ax3_f, factor=64)
+    s[B_sh].bind(B_sh_ax0_ax1_f_ax2_f_ax3_f_o_i, te.thread_axis("threadIdx.x"))
+
+    s[O_local].set_scope('local')
 
     if not args.debug_code:
         s[O_local].pragma(q_c, "auto_unroll_max_step", 512)
@@ -139,7 +155,7 @@ def size_fn(l_inputs):
 
 bQKV = tvm.decl_buffer([BATCH_SIZE*MAX_LEN, IN_SIZE], name = "bQKV")
 binds = {QKV: bQKV}
-inputs = [[lens], [bQKV, W, O]]
+inputs = [[lens], [bQKV, W, B, O]]
 
 name = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0]
 out, batches = run_utils.lower_or_build(name, s, inputs, args, size_fn=size_fn, binds=binds, pad_sum=64)

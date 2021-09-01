@@ -29,7 +29,9 @@ model_dim = 512
 max_len = 512
 
 pre_w = tf.constant(np.random.random_sample((3*model_dim,model_dim)).astype(np.float32))
+pre_b = tf.constant(np.random.random_sample((3*model_dim,)).astype(np.float32))
 pst_w = tf.constant(np.random.random_sample((model_dim,model_dim)).astype(np.float32))
+pst_b = tf.constant(np.random.random_sample((model_dim,)).astype(np.float32))
 ff1_w = tf.constant(np.random.random_sample((ff_dim,model_dim)).astype(np.float32))
 ff1_b = tf.constant(np.random.random_sample((ff_dim,)).astype(np.float32))
 ff2_w = tf.constant(np.random.random_sample((model_dim,ff_dim)).astype(np.float32))
@@ -40,7 +42,7 @@ def layer_norm(input):
     return (input - mean) / std
 
 def mha(input):
-    pre_mm_out = tf.linalg.matmul(input, pre_w, transpose_b=True)
+    pre_mm_out = tf.linalg.matmul(input, pre_w, transpose_b=True) + pre_b
     pre_out = tf.reshape(pre_mm_out, (batch_size,max_len,3,num_heads,head_size))
     q, k, v = tf.split(pre_out, 3, axis=2)
     q = tf.reshape(q, (batch_size,max_len,num_heads,head_size))
@@ -55,7 +57,7 @@ def mha(input):
     attn_out = tf.transpose(attn_out, perm=[0,2,1,3])
     attn_out = tf.reshape(attn_out, (batch_size,max_len,model_dim))
     pst_mm_out = tf.matmul(attn_out, pst_w, transpose_b=True)
-    pst_out = layer_norm(pst_mm_out + input)
+    pst_out = layer_norm(pst_mm_out + pst_b + input)
     return pst_out
 
 @tf.function(experimental_compile=args.xla)

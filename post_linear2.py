@@ -45,13 +45,18 @@ A = te.ragged_placeholder((BATCH_SIZE, NUM_HEADS, MAX_LEN, HEAD_SIZE), [bd, md, 
                           name='A', width_ufs=width_ufs)
 
 W = te.placeholder((NUM_HEADS * HEAD_SIZE, OUT_SIZE), name='W')
+B = te.placeholder((OUT_SIZE,), name='B')
 
 loop_ufs=[ls[0], ls[2], ls[4]]
 width_ufs=None if args.dense_storage else [loop_ufs]
 k = tvm.reduce_axis((0, NUM_HEADS * HEAD_SIZE), name = 'k')
-O = te.ragged_compute((BATCH_SIZE, MAX_LEN, OUT_SIZE), [bd, s1, od], loop_ufs,
+S = te.ragged_compute((BATCH_SIZE, MAX_LEN, OUT_SIZE), [bd, s1, od], loop_ufs,
                       lambda ds: tvm.sum(A[ds[bd], tvm.floordiv(k, HEAD_SIZE), ds[s1], tvm.floormod(k, HEAD_SIZE)] *
                                          W[k, ds[od]], axis=k, dimensions = [mdhd]),
+                      name = 'S', width_uf_lists=width_ufs)
+
+O = te.ragged_compute((BATCH_SIZE, MAX_LEN, OUT_SIZE), [bd, s1, od], loop_ufs,
+                      lambda ds: S[ds[bd], ds[s1], ds[od]] + B[ds[od]],
                       name = 'O', width_uf_lists=width_ufs)
 
 s = tvm.create_schedule([O.op])
@@ -68,12 +73,12 @@ if args.target == 'cuda':
     block_y = lambda: tvm.thread_axis("blockIdx.y")
     vthread = lambda: tvm.thread_axis("vthread")
 
-    Ol = s.cache_write(O, "local")
-    As = s.cache_read(A, "shared", [Ol], loop_layout=[ls[0], ls[1], ls[2], ls[3]], layouts=[ls[0], ls[1], ls[2], ls[3]])
-    Ws = s.cache_read(W, "shared", [Ol], vanilla=True)
+    As = s.cache_read(A, "shared", [S], loop_layout=[ls[0], ls[1], ls[2], ls[3]], layouts=[ls[0], ls[1], ls[2], ls[3]])
+    Ws = s.cache_read(W, "shared", [S], vanilla=True)
+    Bs = s.cache_read(B, "shared", [O], vanilla=True)
 
-    Al = s.cache_read(As, "local", [Ol])
-    Wl = s.cache_read(Ws, "local", [Ol], vanilla=True)
+    Al = s.cache_read(As, "local", [S])
+    Wl = s.cache_read(Ws, "local", [S], vanilla=True)
 
     b, l, h = s[O].leaf_iter_vars
     y = s[O].fuse(b, l, padding = tile)
@@ -89,15 +94,16 @@ if args.target == 'cuda':
     s[O].bind(yii, thread_y())
     s[O].bind(xio, tvm.thread_axis("vthread", name='vth1'), no_unroll_vthread = True)
     s[O].bind(yio, tvm.thread_axis("vthread", name='vth2'), no_unroll_vthread = True)
-    s[Ol].compute_at(s[O], xii)
+    s[S].compute_at(s[O], xii)
+    s[Bs].compute_at(s[O], xii)
 
-    b, x, y, k = s[Ol].leaf_iter_vars
-    s[Ol].reorder(k, x, y)
-    ko, ki = s[Ol].split(k, nparts = ks)
-    s[As].compute_at(s[Ol], ko)
-    s[Ws].compute_at(s[Ol], ko)
-    s[Al].compute_at(s[Ol], ki)
-    s[Wl].compute_at(s[Ol], ki)
+    b, x, y, k = s[S].leaf_iter_vars
+    s[S].reorder(k, x, y)
+    ko, ki = s[S].split(k, nparts = ks)
+    s[As].compute_at(s[S], ko)
+    s[Ws].compute_at(s[S], ko)
+    s[Al].compute_at(s[S], ki)
+    s[Wl].compute_at(s[S], ki)
 
     b, h, l, i = s[As].leaf_iter_vars
     s[As].reorder(h, b)
@@ -113,7 +119,7 @@ if args.target == 'cuda':
     s.reorder_tensor_dimensions(As, 0, 1)
     s.fuse_tensor_dimensions(As, 1, 2)
 
-    # s.fuse_tensor_dimensions(O, 0, 1)
+    s[S].set_scope('local')
 
     x, y = s[Ws].leaf_iter_vars
     f = s[Ws].fuse(x, y)
@@ -123,6 +129,12 @@ if args.target == 'cuda':
     s[Ws].bind(fio, thread_y())
     s[Ws].bind(fiio, thread_x())
     if not args.debug_functions: s[Ws].vectorize(fiii)
+
+    x, = s[Bs].leaf_iter_vars
+    fo, fi = s[Bs].split(x, factor = nt * nt)
+    fio, fii = s[Bs].split(fi, factor = nt)
+    s[Bs].bind(fio, thread_y())
+    s[Bs].bind(fii, thread_x())
 
     gen_prefix = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0]
     _ = tvm.register_func(utils.get_tvm_callback_cuda_compile(256))
@@ -140,7 +152,7 @@ def size_fn(l_inputs):
 # bO = tvm.decl_buffer([BATCH_SIZE * MAX_LEN, OUT_SIZE], name = "bO")
 # inputs = [[lens], [A, W, bO]]
 # binds = {O: bO}
-inputs = [[lens], [A, W, O]]
+inputs = [[lens], [A, W, B, O]]
 binds = {}
 
 name = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0]

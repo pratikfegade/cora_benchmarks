@@ -32,7 +32,9 @@ class Encoder(nn.Module):
     def __init__(self, device, max_len, batch_size, num_heads, head_size, model_size, ff_size):
         super(Encoder, self).__init__()
         self.pre_linear_w = get_np_tensor((3, num_heads, model_size, head_size), device, True)
+        self.pre_linear_b = get_np_tensor((3, num_heads, model_size), device, True)
         self.post_linear_w = get_np_tensor((model_size, model_size), device, True)
+        self.post_linear_b = get_np_tensor((model_size,), device, True)
         self.ff1_w = get_np_tensor((model_size, ff_size), device, True)
         self.ff2_w = get_np_tensor((ff_size, model_size), device, True)
         self.ff1_b = get_np_tensor((ff_size,), device, True)
@@ -44,13 +46,13 @@ class Encoder(nn.Module):
         self.max_len = max_len
 
     def forward(self, inp):
-        qkv = torch.matmul(inp, self.pre_linear_w)
+        qkv = torch.matmul(inp, self.pre_linear_w) + self.pre_linear_b
         qkv = qkv.view(3, self.num_heads, self.batch_size, self.max_len, self.head_size)
         q, k, v = torch.split(qkv, 1, 0)
         attn = torch.matmul(q, k.permute(0, 1, 2, 4, 3))
         attn = f.softmax(attn, dim = 4)
         attn = torch.reshape(torch.matmul(attn, v).permute(0, 2, 3, 1, 4), (self.batch_size, self.max_len, self.model_size))
-        sa_out = torch.matmul(attn, self.post_linear_w)
+        sa_out = torch.matmul(attn, self.post_linear_w) + self.post_linear_b
         sa_out = f.layer_norm(sa_out + inp.view(self.batch_size, self.max_len, self.model_size),
                               normalized_shape = (self.model_size,))
 

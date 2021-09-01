@@ -63,6 +63,7 @@ cpu_ctx = run_utils.get_ctx("llvm")
 # t_inputs: Allocate tensors
 pre_linear_in_qkv = run_utils.create_tvm_array((BATCH_SIZE * MAX_LEN, MODEL_DIM), "float32", dev_ctx, lw_args={})
 pre_linear_in_w = run_utils.create_tvm_array((3, NUM_HEADS, HEAD_SIZE, MODEL_DIM), "float32", dev_ctx, lw_args={})
+pre_linear_in_b = run_utils.create_tvm_array((3, NUM_HEADS, HEAD_SIZE,), "float32", dev_ctx, lw_args={})
 pre_linear_out = run_utils.create_tvm_array((3, BATCH_SIZE, MAX_LEN, NUM_HEADS, MODEL_DIM), "float32", dev_ctx, lw_args={})
 
 qkt_in_q = pre_linear_out
@@ -78,6 +79,7 @@ attn_v_out = run_utils.create_tvm_array((BATCH_SIZE, MAX_LEN, NUM_HEADS, HEAD_SI
 
 post_linear_in_a = attn_v_out
 post_linear_in_w = run_utils.create_tvm_array((NUM_HEADS * HEAD_SIZE, MODEL_DIM), "float32", dev_ctx, lw_args={})
+post_linear_in_b = run_utils.create_tvm_array((MODEL_DIM,), "float32", dev_ctx, lw_args={})
 post_linear_out = run_utils.create_tvm_array((BATCH_SIZE * MAX_LEN, MODEL_DIM), "float32", dev_ctx, lw_args={})
 
 norm_add1_in_a1 = pre_linear_in_qkv.create_view((BATCH_SIZE, MAX_LEN, MODEL_DIM))
@@ -98,11 +100,11 @@ norm_add2_in_a2 = ff2_out
 norm_add2_out = run_utils.create_tvm_array((BATCH_SIZE, MAX_LEN, MODEL_DIM), "float32", dev_ctx, lw_args={})
 
 ops = [
-    Op('pre_linear2', 'pre_linear2', [pre_linear_in_qkv, pre_linear_in_w, pre_linear_out], cpu_ctx, dev_ctx),
+    Op('pre_linear2', 'pre_linear2', [pre_linear_in_qkv, pre_linear_in_w, pre_linear_in_b, pre_linear_out], cpu_ctx, dev_ctx),
     Op('qkt2', 'qkt2', [qkt_in_q, qkt_in_k, qkt_out], cpu_ctx, dev_ctx),
     Op('softmax2', 'softmax2', [softmax_in, softmax_out], cpu_ctx, dev_ctx),
     Op('attn_v2', 'attn_v2', [attn_v_in_v, attn_v_in_attn, attn_v_out], cpu_ctx, dev_ctx),
-    Op('post_linear2', 'post_linear2', [post_linear_in_a, post_linear_in_w, post_linear_out], cpu_ctx, dev_ctx),
+    Op('post_linear2', 'post_linear2', [post_linear_in_a, post_linear_in_w, post_linear_in_b, post_linear_out], cpu_ctx, dev_ctx),
     Op('norm_add1', 'norm_add', [norm_add1_in_a1, norm_add1_in_a2, norm_add1_out], cpu_ctx, dev_ctx),
     Op('ff1', 'ff1', [ff1_in_a, ff1_in_w, ff1_in_b, ff1_out], cpu_ctx, dev_ctx),
     Op('ff2', 'ff2', [ff2_in_a, ff2_in_w, ff2_out], cpu_ctx, dev_ctx),
