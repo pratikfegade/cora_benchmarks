@@ -1,12 +1,14 @@
 import numpy as np
 import os
 import argparse
-import utils
-import run_utils
 import tvm
 from tvm import tir, te
 from tvm.te import RangeDimension as Dim
 from tvm.tir import UninterpFun as Uf, UfWrapper as Ufw
+import sys
+sys.path.append(os.path.dirname(os.path.realpath(__file__)) + "/../../")
+import utils
+import run_utils
 
 parser = run_utils.get_cmd_parser()
 args = parser.parse_args()

@@ -1,12 +1,13 @@
+import os
 import sys
 import numpy as np
 import time
 import tvm
 import argparse
 import ast
-sys.path.append("../")
-import run_utils
+sys.path.append(os.path.dirname(os.path.realpath(__file__)) + "/../../")
 import utils
+import run_utils
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--target', nargs='?', default='llvm')
@@ -16,8 +17,8 @@ parser.add_argument('--witers', dest='witers', default=50, type=int)
 parser.add_argument('--iters', dest='iters', default=200, type=int)
 parser.add_argument('--batch-size', dest='batch_size', default=32, type=int)
 parser.add_argument('--dense-storage', dest='dense_storage', default=False, action='store_true')
+parser.add_argument('--bin-packed', dest='bin_packed', default=False, action='store_true')
 parser.add_argument('--dataset', nargs='?', default='random_384_512')
-parser.add_argument('--datadir', nargs='?', default='random')
 args = parser.parse_args()
 
 BATCH_SIZE = args.batch_size
@@ -28,6 +29,7 @@ MODEL_DIM = NUM_HEADS * HEAD_SIZE
 FF_DIM = 2048
 
 def load_module(op_name):
+    print('loading', op_name)
     return tvm.runtime.module.load_module(run_utils.MODULE_DIR + '/' + op_name + '.so')
 
 def load_ibuf_info(op_name):
@@ -65,9 +67,9 @@ cpu_ctx = run_utils.get_ctx("llvm")
 
 ops = {
     'pre_linear': Op('pre_linear', 'pre_linear', [], cpu_ctx, dev_ctx),
-    'qkt': Op('qkt', 'qkt', [], cpu_ctx, dev_ctx),
+    'qkt': Op('qkt', 'qkt_bin_packed' if args.bin_packed else 'qkt', [], cpu_ctx, dev_ctx),
     'softmax': Op('softmax', 'softmax', [], cpu_ctx, dev_ctx),
-    'attn_v': Op('attn_v', 'attn_v', [], cpu_ctx, dev_ctx),
+    'attn_v': Op('attn_v', 'attn_v_bin_packed' if args.bin_packed else 'attn_v', [], cpu_ctx, dev_ctx),
     'post_linear': Op('post_linear', 'post_linear', [], cpu_ctx, dev_ctx),
     'norm_add1': Op('norm_add1', 'norm_add', [], cpu_ctx, dev_ctx),
     'ff1': Op('ff1', 'ff1', [], cpu_ctx, dev_ctx),
@@ -88,13 +90,13 @@ ops_order = [
 ]
 
 # l_inputs: Allocate tensors
-batches = run_utils.get_nlp_batches(args.dataset, args.datadir)
+batches = run_utils.get_nlp_batches(args.batch_size, args.max_batches, args.dataset, run_utils.DATA_DIR)
 batches = run_utils.add_padded_sum(batches, 128)
 
 pre_linear_in_w = run_utils.create_tvm_array((3, NUM_HEADS, HEAD_SIZE, MODEL_DIM), "float32", dev_ctx, lw_args={})
 pre_linear_in_b = run_utils.create_tvm_array((3, NUM_HEADS, HEAD_SIZE,), "float32", dev_ctx, lw_args={})
 post_linear_in_w = run_utils.create_tvm_array((NUM_HEADS * HEAD_SIZE, MODEL_DIM), "float32", dev_ctx, lw_args={})
-post_linear_in_b = run_utils.create_tvm_array((MODEL_DIMm), "float32", dev_ctx, lw_args={})
+post_linear_in_b = run_utils.create_tvm_array((MODEL_DIM,), "float32", dev_ctx, lw_args={})
 ff1_in_w = run_utils.create_tvm_array((MODEL_DIM, FF_DIM), "float32", dev_ctx, lw_args={})
 ff1_in_b = run_utils.create_tvm_array((FF_DIM,), "float32", dev_ctx, lw_args={})
 ff2_in_w = run_utils.create_tvm_array((FF_DIM, MODEL_DIM), "float32", dev_ctx, lw_args={})
@@ -131,11 +133,9 @@ for batch in batches:
                                                NUM_HEADS*HEAD_SIZE*sum64, "float32", dev_ctx)
 
     post_linear_in_a = attn_v_out
-    # post_linear_out = run_utils.create_ragged_array((batch_size_ * MAX_LEN, MODEL_DIM), MODEL_DIM*sum1, "float32", dev_ctx)
     post_linear_out = run_utils.create_ragged_array((batch_size_, MAX_LEN, MODEL_DIM), MODEL_DIM*sum1, "float32", dev_ctx)
 
     norm_add1_in_a1 = pre_linear_in_qkv.create_view((batch_size_, MAX_LEN, MODEL_DIM))
-    # norm_add1_in_a2 = post_linear_out.create_view((batch_size_, MAX_LEN, MODEL_DIM))
     norm_add1_in_a2 = post_linear_out
     norm_add1_out = run_utils.create_ragged_array((batch_size_, MAX_LEN, MODEL_DIM), MODEL_DIM*sum1, "float32", dev_ctx)
 
