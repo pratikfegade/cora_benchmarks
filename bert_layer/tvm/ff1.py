@@ -52,7 +52,7 @@ S = te.ragged_compute((BATCH_SIZE, MAX_LEN, OUT_SIZE), [bd, s1, od], loop_ufs,
                       name = 'S', width_uf_lists=width_ufs)
 
 O = te.ragged_compute((BATCH_SIZE, MAX_LEN, OUT_SIZE), [bd, s1, od], loop_ufs,
-                      lambda ds: tvm.max(S[ds[bd], ds[s1], ds[od]] + B[ds[od]], 0),
+                      lambda ds: utils.gelu(S[ds[bd], ds[s1], ds[od]] + B[ds[od]]),
                       name = 'O', width_uf_lists=None if args.dense_storage else width_ufs)
 
 s = tvm.create_schedule([O.op])

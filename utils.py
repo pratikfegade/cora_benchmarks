@@ -58,5 +58,9 @@ def floormult(a, b):
     else:
         return b * tvm.floordiv(a, b)
 
+def gelu(x):
+    cdf = 0.5 * (1.0 + tvm.tanh((0.7978845608028654 * (x + 0.044715 * x * x * x))))
+    return x * cdf;
+
 def next_power_of_2(x):
     return 1 if x == 0 else 2**math.ceil(math.log2(x))
