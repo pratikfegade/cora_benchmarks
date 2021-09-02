@@ -24,6 +24,13 @@ parser.add_argument('--manual-code', dest='manual_code', default=False, action='
 parser.add_argument('--dense-storage', dest='dense_storage', default=False, action='store_true')
 parser.add_argument('--gen-lib', dest='gen_lib', default=False, action='store_true')
 parser.add_argument('--data-file', nargs='?', default='random')
+
+parser.add_argument('--m1', dest='m1', default=2, type=int)
+parser.add_argument('--m2', dest='m2', default=1, type=int)
+parser.add_argument('--n1', dest='n1', default=16, type=int)
+parser.add_argument('--n2', dest='n2', default=8, type=int)
+parser.add_argument('--k1', dest='k1', default=8, type=int)
+parser.add_argument('--k2', dest='k2', default=8, type=int)
 args = parser.parse_args()
 
 BATCH_SIZE = args.batch_size
@@ -65,6 +72,7 @@ O = te.ragged_compute((BATCH_SIZE, MAX_DIM, MAX_DIM), [bd, md, nd], loop_ufs,
 
 s = tvm.create_schedule([O.op])
 
+prep_code_mode='with_prep_code'
 if args.target == "cuda":
     O_local, = s.cache_write([O], "local")
     O_l_b_c, O_l_m_c, O_l_n_c, O_l_k = tuple(O_local.op.axis) + tuple(O_local.op.reduce_axis)
@@ -123,36 +131,52 @@ if args.target == "cuda":
     _ = tvm.register_func(
         utils.get_tvm_callback_cuda_postproc(args, os.path.realpath(__file__), fileprefix=gen_prefix))
 else:
-    O_b, O_m, O_n, O_k = tuple(O.op.axis) + tuple(O.op.reduce_axis)
-
+    vtile = 16
     O_local, = s.cache_write([O], "local")
-    O_l_b_c, O_l_m_c, O_l_n_c, O_l_k = tuple(O_local.op.axis) + tuple(O_local.op.reduce_axis)
+    Bl = s.cache_read(B, 'local', [O_local], layouts='dense')
+    Al = s.cache_read(A, 'local', [O_local], layouts='dense')
 
-    O_l_m_c_o, O_l_m_c_i = s[O_local].split(O_l_m_c, factor=4)
-    O_l_n_c_o, O_l_n_c_i = s[O_local].split(O_l_n_c, factor=4)
+    b, m, n, k = tuple(O_local.op.axis) + tuple(O_local.op.reduce_axis)
 
-    O_l_k_o, O_l_k_i = s[O_local].split(O_l_k, factor=32)
-    s[O_local].reorder(O_l_k_o, O_l_m_c_o, O_l_n_c_o, O_l_k_i, O_l_m_c_i, O_l_n_c_i)
+    m1, m2 = args.m1, args.m2
+    n1, n2 = args.n1, args.n2
+    k1, k2 = args.k1, args.k2
 
-    O_m_o_i, O_m_i = s[O].split(O_m, factor=32)
-    O_m_o_o, O_m_o_i = s[O].split(O_m_o_i, factor=4)
+    if not (m1 * m2 <= 128 and n1 * n2 <= 128 and k1 * k2 <= 128):
+        exit(0)
 
-    O_n_o_i, O_n_i = s[O].split(O_n, factor=32)
-    O_n_o_o, O_n_o_i = s[O].split(O_n_o_i, factor=4)
+    mo, mii = s[O_local].split(m, factor=m1)
+    mo, mi = s[O_local].split(mo, factor=m2)
 
-    s[O].reorder(O_b, O_m_o_o, O_n_o_o, O_m_o_i, O_n_o_i, O_m_i, O_n_i)
-    s[O_local].compute_at(s[O], O_n_o_i)
+    no, nii = s[O_local].split(n, factor=n1)
+    no, ni = s[O_local].split(no, factor=n2)
 
-    O_m_o_o_n_o_o_fused = s[O].fuse(O_m_o_o, O_n_o_o)
-    O_b_m_o_o_n_o_o_fused = s[O].fuse(O_b, O_m_o_o_n_o_o_fused)
-    s[O].parallel(O_b_m_o_o_n_o_o_fused)
-    O_n_i_o, O_n_i_i = s[O].split(O_n_i, factor=4)
-    s[O].vectorize(O_n_i_i)
+    ko, ki = s[O_local].split(k, factor=k1)
+    ko, kii = s[O_local].split(ko, factor=k2)
+    s[O_local].reorder(ko, mo, no, ki, mi, ni, kii, mii, nii)
+    s[O_local].vectorize(nii)
+    s[Bl].compute_at(s[O_local], ko)
+    s[Al].compute_at(s[O_local], ko)
 
     if not args.debug_code:
-        s[O_local].unroll(O_l_k_i)
-        s[O_local].unroll(O_l_m_c_i)
-    s[O_local].vectorize(O_l_n_c_i)
+        s[O_local].unroll(mii)
+
+    O_b, O_m, O_n, O_k = tuple(O.op.axis) + tuple(O.op.reduce_axis)
+    O_m_o_o, O_m_i = s[O].split(O_m, factor=128)
+    O_m_i_o, O_m_i_i = s[O].split(O_m_i, factor=128)
+    O_n_o_o, O_n_i = s[O].split(O_n, factor=128)
+    O_n_i_o, O_n_i_i = s[O].split(O_n_i, factor=128)
+
+    s[O].reorder(O_b, O_m_o_o, O_n_o_o, O_m_i_o, O_n_i_o, O_m_i_i, O_n_i_i)
+
+    if args.batch_size <= 8:
+        fused = s[O].fuse(O_b, O_m_o_o)
+        s[O].parallel(fused)
+    else:
+        s[O].parallel(O_b)
+        prep_code_mode='no_prep_code'
+
+    s[O_local].compute_at(s[O], O_n_i_o)
 
 def size_fn(l_inputs):
     lens = l_inputs[0]
@@ -165,7 +189,8 @@ def size_fn(l_inputs):
 inputs = [[ms, ns, ks], [A, B, O]]
 name = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0]
 out = run_utils.lower_or_build(name, s, inputs, args, size_fn=size_fn,
-                               run_function=run_utils.run_vbatch_gemm)
+                               run_function=run_utils.run_vbatch_gemm,
+                               prep_code_mode=prep_code_mode)
 
 # A, W, O  = out
 # for i in range(BATCH_SIZE):
