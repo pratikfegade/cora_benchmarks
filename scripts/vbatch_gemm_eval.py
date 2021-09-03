@@ -38,34 +38,41 @@ def run_tvm(b_size, n_batch, data_file_path, err_file, args):
 
     cmd = [PYTHON, runner, '--target', com.get_tvm_target(target), '--batch-size', str(b_size),
            '--max-batches', str(n_batch), '--data-file', data_file_path]
+    if args.prep_overhead:
+        cmd += ['--only-prep-code']
     out, err = run_cmd(cmd)
-    if err: print(err, file = err_file)[0]
+    if err: print(err, file = err_file)
 
-    return com.extract_times(out, 1)
+    return com.extract_times(out, 1)[0]
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--target', nargs='?', default=None)
 parser.add_argument('--out-dir', dest='out_dir', nargs='?', default='perf_results')
 parser.add_argument('--max-batches', dest='max_batches', default=1, type=int)
+parser.add_argument('--prep-overhead', dest='prep_overhead', default=False, action='store_true')
 parser.add_argument('--stdout', dest='stdout', default=False, action='store_true')
 parser.add_argument('--append', dest='append', default=False, action='store_true')
 args = parser.parse_args()
 
-batch_sizes = [1, 2, 4, 8, 16, 32, 64, 128]
+# batch_sizes = [1, 2, 4, 8, 16, 32, 64, 128]
+batch_sizes = [1]
 targets = [args.target] if args.target else ['cuda']
 
-if args.target == 'cuda':
-    framework_funs = {
-        'cbt': run_cbt,
-        'cublas': run_cublas,
-        'cora': run_tvm,
-    }
+if args.prep_overhead:
+    framework_funs = { 'cora': run_tvm }
 else:
-    framework_funs = {
-        'mkl_pad': get_mkl_runner(True),
-        'mkl_nopad': get_mkl_runner(False),
-        'cora': run_tvm,
-    }
+    if args.target == 'cuda':
+        framework_funs = {
+            'cbt': run_cbt,
+            'cublas': run_cublas,
+            'cora': run_tvm,
+        }
+    else:
+        framework_funs = {
+            'mkl_pad': get_mkl_runner(True),
+            'mkl_nopad': get_mkl_runner(False),
+            'cora': run_tvm,
+        }
 
 results_out, results_err = get_out_files(args, 'vbatch_gemm', 'a' if args.append else 'w')
 header = 'Target,Batch Size'
