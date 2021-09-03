@@ -199,7 +199,7 @@ def run(built, i_inputs_tensors, t_inputs_tensors, batch_size, num_batches, data
         inputs = t_inputs + l_inputs + host_i_inputs + dev_i_inputs
         time += execute(target, built, inputs, ctx, debug)
 
-    print("RESULT", time / len(batches))
+    print("RESULTS", time / len(batches), sep=',')
     return [t.asnumpy() for t in t_inputs], batches
 
 def add_padded_sum(batches, factor):
@@ -235,7 +235,7 @@ def run2(built, i_inputs_tensors, t_inputs_tensors, lw_args, args, pad_sum=None)
         inputs = t_inputs + l_inputs + host_i_inputs + dev_i_inputs
         time += execute(args.target, built, inputs, ctx, args.debug)
 
-    print("RESULT", time / len(batches))
+    print("RESULTS", time / len(batches), sep=',')
     for i in range(len(t_inputs)):
         size_fn = lw_args([batch])
         target = None
@@ -268,7 +268,7 @@ def run_vbatch_gemm(built, i_inputs_tensors, t_inputs_tensors, lw_args, args, pa
         inputs = t_inputs + l_inputs + host_i_inputs + dev_i_inputs
         time += execute(args.target, built, inputs, ctx, args.debug)
 
-    print("RESULT", time / len(ms))
+    print("RESULTS", time / len(ms), sep=',')
     for i in range(len(t_inputs)):
         size_fn = {}
         target = None

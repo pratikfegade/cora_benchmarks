@@ -223,6 +223,8 @@ int main(int argc, char** argv) {
   //int TLP_thres = atoi(argv[6]);
   int TLP_thres = 65536*2;
 
+  std::cout << "Opening file " << data_file << std::endl;
+
   std::fstream fs;
   fs.open(data_file);
   if (!fs.is_open()){
@@ -246,6 +248,6 @@ int main(int argc, char** argv) {
 
   total_time /= num_batches;
 
-  std::cout << total_time << std::endl;
+  std::cout << "RESULTS," << total_time << std::endl;
   return 0;
 }

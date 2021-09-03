@@ -146,9 +146,10 @@ int main(int argc, char *argv[]) {
   mkl_set_threading_layer(MKL_THREADING_GNU);
   int batch_size = std::stoi(argv[1]);
   int num_batches = std::stoi(argv[2]);
-  std::string data_file = argv[3];
-  int iters = std::stoi(argv[4]);
-  int warmup = std::stoi(argv[5]);
+  int add_pad = std::stoi(argv[3]);
+  std::string data_file = argv[4];
+  int iters = std::stoi(argv[5]);
+  int warmup = std::stoi(argv[6]);
 
   std::vector<int> ms;
   std::vector<int> ns;
@@ -162,8 +163,7 @@ int main(int argc, char *argv[]) {
     ks.push_back(k);
   }
 
-  float vtime = 0;
-  float utime = 0;
+  float time = 0;
   for (int i = 0; i < num_batches; ++i) {
     std::vector<int> bms;
     std::vector<int> bns;
@@ -174,14 +174,15 @@ int main(int argc, char *argv[]) {
       bns.push_back(ns[i * batch_size + j]);
       bks.push_back(ks[i * batch_size + j]);
     }
-    vtime += testVBatch(batch_size, bms, bns, bks, iters, warmup);
-    utime += testUBatch(batch_size, bms, bns, bks, iters, warmup);
+    if (add_pad) {
+      time += testUBatch(batch_size, bms, bns, bks, iters, warmup);
+    }  else {
+      time += testVBatch(batch_size, bms, bns, bks, iters, warmup);
+    }
   }
 
-  vtime /= num_batches;
-  vtime /= 1000;
-  utime /= num_batches;
-  utime /= 1000;
+  time /= num_batches;
+  time /= 1000;
 
-  std::cout << utime << "," << vtime << std::endl;
+  std::cout << 'RESULTS,' << time << std::endl;
 }
