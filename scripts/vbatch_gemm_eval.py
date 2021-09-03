@@ -18,20 +18,20 @@ def get_mkl_runner(pad):
         cmd = [MKL_RUNNER, str(b_size), str(n_batch), pad_arg, data_file_path, str(100), str(1)]
         out, err = run_cmd(cmd)
         if err: print(err, file = err_file)
-        return com.extract_times(out, 1)
+        return com.extract_times(out, 1)[0]
     return run_mkl(pad)
 
 def run_cbt(b_size, n_batch, data_file_path, err_file, args):
     cmd = [CBT_RUNNER, str(b_size), str(n_batch), data_file_path, str(100), str(1)]
     out, err = run_cmd(cmd)
     if err: print(err, file = err_file)
-    return com.extract_times(out, 1)
+    return com.extract_times(out, 1)[0]
 
 def run_cublas(b_size, n_batch, data_file_path, err_file, args):
     cmd = [CUBLAS_RUNNER, str(b_size), str(n_batch), data_file_path, 'nn', str(100), str(1)]
     out, err = run_cmd(cmd)
     if err: print(err, file = err_file)
-    return com.extract_times(out, 1)
+    return com.extract_times(out, 1)[0]
 
 def run_tvm(b_size, n_batch, data_file_path, err_file, args):
     runner = TVM_RUNNER
@@ -39,7 +39,7 @@ def run_tvm(b_size, n_batch, data_file_path, err_file, args):
     cmd = [PYTHON, runner, '--target', com.get_tvm_target(target), '--batch-size', str(b_size),
            '--max-batches', str(n_batch), '--data-file', data_file_path]
     out, err = run_cmd(cmd)
-    if err: print(err, file = err_file)
+    if err: print(err, file = err_file)[0]
 
     return com.extract_times(out, 1)
 
@@ -77,7 +77,7 @@ for target in targets:
     for b_size in batch_sizes:
         for framework, func in framework_funs.items():
             log(args, 'Running %s %s %d' % (target, framework, b_size))
-            exe_times[framework] = func(b_size, args.max_batches, DATA_FILE_PATH, results_err, args)[0]
+            exe_times[framework] = func(b_size, args.max_batches, DATA_FILE_PATH, results_err, args)
             print(exe_times[framework])
 
         out_str = '%s,%d' % (target, b_size)

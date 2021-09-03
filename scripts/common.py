@@ -11,6 +11,9 @@ def run_cmd(cmd):
     result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     return result.stdout.decode('utf-8'), result.stderr.decode('utf-8')
 
+def get_all_datasets():
+    return ["wiki_128", "wiki_512", "squadv2", "mnli", "mrpc", "cola", "xnli", "race"]
+
 marker = 'RESULTS'
 mem_marker = 'MEM'
 INF = 100000000
