@@ -11,6 +11,7 @@ import utils
 import run_utils
 
 parser = run_utils.get_cmd_parser()
+parser.add_argument('--hfuse', dest='hfuse', default=False, action='store_true')
 args = parser.parse_args()
 
 NUM_HEADS = 8
@@ -142,8 +143,9 @@ schedule_op(S2, O2, 32, 64, '2')
 schedule_op(S3, O3, 64, 32, '3')
 schedule_op(S4, O4, 32, 32, '4')
 
-s.hfuse([(s[O1].op, s[O1].leaf_iter_vars[0]), (s[O2].op, s[O2].leaf_iter_vars[0]),
-         (s[O3].op, s[O3].leaf_iter_vars[0]), (s[O4].op, s[O4].leaf_iter_vars[0])])
+if args.hfuse:
+    s.hfuse([(s[O1].op, s[O1].leaf_iter_vars[0]), (s[O2].op, s[O2].leaf_iter_vars[0]),
+             (s[O3].op, s[O3].leaf_iter_vars[0]), (s[O4].op, s[O4].leaf_iter_vars[0])])
 
 gen_prefix = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0]
 _ = tvm.register_func(utils.get_tvm_callback_cuda_compile(256))

@@ -136,7 +136,7 @@ def size_fn(l_inputs):
 inputs = [[lens], [V, A, O]]
 name = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0]
 out, batches = run_utils.lower_or_build(name, s, inputs, args, size_fn=size_fn)
-V, A, O  = outs
+V, A, O  = out
 for i in range(args.batch_size):
     rounded64 = utils.ceilmult(batches[0][i], 64)
     print(batches[0][i], np.mean(O[i,0:rounded64,:,:]))

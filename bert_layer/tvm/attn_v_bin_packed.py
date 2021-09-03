@@ -11,6 +11,7 @@ import utils
 import run_utils
 
 parser = run_utils.get_cmd_parser()
+parser.add_argument('--hfuse', dest='hfuse', default=False, action='store_true')
 args = parser.parse_args()
 
 MAX_LEN = utils.ceilmult(run_utils.get_dataset_max_len(args.dataset), 64)
@@ -132,7 +133,8 @@ O1, O2 = G1[0], G2[0]
 schedule_op(O1, 64, '1')
 schedule_op(O2, 32, '2')
 
-s.hfuse([(s[O1].op, s[O1].leaf_iter_vars[0]), (s[O2].op, s[O2].leaf_iter_vars[0])])
+if args.hfuse:
+    s.hfuse([(s[O1].op, s[O1].leaf_iter_vars[0]), (s[O2].op, s[O2].leaf_iter_vars[0])])
 
 gen_prefix = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0]
 _ = tvm.register_func(utils.get_tvm_callback_cuda_compile(256))
@@ -142,10 +144,10 @@ _ = tvm.register_func(
 def size_fn(l_inputs):
     lens = l_inputs[0]
     return {
-        # V: 3 * NUM_HEADS * HEAD_SIZE * run_utils.prefix_sum(len(lens), lambda b: (ubufwrt.get_fn(lens)(b))),
-        # A: NUM_HEADS * run_utils.prefix_sum(len(lens), lambda b: (ubufwrt.get_fn(lens)(b) *
-                                                                  # ubufw32.get_fn(lens)(b))),
-        # O: NUM_HEADS * HEAD_SIZE * run_utils.prefix_sum(len(lens), lambda b: lufw64.get_fn(lens)(b))
+        V: 3 * NUM_HEADS * HEAD_SIZE * run_utils.prefix_sum(len(lens), lambda b: (ubufwrt.get_fn(lens)(b))),
+        A: NUM_HEADS * run_utils.prefix_sum(len(lens), lambda b: (ubufwrt.get_fn(lens)(b) *
+                                                                  ubufw32.get_fn(lens)(b))),
+        O: NUM_HEADS * HEAD_SIZE * run_utils.prefix_sum(len(lens), lambda b: lufw64.get_fn(lens)(b))
     }
 
 bO = tvm.tir.decl_buffer(output_layout, name="bO")
