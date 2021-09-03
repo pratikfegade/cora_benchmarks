@@ -26,8 +26,8 @@ if [ $MS == $YES ]; then
 else
     python3 ${SCRIPT_DIR}/softmax.py --target cuda --batch-size $BS --dataset $DS --gen-lib
     if [ $BP == $YES ]; then
-	python3 ${SCRIPT_DIR}/qkt_bin_packed.py --target cuda --batch-size $BS --dataset $DS --gen-lib
-	python3 ${SCRIPT_DIR}/attn_v_bin_packed.py --target cuda --batch-size $BS --dataset $DS --gen-lib
+	python3 ${SCRIPT_DIR}/qkt_bin_packed.py --hfuse --target cuda --batch-size $BS --dataset $DS --gen-lib
+	python3 ${SCRIPT_DIR}/attn_v_bin_packed.py --hfuse --target cuda --batch-size $BS --dataset $DS --gen-lib
     else
 	python3 ${SCRIPT_DIR}/qkt.py --target cuda --batch-size $BS --dataset $DS --gen-lib
 	python3 ${SCRIPT_DIR}/attn_v.py --target cuda --batch-size $BS --dataset $DS --gen-lib
