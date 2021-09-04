@@ -1,13 +1,13 @@
 import math
-import tvm
 import os
-from tvm.contrib import nvcc, cublas, cblas
 
 def write_code(code, fname):
     with open(fname, "w") as f:
         f.write(code)
 
 def get_tvm_callback_cuda_postproc(args, path, dirname = 'perf', fileprefix = 'dummy_file'):
+    import tvm
+    from tvm.contrib import nvcc, cublas, cblas
     def tvm_callback_cuda_postproc(code):
         d = os.path.dirname(path)
         d = d + '/' + dirname + '/'
@@ -21,6 +21,8 @@ def get_tvm_callback_cuda_postproc(args, path, dirname = 'perf', fileprefix = 'd
     return tvm_callback_cuda_postproc
 
 def get_tvm_callback_cuda_compile(threads, grid_sync = False):
+    import tvm
+    from tvm.contrib import nvcc, cublas, cblas
     tvm.target.set_cuda_grid_sync_on(grid_sync)
     tvm.runtime.module.set_cuda_grid_sync_on(grid_sync)
     def tvm_callback_cuda_compile(code):
@@ -39,12 +41,14 @@ def get_tvm_callback_cuda_compile(threads, grid_sync = False):
     return tvm_callback_cuda_compile
 
 def ceildiv(a, b):
+    import tvm
     if isinstance(a, int) and isinstance(b, int):
         return (a + b - 1) // b
     else:
         return tvm.floordiv(a + b - 1, b)
 
 def ceilmult(a, b):
+    import tvm
     try:
         ai = int(a)
         bi = int(b)
@@ -53,12 +57,14 @@ def ceilmult(a, b):
         return b * tvm.floordiv(a + b - 1, b)
 
 def floormult(a, b):
+    import tvm
     if isinstance(a, int) and isinstance(b, int):
         return b * (a // b)
     else:
         return b * tvm.floordiv(a, b)
 
 def gelu(x):
+    import tvm
     cdf = 0.5 * (1.0 + tvm.tanh((0.7978845608028654 * (x + 0.044715 * x * x * x))))
     return x * cdf;
 

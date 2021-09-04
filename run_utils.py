@@ -2,7 +2,6 @@ import utils
 import argparse
 import os
 import numpy as np
-import tvm
 
 dataset_files = {
     "wiki_128": "/old_wikipedia/full_lengths_128.txt",
@@ -67,6 +66,7 @@ def random_lengths(batch_size, avg_seq_len, max_seq_len):
     return np.random.randint(min_seq_len, max_seq_len + 1, batch_size, "int32")
 
 def int_shape(expr_shape, rmap):
+    import tvm
     from tvm.tir import ir_pass
     shape = []
     for e in expr_shape:
@@ -80,6 +80,7 @@ def int_shape(expr_shape, rmap):
     return shape
 
 def get_shape(t, rmap):
+    import tvm
     if isinstance(t, tuple) or isinstance(t, list):
         return t
     elif isinstance(t, tvm.te.Tensor):
@@ -91,6 +92,7 @@ def get_shape(t, rmap):
         assert False
 
 def create_ragged_array(dense_shape, flat_size, dtype, ctx):
+    import tvm
     # src_np_array = np.random.normal(size=(flat_size,)).astype(dtype)
     src_np_array = np.full((flat_size,), 0.1, dtype).astype(dtype)
     tvm_array = tvm.nd.ragged_empty(dense_shape, flat_size, dtype=dtype, ctx=ctx)
@@ -104,6 +106,7 @@ def create_numpy_array(t, dtype, rmap={}, lw_args=None):
     # return np.random.normal(size=shape, loc=0.5, scale=4).astype(dtype)
 
 def create_tvm_array(t, dtype, ctx, rmap={}, lw_args=None):
+    import tvm
     shape = get_shape(t, rmap)
 
     assert (lw_args is not None)
@@ -117,6 +120,7 @@ def create_tvm_array(t, dtype, ctx, rmap={}, lw_args=None):
     # return np.random.normal(size=shape, loc=0.5, scale=4).astype(dtype)
 
 def get_ctx(target):
+    import tvm
     ctx = None
     if target.startswith('llvm') or target == 'c':
         ctx = tvm.cpu(0)
@@ -170,6 +174,7 @@ def read_and_chunk_gemm_dims(batch_size, max_batches, filename):
             list(chunks(ks, batch_size, max_batches)))
 
 def is_ragged(t):
+    import tvm
     if isinstance(t, tvm.te.Tensor):
         if t.op.output_layout(0) is None:
             return False
@@ -189,6 +194,7 @@ def get_nlp_batches(batch_size, num_batches, dataset):
         return read_and_chunk_lengths(batch_size, num_batches, DATA_DIR + "/" + dataset_files[dataset])
 
 def run(built, i_inputs_tensors, t_inputs_tensors, batch_size, num_batches, dataset, datadir, target, debug):
+    import tvm
     ctx = get_ctx(target)
     cpu_ctx = get_ctx("llvm")
     host_i_inputs, dev_i_inputs = [], []
@@ -222,6 +228,7 @@ def add_padded_sum(batches, factor):
     return ret
 
 def run2(built, i_inputs_tensors, t_inputs_tensors, lw_args, args, pad_sum=None):
+    import tvm
     ctx = get_ctx(args.target)
     cpu_ctx = get_ctx("llvm")
     host_i_inputs, dev_i_inputs = [], []
@@ -254,6 +261,7 @@ def run2(built, i_inputs_tensors, t_inputs_tensors, lw_args, args, pad_sum=None)
 
 
 def get_bert_layer_run_fn(bs_var):
+    import tvm
     print('BS_VAR', bs_var)
     def bert_layer_run(built, i_inputs_tensors, t_inputs_tensors, lw_args, args, pad_sum=None):
         ctx = get_ctx(args.target)
@@ -293,6 +301,7 @@ def get_bert_layer_run_fn(bs_var):
     return bert_layer_run
 
 def run_vbatch_gemm(built, i_inputs_tensors, t_inputs_tensors, lw_args, args, pad_sum=None):
+    import tvm
     ctx = get_ctx(args.target)
     cpu_ctx = get_ctx("llvm")
     host_i_inputs, dev_i_inputs = [], []
@@ -325,6 +334,7 @@ def run_vbatch_gemm(built, i_inputs_tensors, t_inputs_tensors, lw_args, args, pa
     return t_inputs
 
 def lower_or_build(name, s, inputs, args, prep_code_mode='with_prep_code', binds=None, size_fn={}, pad_sum=None, run_function=run2):
+    import tvm
     with tvm.build_config(prep_code_mode=prep_code_mode, fill_in_function_bodies=not args.debug_functions):
         if args.gen_lib:
             fadd, i_bufs = tvm.build(s, inputs, args.target, binds=binds)
