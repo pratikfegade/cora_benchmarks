@@ -24,7 +24,10 @@ dataset_max_lens = {
     "cola" : 48,
     "xnli" : 128,
     "race" : 512,
+
 }
+
+DATASETS = list(dataset_max_lens.keys())
 
 MODULE_DIR = os.path.dirname(os.path.realpath(__file__)) + '/bert_layer/tvm/genlibs/'
 DATA_DIR = os.path.dirname(os.path.realpath(__file__)) + '/data/'
