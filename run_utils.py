@@ -46,6 +46,7 @@ def get_cmd_parser(no_options=False):
         parser.add_argument('--dense-storage', dest='dense_storage', default=False, action='store_true')
         parser.add_argument('--gen-lib', dest='gen_lib', default=False, action='store_true')
         parser.add_argument('--dataset', nargs='?', default='random')
+        parser.add_argument('--only-prep-code', dest='only_prep_code', default=False, action='store_true')
         parser.add_argument('--gpu', nargs='?', default='v100', choices=['titanx', 'v100'])
     return parser
 
