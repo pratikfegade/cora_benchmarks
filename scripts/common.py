@@ -1,6 +1,9 @@
 import os
 import sys
 import subprocess
+sys.path.append(os.path.dirname(os.path.realpath(__file__)) + "/../")
+import utils
+import run_utils
 
 def get_tvm_target(arg):
     if arg == "cuda": return "cuda"
@@ -12,7 +15,17 @@ def run_cmd(cmd):
     return result.stdout.decode('utf-8'), result.stderr.decode('utf-8')
 
 def get_all_datasets():
-    return ["wiki_128", "wiki_512", "squadv2", "mnli", "mrpc", "cola", "xnli", "race"]
+    return list(run_utils.dataset_max_lens.keys())
+
+def cluster_datasets_by_max_len():
+    ret = {}
+    for ds, ml in run_utils.dataset_max_lens.items():
+        if ml in ret: ret[ml].append(ds)
+        else: ret[ml] = [ds]
+    return ret
+
+def get_dataset_max_len(dataset):
+    return run_utils.get_dataset_max_len(dataset)
 
 marker = 'RESULTS'
 mem_marker = 'MEM'

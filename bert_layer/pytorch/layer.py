@@ -69,7 +69,7 @@ ff_size = 2048
 model_size = num_heads * head_size
 device = torch.device('cuda')
 
-batches = run_utils.get_nlp_batches(args.batch_size, args.max_batches, args.dataset, run_utils.DATA_DIR)
+batches = run_utils.get_nlp_batches(args.batch_size, args.max_batches, args.dataset)
 
 iters = 1 if args.mem else 50
 
@@ -90,7 +90,7 @@ def run_for_batches():
 
 if not args.profile:
     batch_times = run_for_batches()
-    print(sum(batch_times) / len(batches))
+    print('RESULTS', sum(batch_times) / len(batches), sep=',')
 else:
     with profile(activities=[ProfilerActivity.CUDA], record_shapes=True) as prof:
         run_for_batches()

@@ -16,14 +16,14 @@ dataset_files = {
 }
 
 dataset_max_lens = {
-    "wiki_128" : 128,
+    "race" : 512,
     "wiki_512" : 512,
     "squadv2" : 384,
+    "wiki_128" : 128,
     "mnli" : 128,
+    "xnli" : 128,
     "mrpc" : 112,
     "cola" : 48,
-    "xnli" : 128,
-    "race" : 512,
 }
 
 MODULE_DIR = os.path.dirname(os.path.realpath(__file__)) + '/bert_layer/tvm/genlibs/'
@@ -34,8 +34,9 @@ def get_cmd_parser(no_options=False):
     if not no_options:
         parser.add_argument('--target', nargs='?', default='llvm')
         parser.add_argument('--dtype', dest='dtype', nargs='?', default='float32')
-        parser.add_argument('--max-batches', dest='max_batches', default=10, type=int)
+        parser.add_argument('--max-batches', dest='max_batches', default=1, type=int)
         parser.add_argument('--batch-size', dest='batch_size', default=32, type=int)
+        parser.add_argument('--batch-sizes', dest='batch_sizes', nargs='+', default=[32], type=int)
         parser.add_argument('--debug', dest='debug', default=False, action='store_true')
         parser.add_argument('--debug-code', dest='debug_code', default=None, type=str)
         parser.add_argument('--debug-functions', dest='debug_functions', default=False, action='store_true')
@@ -64,11 +65,16 @@ def random_lengths(batch_size, avg_seq_len, max_seq_len):
     return np.random.randint(min_seq_len, max_seq_len + 1, batch_size, "int32")
 
 def int_shape(expr_shape, rmap):
+    from tvm.tir import ir_pass
     shape = []
-    for i in expr_shape:
-        if i in rmap:
-            i = rmap[i]
-        shape.append(int(i))
+    for e in expr_shape:
+        e1 = e
+        # print(1, e1, rmap)
+        e2 = ir_pass.Substitute(e1, rmap)
+        # print(2, e2)
+        e3 = ir_pass.Simplify(e2)
+        # print(3, e3)
+        shape.append(int(e3))
     return shape
 
 def get_shape(t, rmap):
@@ -101,7 +107,7 @@ def create_tvm_array(t, dtype, ctx, rmap={}, lw_args=None):
     assert (lw_args is not None)
     if t in lw_args:
         flat_size = lw_args[t]
-        # print(t, flat_size, shape)
+        print(t, flat_size, shape)
         return create_ragged_array(shape, flat_size, dtype, ctx)
 
     # return np.zeros(shape, dtype)
@@ -132,8 +138,8 @@ def execute(target, built, inputs, ctx, debug = False):
             return -100000000
             evaluator = built.time_evaluator('default_function', ctx, 1, repeat=10)
         else:
-            # evaluator = built.time_evaluator(built.entry_name, ctx, number=10, repeat=10)
-            evaluator = built.time_evaluator(built.entry_name, ctx, number=10, repeat=10)
+            evaluator = built.time_evaluator(built.entry_name, ctx, number=10, repeat=100)
+            # evaluator = built.time_evaluator(built.entry_name, ctx, number=1, repeat=1)
         eval_result = evaluator(*inputs)
         return eval_result.mean * 1000
 
@@ -173,12 +179,12 @@ def is_ragged(t):
         print(t)
         assert False
 
-def get_nlp_batches(batch_size, num_batches, dataset, datadir):
+def get_nlp_batches(batch_size, num_batches, dataset):
     if dataset.startswith("random"):
         _, avg_seq_len, max_seq_len = dataset.split("_")
         return [random_lengths(batch_size, int(avg_seq_len), int(max_seq_len)) for i in range(num_batches)]
     else:
-        return read_and_chunk_lengths(batch_size, num_batches, datadir + "/" + dataset_files[dataset])
+        return read_and_chunk_lengths(batch_size, num_batches, DATA_DIR + "/" + dataset_files[dataset])
 
 def run(built, i_inputs_tensors, t_inputs_tensors, batch_size, num_batches, dataset, datadir, target, debug):
     ctx = get_ctx(target)
@@ -190,7 +196,7 @@ def run(built, i_inputs_tensors, t_inputs_tensors, batch_size, num_batches, data
     t_inputs = [tvm.nd.array(create_numpy_array(i, "float32"), ctx) for i in t_inputs_tensors]
     if debug: num_batches = 1
 
-    batches = get_nlp_batches(args.batch_size, num_batches, args.dataset, DATA_DIR)
+    batches = get_nlp_batches(args.batch_size, num_batches, args.dataset)
 
     time = 0
     for batch in batches:
@@ -224,7 +230,7 @@ def run2(built, i_inputs_tensors, t_inputs_tensors, lw_args, args, pad_sum=None)
     num_batches = args.max_batches
     if args.debug: num_batches = 1
 
-    batches = get_nlp_batches(args.batch_size, num_batches, args.dataset, DATA_DIR)
+    batches = get_nlp_batches(args.batch_size, num_batches, args.dataset)
     if pad_sum: batches = add_padded_sum(batches, pad_sum)
 
     time = 0
@@ -244,6 +250,45 @@ def run2(built, i_inputs_tensors, t_inputs_tensors, lw_args, args, pad_sum=None)
         t_inputs[i] = t_inputs[i].asnumpy(target=target, is_src_ragged=is_ragged(t_inputs_tensors[i]))
     return t_inputs, batches
 
+
+def get_bert_layer_run_fn(bs_var):
+    print('BS_VAR', bs_var)
+    def bert_layer_run(built, i_inputs_tensors, t_inputs_tensors, lw_args, args, pad_sum=None):
+        ctx = get_ctx(args.target)
+        cpu_ctx = get_ctx("llvm")
+
+        for batch_size in args.batch_sizes:
+            rmap = { bs_var: batch_size }
+            host_i_inputs, dev_i_inputs = [], []
+            if len(i_inputs_tensors) == 2:
+                host_i_inputs = [tvm.nd.array(create_numpy_array(i, "int32", rmap=rmap), cpu_ctx) for i in i_inputs_tensors[0]]
+                dev_i_inputs = [tvm.nd.array(create_numpy_array(i, "int32", rmap=rmap), ctx) for i in i_inputs_tensors[1]]
+
+            num_batches = args.max_batches
+            if args.debug: num_batches = 1
+
+            batches = get_nlp_batches(batch_size, num_batches, args.dataset)
+            if pad_sum: batches = add_padded_sum(batches, pad_sum)
+
+            time = 0
+            for batch in batches:
+                sorted(batch)
+                t_inputs = ([batch_size] +
+                            [create_tvm_array(i, "float32", ctx, rmap=rmap, lw_args=lw_args([batch]))
+                             for i in t_inputs_tensors[1:]])
+                l_inputs = [tvm.nd.array(batch, cpu_ctx)]
+                inputs = t_inputs + l_inputs + host_i_inputs + dev_i_inputs
+                time += execute(args.target, built, inputs, ctx, args.debug)
+
+            print("RESULTS", batch_size, time / len(batches), sep=',')
+            for i in range(len(t_inputs[1:])):
+                size_fn = lw_args([batch])
+                target = None
+                if t_inputs_tensors[i + 1] in size_fn:
+                    target = np.empty(size_fn[t_inputs_tensors[i + 1]], dtype='float32')
+                t_inputs[i + 1] = t_inputs[i + 1].asnumpy(target=target, is_src_ragged=is_ragged(t_inputs_tensors[i + 1]))
+        return t_inputs, batches
+    return bert_layer_run
 
 def run_vbatch_gemm(built, i_inputs_tensors, t_inputs_tensors, lw_args, args, pad_sum=None):
     ctx = get_ctx(args.target)
@@ -284,9 +329,9 @@ def lower_or_build(name, s, inputs, args, prep_code_mode='with_prep_code', binds
             fadd.export_library(MODULE_DIR + name + '.so')
             with open(MODULE_DIR + name + '_bufs.txt', 'w') as buf_file:
                 for buf in i_bufs[0]:
-                    print('h', buf.shape.dense_shape(), buf.dtype, file=buf_file)
+                    print('h', buf.shape.dense_shape(), buf.dtype, file=buf_file, sep='|')
                 for buf in i_bufs[1]:
-                    print('d', buf.shape.dense_shape(), buf.dtype, file=buf_file)
+                    print('d', buf.shape.dense_shape(), buf.dtype, file=buf_file, sep='|')
             return None, None
         else:
             if args.debug_code == 'ir':
@@ -303,5 +348,6 @@ def lower_or_build(name, s, inputs, args, prep_code_mode='with_prep_code', binds
             else:
                 assert args.debug_code is None
                 fadd, i_bufs = tvm.build(s, inputs, args.target, binds=binds)
+                print(i_bufs)
                 # fadd = tvm.runtime.module.load_module('/home/ppf/benchmarks/bert_layer/tvm/genlibs/pre_linear.so')
                 return run_function(fadd, i_bufs, inputs[1], size_fn, args, pad_sum=pad_sum)

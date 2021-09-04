@@ -46,7 +46,7 @@ ops = ['qkt', 'attn_v']
 batch_sizes = [2, 8, 32, 128]
 datasets = com.get_all_datasets() if args.dataset is None else [args.dataset]
 
-results_out, results_err = get_out_files(args, 'vbatch_gemm', 'a' if args.append else 'w')
+results_out, results_err = get_out_files(args, 'bin_packed', 'a' if args.append else 'w')
 header = 'Op,Target,Dataset,Batch Size,Vanilla Time,+OpSplit,+HFuse'
 print(header, file = results_out)
 
