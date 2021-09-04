@@ -13,7 +13,7 @@ import run_utils
 parser = run_utils.get_cmd_parser()
 args = parser.parse_args()
 
-BATCH_SIZE = args.batch_size
+BATCH_SIZE = te.var('bs')
 MAX_LEN = utils.ceilmult(run_utils.get_dataset_max_len(args.dataset), 32)
 OUT_SIZE = 512
 
@@ -124,21 +124,27 @@ if args.target == "cuda":
 def size_fn(l_inputs):
     lens = l_inputs[0]
     return {
-        A1: OUT_SIZE * run_utils.prefix_sum(len(lens), lambda b: lufw.get_fn(lens)(b)),
-        A2: OUT_SIZE * run_utils.prefix_sum(len(lens), lambda b: lufw.get_fn(lens)(b)),
-        O: OUT_SIZE * run_utils.prefix_sum(len(lens), lambda b: lufw.get_fn(lens)(b)),
+        # A1: OUT_SIZE * run_utils.prefix_sum(len(lens), lambda b: lufw.get_fn(lens)(b)),
+        # A2: OUT_SIZE * run_utils.prefix_sum(len(lens), lambda b: lufw.get_fn(lens)(b)),
+        # O: OUT_SIZE * run_utils.prefix_sum(len(lens), lambda b: lufw.get_fn(lens)(b)),
     }
 
-inputs = [[lens], [A1, A2, O]]
+inputs = [[lens], [BATCH_SIZE, A1, A2, O]]
 name = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0]
-out, batches = run_utils.lower_or_build(name, s, inputs, args, size_fn=size_fn)
-A1, A2, O = out
-for i in range(args.batch_size):
-    this_a1 = A1[i]
-    this_a2 = A2[i]
-    added = this_a1 + this_a2
-    mean = np.mean(added, axis=1, keepdims=True)
-    std = np.std(added, axis=1, keepdims=True)
-    res = beta + gamma * ((added - mean) / (std + eps))
-    length = batches[0][i]
-    print(length, np.mean(res), np.std(res), np.mean(O[i,0:length,:]), np.std(O[i,0:length,:]))
+out, batches = run_utils.lower_or_build(name, s, inputs, args, size_fn=size_fn,
+                                        run_function=run_utils.get_bert_layer_run_fn(BATCH_SIZE))
+
+# _, A1, A2, O = out
+# ctr = 0
+# O = O.flatten()
+# for i in range(A1.shape[0]):
+#     this_a1 = A1[i]
+#     this_a2 = A2[i]
+#     added = this_a1 + this_a2
+#     mean = np.mean(added, axis=1, keepdims=True)
+#     std = np.std(added, axis=1, keepdims=True)
+#     res = beta + gamma * ((added - mean) / (std + eps))
+#     length = batches[0][i]
+#     this_extent = batches[0][i] * OUT_SIZE
+#     print(length, np.mean(res), np.std(res), np.mean(O[ctr:ctr+this_extent]), np.std(O[ctr:ctr+this_extent]))
+#     ctr += this_extent

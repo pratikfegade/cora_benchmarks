@@ -14,8 +14,8 @@ import run_utils
 parser = run_utils.get_cmd_parser(no_options=True)
 parser.add_argument('--target', nargs='?', default='llvm')
 parser.add_argument('--dtype', dest='dtype', nargs='?', default='float32')
-parser.add_argument('--max-batches', dest='max_batches', default=10, type=int)
-parser.add_argument('--batch-size', dest='batch_size', default=32, type=int)
+parser.add_argument('--max-batches', dest='max_batches', default=1, type=int)
+parser.add_argument('--batch-size', dest='batch_size', default=2, type=int)
 parser.add_argument('--tile-size', dest='tile_size', default=128, type=int)
 parser.add_argument('--debug', dest='debug', default=False, action='store_true')
 parser.add_argument('--debug-code', dest='debug_code', default=None, type=str)
@@ -23,6 +23,7 @@ parser.add_argument('--debug-functions', dest='debug_functions', default=False, 
 parser.add_argument('--manual-code', dest='manual_code', default=False, action='store_true')
 parser.add_argument('--dense-storage', dest='dense_storage', default=False, action='store_true')
 parser.add_argument('--gen-lib', dest='gen_lib', default=False, action='store_true')
+parser.add_argument('--only-prep-code', dest='only_prep_code', default=False, action='store_true')
 parser.add_argument('--data-file', nargs='?', default='random')
 
 parser.add_argument('--m1', dest='m1', default=2, type=int)
@@ -186,6 +187,7 @@ def size_fn(l_inputs):
         O: BATCH_SIZE * MAX_DIM * MAX_DIM,
     }
 
+if args.only_prep_code: prep_code_mode = 'only_prep_code'
 inputs = [[ms, ns, ks], [A, B, O]]
 name = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0]
 out = run_utils.lower_or_build(name, s, inputs, args, size_fn=size_fn,

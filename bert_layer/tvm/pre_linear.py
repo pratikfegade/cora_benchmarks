@@ -14,7 +14,8 @@ import run_utils
 parser = run_utils.get_cmd_parser()
 args = parser.parse_args()
 
-BATCH_SIZE = args.batch_size + 1
+BS_VAR = te.var('bs')
+BATCH_SIZE = BS_VAR + 1
 NUM_HEADS = 8
 IN_SIZE = 512
 OUT_SIZE = 64
@@ -157,12 +158,16 @@ def size_fn(l_inputs):
 
 bQKV = tvm.decl_buffer([BATCH_SIZE*MAX_LEN, IN_SIZE], name = "bQKV")
 binds = {QKV: bQKV}
-inputs = [[lens], [bQKV, W, B, O]]
+inputs = [[lens], [BS_VAR, bQKV, W, B, O]]
 
 name = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0]
-out, batches = run_utils.lower_or_build(name, s, inputs, args, size_fn=size_fn, binds=binds, pad_sum=64)
+out, batches = run_utils.lower_or_build(name, s, inputs, args, size_fn=size_fn, binds=binds, pad_sum=64,
+                                        run_function=run_utils.get_bert_layer_run_fn(BS_VAR))
 
-# QKV, W, O  = outs
-# for i in range(BATCH_SIZE):
-    # length = batches[0][i]
-    # print(batches[0][i], np.mean(O[:,i,0:length,:,:]))
+# ctr = 0
+# _, QKV, W, B, O  = out
+# O = O.flatten()
+# for i in range(len(batches[0])):
+#     length = batches[0][i]
+#     this_extent = batches[0][i] * NUM_HEADS * OUT_SIZE
+#     print(batches[0][i], np.mean(O[ctr:ctr + this_extent]))

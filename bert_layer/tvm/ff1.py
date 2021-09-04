@@ -14,7 +14,8 @@ import run_utils
 parser = run_utils.get_cmd_parser()
 args = parser.parse_args()
 
-BATCH_SIZE = args.batch_size + 1
+BS_VAR = te.var('bs')
+BATCH_SIZE = BS_VAR + 1
 IN_SIZE = 512
 OUT_SIZE = 2048
 MAX_LEN = utils.ceilmult(run_utils.get_dataset_max_len(args.dataset), 64)
@@ -209,6 +210,9 @@ if args.target == "cuda":
 
         s[S].set_scope('local')
 
+        s[O].mark_no_bounds_check()
+        s[S].mark_no_bounds_check()
+
     gen_prefix = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0]
     _ = tvm.register_func(utils.get_tvm_callback_cuda_compile(256))
     _ = tvm.register_func(
@@ -224,11 +228,15 @@ def size_fn(l_inputs):
                        run_utils.prefix_sum(len(lens), lambda b: lufw.get_fn(lens)(b)))
     }
 
-inputs = [[lens], [A, W, B, O]]
+inputs = [[lens], [BS_VAR, A, W, B, O]]
 name = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0]
-out, batches = run_utils.lower_or_build(name, s, inputs, args, size_fn=size_fn, pad_sum=32)
+out, batches = run_utils.lower_or_build(name, s, inputs, args, size_fn=size_fn, pad_sum=32,
+                                        run_function=run_utils.get_bert_layer_run_fn(BS_VAR))
 
-# A, W, O  = out
-# for i in range(BATCH_SIZE):
-    # length = batches[0][i]
-    # print(batches[0][i], np.mean(O[i,0:length,:]))
+# _, A, W, B, O  = out
+# ctr = 0
+# O = O.flatten()
+# for length in batches[0]:
+#     this_extent = length * OUT_SIZE
+#     print(length, np.mean(O[ctr:ctr + this_extent]))
+#     ctr += this_extent

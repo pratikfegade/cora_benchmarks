@@ -9,6 +9,7 @@ sys.path.append(os.path.dirname(os.path.realpath(__file__)) + "/../../")
 import utils
 import run_utils
 from common import Op
+print(tvm.runtime.module.set_mem_prof(True))
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--target', nargs='?', default='llvm')
@@ -67,7 +68,7 @@ post_linear_in_b = run_utils.create_tvm_array((MODEL_DIM,), "float32", dev_ctx, 
 ff1_in_w = run_utils.create_tvm_array((MODEL_DIM, FF_DIM), "float32", dev_ctx, lw_args={})
 ff1_in_b = run_utils.create_tvm_array((FF_DIM,), "float32", dev_ctx, lw_args={})
 ff2_in_w = run_utils.create_tvm_array((FF_DIM, MODEL_DIM), "float32", dev_ctx, lw_args={})
-ff2_in_b = run_utils.create_tvm_array((MODEL_DIM,), "float32", dev_ctx, lw_args={})
+ff2_in_b = run_utils.create_tvm_array((FF_DIM, MODEL_DIM), "float32", dev_ctx, lw_args={})
 
 times = []
 ctr = 0
@@ -76,6 +77,7 @@ for batch in batches:
     print('BATCH', ctr)
     batch = np.sort(batch).astype('int32')
     batch_size_ = BATCH_SIZE + 1
+    l_inputs = [tvm.nd.array(batch, cpu_ctx)]
 
     sum1 = run_utils.prefix_sum(batch_size_, lambda i: batch[i])
     sum16 = run_utils.prefix_sum(batch_size_, lambda i: utils.ceilmult(batch[i], 16))
@@ -87,61 +89,76 @@ for batch in batches:
     pre_linear_in_qkv = run_utils.create_ragged_array((batch_size_ * MAX_LEN, MODEL_DIM), sum1*MODEL_DIM, "float32", dev_ctx)
     pre_linear_out = run_utils.create_ragged_array((3, batch_size_, MAX_LEN, NUM_HEADS, HEAD_SIZE),
                                                    3*sum64*NUM_HEADS*HEAD_SIZE, "float32", dev_ctx)
+    ops['pre_linear'].tensor_inputs = [pre_linear_in_qkv, pre_linear_in_w, pre_linear_in_b, pre_linear_out]
+    ops['pre_linear'].execute(l_inputs)
 
     qkt_in_q = pre_linear_out
     qkt_in_k = pre_linear_out
     qkt_out = run_utils.create_ragged_array((batch_size_, MAX_LEN, NUM_HEADS, MAX_LEN), NUM_HEADS*sum264, "float32", dev_ctx)
+    ops['qkt'].tensor_inputs = [qkt_in_q, qkt_in_k, qkt_out]
+    ops['qkt'].execute(l_inputs)
 
     softmax_in = qkt_out
     softmax_out = run_utils.create_ragged_array((batch_size_, MAX_LEN, NUM_HEADS, MAX_LEN), NUM_HEADS*sum264, "float32", dev_ctx)
+    ops['softmax'].tensor_inputs = [softmax_in, softmax_out]
+    ops['softmax'].execute(l_inputs)
+    qkt_out.__del__()
 
     attn_v_in_attn = softmax_out
     attn_v_in_v = pre_linear_out
     attn_v_out = run_utils.create_ragged_array((batch_size_, MAX_LEN, NUM_HEADS, HEAD_SIZE),
                                                NUM_HEADS*HEAD_SIZE*sum64, "float32", dev_ctx)
+    ops['attn_v'].tensor_inputs = [attn_v_in_v, attn_v_in_attn, attn_v_out]
+    ops['attn_v'].execute(l_inputs)
+    pre_linear_out.__del__()
+    softmax_out.__del__()
 
     post_linear_in_a = attn_v_out
     post_linear_out = run_utils.create_ragged_array((batch_size_, MAX_LEN, MODEL_DIM), MODEL_DIM*sum1, "float32", dev_ctx)
+    ops['post_linear'].tensor_inputs = [post_linear_in_a, post_linear_in_w, post_linear_in_b, post_linear_out]
+    ops['post_linear'].execute(l_inputs)
+    attn_v_out.__del__()
 
     norm_add1_in_a1 = pre_linear_in_qkv.create_view((batch_size_, MAX_LEN, MODEL_DIM))
     norm_add1_in_a2 = post_linear_out
     norm_add1_out = run_utils.create_ragged_array((batch_size_, MAX_LEN, MODEL_DIM), MODEL_DIM*sum1, "float32", dev_ctx)
+    ops['norm_add1'].tensor_inputs = [norm_add1_in_a1, norm_add1_in_a2, norm_add1_out]
+    ops['norm_add1'].execute(l_inputs)
+    pre_linear_in_qkv.__del__()
+    post_linear_out.__del__()
 
     ff1_in_a = norm_add1_out
     ff1_out = run_utils.create_ragged_array((batch_size_, MAX_LEN, FF_DIM), FF_DIM*sum1, "float32", dev_ctx)
+    ops['ff1'].tensor_inputs = [ff1_in_a, ff1_in_w, ff1_in_b, ff1_out]
+    ops['ff1'].execute(l_inputs)
 
     ff2_in_a = ff1_out
     ff2_out = run_utils.create_ragged_array((batch_size_, MAX_LEN, MODEL_DIM), MODEL_DIM*sum1, "float32", dev_ctx)
+    ops['ff2'].tensor_inputs = [ff2_in_a, ff2_in_w, ff2_in_b, ff2_out]
+    ops['ff2'].execute(l_inputs)
+    ff1_out.__del__()
 
     norm_add2_in_a1 = norm_add1_out
     norm_add2_in_a2 = ff2_out
     norm_add2_out = run_utils.create_ragged_array((batch_size_, MAX_LEN, MODEL_DIM), MODEL_DIM*sum1, "float32", dev_ctx)
-
-
-    ops['pre_linear'].tensor_inputs = [pre_linear_in_qkv, pre_linear_in_w, pre_linear_in_b, pre_linear_out]
-    ops['qkt'].tensor_inputs = [qkt_in_q, qkt_in_k, qkt_out]
-    ops['softmax'].tensor_inputs = [softmax_in, softmax_out]
-    ops['attn_v'].tensor_inputs = [attn_v_in_v, attn_v_in_attn, attn_v_out]
-    ops['post_linear'].tensor_inputs = [post_linear_in_a, post_linear_in_w, post_linear_in_b, post_linear_out]
-    ops['norm_add1'].tensor_inputs = [norm_add1_in_a1, norm_add1_in_a2, norm_add1_out]
-    ops['ff1'].tensor_inputs = [ff1_in_a, ff1_in_w, ff1_in_b, ff1_out]
-    ops['ff2'].tensor_inputs = [ff2_in_a, ff2_in_w, ff2_in_b, ff2_out]
     ops['norm_add2'].tensor_inputs = [norm_add2_in_a1, norm_add2_in_a2, norm_add2_out]
+    ops['norm_add2'].execute(l_inputs)
+    norm_add1_out.__del__()
+    ff2_out.__del__()
 
-    l_inputs = [tvm.nd.array(batch, cpu_ctx)]
+    # start = time.perf_counter()
 
-    start = time.perf_counter()
+    # this_times = []
+    # for i in range(args.witers + args.iters):
+    #     start = time.perf_counter()
+    #     for op in ops_order: op.execute(l_inputs)
+    #     dev_ctx.sync()
+    #     end = time.perf_counter()
+    #     this_times.append(end - start)
 
-    this_times = []
-    for i in range(args.witers + args.iters):
-        start = time.perf_counter()
-        for op in ops_order: op.execute(l_inputs)
-        dev_ctx.sync()
-        end = time.perf_counter()
-        this_times.append(end - start)
+    # this_times = this_times[args.witers:]
+    # times.append(sum(this_times) / args.iters)
 
-    this_times = this_times[args.witers:]
-    times.append(sum(this_times) / args.iters)
-
-total_time = sum(times)*1000.0
-print('RESULTS', total_time / (len(batches)), sep=',')
+print(tvm.runtime.module.get_max_mem_consumption())
+# total_time = sum(times)*1000.0
+# print(total_time / (len(batches)))

@@ -13,7 +13,7 @@ import run_utils
 parser = run_utils.get_cmd_parser()
 args = parser.parse_args()
 
-BATCH_SIZE = args.batch_size
+BATCH_SIZE = te.var('bs')
 MAX_LEN = utils.ceilmult(run_utils.get_dataset_max_len(args.dataset), 32)
 NUM_HEADS = 8
 scale = 1/8
@@ -98,9 +98,9 @@ if args.target == 'cuda':
     s[Asum].set_scope('local')
     s[Asum_rf].set_scope('local')
     s[Aexp].set_scope('local')
-    inputs = [[lens], [A, O]]
+    inputs = [[lens], [BATCH_SIZE, A, O]]
 else:
-    inputs = [[lens], [A, Amax, Aexp, Asum, O]]
+    inputs = [[lens], [BATCH_SIZE, A, O, Amax, Aexp, Asum]]
 
 gen_prefix = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0]
 _ = tvm.register_func(utils.get_tvm_callback_cuda_compile(256))
@@ -119,8 +119,15 @@ def size_fn(l_inputs):
     }
 
 name = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0]
-out, batches = run_utils.lower_or_build(name, s, inputs, args, size_fn=size_fn)
-# out = out[1].asnumpy()
+out, batches = run_utils.lower_or_build(name, s, inputs, args, size_fn=size_fn,
+                                        run_function=run_utils.get_bert_layer_run_fn(BATCH_SIZE))
+
+# out = out[2]
+# ctr = 0
+# out = out.flatten()
 # for i in range(args.batch_size):
 #     rounded = utils.ceilmult(batches[0][i], 32)
-#     print(1 / rounded, np.mean(out[i, 0, 0, 0:rounded]))
+#     this_extent = utils.ceilmult(batches[0][i], 32)
+#     this_storage_extent = utils.ceilmult(batches[0][i], 64) * utils.ceilmult(batches[0][i], 64) * NUM_HEADS
+#     print(batches[0][i], rounded, 1 / rounded, np.mean(out[ctr:ctr + this_extent]))
+#     ctr += this_storage_extent

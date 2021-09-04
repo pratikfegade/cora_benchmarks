@@ -14,7 +14,8 @@ import run_utils
 parser = run_utils.get_cmd_parser()
 args = parser.parse_args()
 
-BATCH_SIZE = args.batch_size + 1
+BS_VAR = te.var('bs')
+BATCH_SIZE = BS_VAR + 1
 MAX_LEN = utils.ceilmult(run_utils.get_dataset_max_len(args.dataset), 64)
 NUM_HEADS = 8
 HEAD_SIZE = 64
@@ -154,13 +155,17 @@ def size_fn(l_inputs):
 # bO = tvm.decl_buffer([BATCH_SIZE * MAX_LEN, OUT_SIZE], name = "bO")
 # inputs = [[lens], [A, W, bO]]
 # binds = {O: bO}
-inputs = [[lens], [A, W, B, O]]
+inputs = [[lens], [BS_VAR, A, W, B, O]]
 binds = {}
 
 name = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0]
-out, batches = run_utils.lower_or_build(name, s, inputs, args, size_fn=size_fn, binds=binds, pad_sum=128)
+out, batches = run_utils.lower_or_build(name, s, inputs, args, size_fn=size_fn, binds=binds, pad_sum=128,
+                                        run_function=run_utils.get_bert_layer_run_fn(BS_VAR))
 
-# A, W, O = out
-# for i in range(BATCH_SIZE):
-    # length = batches[0][i]
-    # print(batches[0][i], np.mean(O[i,0:length,:]))
+# _, A, W, B, O = out
+# ctr = 0
+# O = O.flatten()
+# for length in batches[0]:
+#     this_extent = length * OUT_SIZE
+#     print(length, np.mean(O[ctr:ctr + this_extent]))
+#     ctr += this_extent

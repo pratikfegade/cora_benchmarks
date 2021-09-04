@@ -123,5 +123,5 @@ int main(int argc, char *argv[]) {
 
   total_time /= num_batches;
 
-  std::cout << total_time << std::endl;
+  std::cout << "RESULTS," << total_time << std::endl;
 }
