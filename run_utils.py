@@ -37,7 +37,6 @@ def get_cmd_parser(no_options=False):
         parser.add_argument('--target', nargs='?', default='llvm')
         parser.add_argument('--dtype', dest='dtype', nargs='?', default='float32')
         parser.add_argument('--max-batches', dest='max_batches', default=1, type=int)
-        parser.add_argument('--batch-size', dest='batch_size', default=32, type=int)
         parser.add_argument('--batch-sizes', dest='batch_sizes', nargs='+', default=[32], type=int)
         parser.add_argument('--debug', dest='debug', default=False, action='store_true')
         parser.add_argument('--debug-code', dest='debug_code', default=None, type=str)

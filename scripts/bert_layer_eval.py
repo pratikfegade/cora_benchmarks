@@ -6,13 +6,17 @@ import argparse
 
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 PYTORCH_RUNNER = SCRIPT_DIR + '/../bert_layer/pytorch/layer.py'
-TVM_EXE_RUNNER = SCRIPT_DIR + '/../bert_layer/tvm/bert_layer_ragged.py'
+# TVM_EXE_RUNNER = SCRIPT_DIR + '/../bert_layer/tvm/bert_layer_ragged.py'
+TVM_EXE_RUNNER = SCRIPT_DIR + '/../bert_layer/tvm/masked_mha.py'
 TVM_MEM_RUNNER = SCRIPT_DIR + '/../bert_layer/tvm/bert_layer_memory.py'
 TVM_LIB_RUNNER = SCRIPT_DIR + '/../bert_layer/tvm/gen_libs.sh'
 PYTHON = 'python3'
 
 def generate_tvm_libs(dataset, args):
-    cmd = [TVM_LIB_RUNNER, dataset, '1' if args.bin_packed else '0', '0', '1' if prep_overhead else '0']
+    cmd = [TVM_LIB_RUNNER, dataset,
+           '1' if args.bin_packed else '0',
+           '1' if args.masked_mha else '0',
+           '1' if args.prep_overhead else '0']
     print(' '.join(cmd))
     out, err = run_cmd(cmd)
     print(err)
@@ -21,10 +25,12 @@ def run_pytorch(b_size, dataset, n_batch, err_file, args):
     cmd = [PYTHON, PYTORCH_RUNNER, '--target', com.get_tvm_target(target), '--batch-size', str(b_size),
            '--max-batches', str(n_batch), '--dataset', dataset]
     if args.mem: cmd += ['--mem']
+    if args.masked_mha: cmd += ['--masked-mha']
+    print(' '.join(cmd))
     out, err = run_cmd(cmd)
     if err: print(err, file = err_file)
 
-    if args.mem: return com.extract_mem(out, 1)[0]
+    if args.mem: return com.extract_mem(out)
     else: return com.extract_times(out, 1)[0]
 
 def run_tvm(b_size, dataset, n_batch, err_file, args):
@@ -32,12 +38,14 @@ def run_tvm(b_size, dataset, n_batch, err_file, args):
 
     cmd = [PYTHON, runner, '--target', com.get_tvm_target(target), '--batch-size', str(b_size),
            '--max-batches', str(n_batch), '--dataset', dataset]
-    if args.bin_packed: cmd += ['--bin_packed']
+    if args.bin_packed: cmd += ['--bin-packed']
+    if args.masked_mha: cmd += ['--masked-mha']
+    print(' '.join(cmd))
     out, err = '', ''
     out, err = run_cmd(cmd)
     if err: print(err, file = err_file)
 
-    if args.mem: return com.extract_mem(out, 1)[0]
+    if args.mem: return com.extract_mem(out)
     else: return com.extract_times(out, 1)[0]
 
 parser = argparse.ArgumentParser()
@@ -48,6 +56,7 @@ parser.add_argument('--max-batches', dest='max_batches', default=1, type=int)
 parser.add_argument('--bin-packed', dest='bin_packed', default=False, action='store_true')
 parser.add_argument('--prep-overhead', dest='prep_overhead', default=False, action='store_true')
 parser.add_argument('--gen-libs', dest='gen_libs', default=False, action='store_true')
+parser.add_argument('--masked-mha', dest='masked_mha', default=False, action='store_true')
 parser.add_argument('--mem', dest='mem', default=False, action='store_true')
 parser.add_argument('--stdout', dest='stdout', default=False, action='store_true')
 parser.add_argument('--append', dest='append', default=False, action='store_true')
@@ -71,6 +80,7 @@ else:
 out_prefix = 'bert_layer'
 if args.prep_overhead: out_prefix += '_prelude'
 if args.mem: out_prefix += '_mem'
+if args.masked_mha: out_prefix += '_mmha'
 
 results_out, results_err = get_out_files(args, out_prefix, 'a' if args.append else 'w')
 header = 'Target,Dataset,Batch Size'

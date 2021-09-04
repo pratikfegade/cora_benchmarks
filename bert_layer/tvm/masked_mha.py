@@ -63,21 +63,21 @@ ops_order = [
 ]
 
 if not args.masked_mha:
-    ops_order += [
-        ops['norm_add1'],
-        ops['ff1'],
-        ops['ff2'],
-        ops['norm_add2'],
-    ]
     ops.update({
         'norm_add1': Op('norm_add1', 'norm_add', BATCH_SIZE, [], cpu_ctx, dev_ctx),
         'ff1': Op('ff1', 'ff1', BATCH_SIZE, [], cpu_ctx, dev_ctx),
         'ff2': Op('ff2', 'ff2', BATCH_SIZE, [], cpu_ctx, dev_ctx),
         'norm_add2': Op('norm_add2', 'norm_add', BATCH_SIZE, [], cpu_ctx, dev_ctx),
     })
+    ops_order += [
+        ops['norm_add1'],
+        ops['ff1'],
+        ops['ff2'],
+        ops['norm_add2'],
+    ]
 
 # l_inputs: Allocate tensors
-batches = run_utils.get_nlp_batches(args.batch_size, args.max_batches, args.dataset, run_utils.DATA_DIR)
+batches = run_utils.get_nlp_batches(args.batch_size, args.max_batches, args.dataset)
 batches = run_utils.add_padded_sum(batches, 128)
 
 pre_linear_in_w = run_utils.create_tvm_array((3, NUM_HEADS, HEAD_SIZE, MODEL_DIM), "float32", dev_ctx, lw_args={})

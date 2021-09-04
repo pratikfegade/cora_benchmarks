@@ -3,28 +3,16 @@ import argparse
 import tvm
 from tvm import tir, te
 from tvm.te import RangeDimension as Dim
-from tvm.tir import UninterpFun as Uf
+from tvm.tir import UninterpFun as Uf, UfWrapper as Ufw
 import sys
 sys.path.append(os.path.dirname(os.path.realpath(__file__)) + "/../../")
 import utils
 import run_utils
 
-parser = argparse.ArgumentParser()
-parser.add_argument('--target', nargs='?', default='llvm')
-parser.add_argument('--dtype', dest='dtype', nargs='?', default='float32')
-parser.add_argument('--max-batches', dest='max_batches', default=1, type=int)
-parser.add_argument('--batch-size', dest='batch_size', default=32, type=int)
-parser.add_argument('--peel-loops', dest='peel_loops', default=False, action='store_true')
-parser.add_argument('--unroll-loops', dest='unroll_loops', default=False, action='store_true')
-parser.add_argument('--debug', dest='debug', default=False, action='store_true')
-parser.add_argument('--debug-code', dest='debug_code', default=False, action='store_true')
-parser.add_argument('--manual-code', dest='manual_code', default=False, action='store_true')
-parser.add_argument('--dense-storage', dest='dense_storage', default=False, action='store_true')
-parser.add_argument('--dataset', nargs='?', default='random')
-parser.add_argument('--datadir', nargs='?', default='random')
+parser = run_utils.get_cmd_parser()
 args = parser.parse_args()
 
-BATCH_SIZE = args.batch_size
+BATCH_SIZE = te.var('bs')
 MAX_LEN = utils.ceilmult(run_utils.get_dataset_max_len(args.dataset), 32)
 NUM_HEADS = 8
 scale = 1/8
@@ -38,11 +26,13 @@ s2 = Dim('s2')
 
 TILE1=64
 TILE2=16
-def len1_uf(name): return Uf(name, 'l', (TILE1, MAX_LEN), [bd], lambda b: utils.ceilmult(lens[b], TILE1))
-def len2_uf(name): return Uf(name, 'l', (TILE2, MAX_LEN), [s1], lambda s: utils.ceilmult(s + 1, TILE2))
+def len1_ufw(name, pad): return Ufw(name, "l", (pad, MAX_LEN), [bd], [lens], lambda lens: lambda b: utils.ceilmult(lens[b], pad))
+def len2_ufw(name, pad): return Ufw(name, "l", (pad, MAX_LEN), [s1], [], lambda: lambda s: utils.ceilmult(s + 1, pad))
+l1ufw = len1_ufw('s1', TILE1)
+l2ufw = len2_ufw('s2', TILE2)
 
-luf1 = len1_uf('s1')
-luf2 = len2_uf('s2')
+luf1 = l1ufw.get_uf()
+luf2 = l2ufw.get_uf()
 ls =  {
     0: Uf.from_constant('bd', BATCH_SIZE, 'l'),
     1: Uf.from_constant('md', NUM_HEADS, 'l'),
@@ -113,24 +103,33 @@ s[Asum].set_scope('local')
 s[Asum_rf].set_scope('local')
 s[Aexp].set_scope('local')
 
-suffix = ""
-gen_prefix = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0] + suffix
+gen_prefix = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0]
 _ = tvm.register_func(utils.get_tvm_callback_cuda_compile(256))
 _ = tvm.register_func(
     utils.get_tvm_callback_cuda_postproc(args, os.path.realpath(__file__), fileprefix=gen_prefix))
 
-with tvm.build_config(prep_code_mode='with_prep_code', fill_in_function_bodies=True):
-    inputs = [[lens], [A, O]]
-    if args.debug_code:
-        lowered = tvm.lower(s, inputs, args.target, simple_mode = True)
-        print(lowered)
-        # fadd = tvm.build(s, inputs, args.target)
-        # if args.target == 'cuda':
-        #     print('-----GPU code-----\n' + fadd.imported_modules[0].get_source())
-        # else:
-        #     print('-----CPU code-----\n' + fadd.get_source())
-    else:
-        fadd, i_bufs = tvm.build(s, inputs, args.target)
-        # fadd = tvm.runtime.module.load_module('/home/ppf/rnn_compilers/ragged_tensors/incubator-tvm/build/qkt.so')
-        run_utils.run(fadd, i_bufs, inputs[1], args.batch_size, args.max_batches,
-                      args.dataset, args.datadir, args.target, args.debug)
+def size_fn(l_inputs):
+    lens = l_inputs[0]
+    return {
+        A: NUM_HEADS * run_utils.prefix_sum(len(lens),
+                                            lambda b: (l1ufw.get_fn(lens)(b) *
+                                                       l1ufw.get_fn(lens)(b))),
+        O: NUM_HEADS * run_utils.prefix_sum(len(lens),
+                                            lambda b: (l1ufw.get_fn(lens)(b) *
+                                                       l1ufw.get_fn(lens)(b)))
+    }
+
+inputs = [[lens], [BATCH_SIZE, A, O]]
+name = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0]
+out, batches = run_utils.lower_or_build(name, s, inputs, args, size_fn=size_fn,
+                                        run_function=run_utils.get_bert_layer_run_fn(BATCH_SIZE))
+
+# out = out[2]
+# ctr = 0
+# out = out.flatten()
+# for i in range(args.batch_size):
+#     rounded = utils.ceilmult(batches[0][i], 32)
+#     this_extent = utils.ceilmult(batches[0][i], 32)
+#     this_storage_extent = utils.ceilmult(batches[0][i], 64) * utils.ceilmult(batches[0][i], 64) * NUM_HEADS
+#     print(batches[0][i], rounded, 1 / rounded, np.mean(out[ctr:ctr + this_extent]))
+#     ctr += this_storage_extent
