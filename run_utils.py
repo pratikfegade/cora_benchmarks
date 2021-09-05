@@ -333,6 +333,28 @@ def run_vbatch_gemm(built, i_inputs_tensors, t_inputs_tensors, lw_args, args, pa
         t_inputs[i] = t_inputs[i].asnumpy(target=target, is_src_ragged=is_ragged(t_inputs_tensors[i]))
     return t_inputs
 
+def run_trmm(built, i_inputs_tensors, t_inputs_tensors, lw_args, args, pad_sum=None):
+    import tvm
+    ctx = get_ctx(args.target)
+    cpu_ctx = get_ctx("llvm")
+    host_i_inputs, dev_i_inputs = [], []
+    if len(i_inputs_tensors) == 2:
+        host_i_inputs = [tvm.nd.array(create_numpy_array(i, "int32"), cpu_ctx) for i in i_inputs_tensors[0]]
+        dev_i_inputs = [tvm.nd.array(create_numpy_array(i, "int32"), ctx) for i in i_inputs_tensors[1]]
+
+    t_inputs = [create_tvm_array(i, "float32", ctx, lw_args={}) for i in t_inputs_tensors]
+    inputs = t_inputs + host_i_inputs + dev_i_inputs
+    time = execute(args.target, built, inputs, ctx, args.debug)
+
+    print("RESULTS", time, sep=',')
+    for i in range(len(t_inputs)):
+        size_fn = {}
+        target = None
+        if t_inputs_tensors[i] in size_fn:
+            target = np.empty(size_fn[t_inputs_tensors[i]], dtype='float32')
+        t_inputs[i] = t_inputs[i].asnumpy(target=target, is_src_ragged=is_ragged(t_inputs_tensors[i]))
+    return t_inputs
+
 def lower_or_build(name, s, inputs, args, prep_code_mode='with_prep_code', binds=None, size_fn={}, pad_sum=None, run_function=run2):
     import tvm
     with tvm.build_config(prep_code_mode=prep_code_mode, fill_in_function_bodies=not args.debug_functions):
@@ -360,6 +382,5 @@ def lower_or_build(name, s, inputs, args, prep_code_mode='with_prep_code', binds
             else:
                 assert args.debug_code is None
                 fadd, i_bufs = tvm.build(s, inputs, args.target, binds=binds)
-                print(i_bufs)
                 # fadd = tvm.runtime.module.load_module('/home/ppf/benchmarks/bert_layer/tvm/genlibs/pre_linear.so')
                 return run_function(fadd, i_bufs, inputs[1], size_fn, args, pad_sum=pad_sum)
