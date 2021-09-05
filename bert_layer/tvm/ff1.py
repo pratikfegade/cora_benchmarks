@@ -220,11 +220,8 @@ if args.target == "cuda":
         S_b, S_l, S_o, S_k = tuple(S.op.axis) + tuple(S.op.reduce_axis)
         S_l = s[S].fuse(S_l, S_b)
 
-        S_l_o_o_i, S_l_o_i = s[S].split(S_l, factor=8)
-        S_l_o_o_o_i, S_l_o_o_i = s[S].split(S_l_o_o_i, factor=4)
-
         S_k_o_i, S_k_i = s[S].split(S_k, factor=32)
-        s[S].reorder(S_l_o_o_o_i, S_l_o_o_i, S_k_o_i, S_l_o_i, S_k_i, S_o)
+        s[S].reorder(S_k_o_i, S_l, S_k_i, S_o)
 
         O_b, O_l, O_o = tuple(O.op.axis) + tuple(O.op.reduce_axis)
         O_l = s[O].fuse(O_b, O_l, padding=32)
