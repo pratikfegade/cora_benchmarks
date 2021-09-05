@@ -45,8 +45,15 @@ B = te.placeholder((M, M), name='B')
 
 loop_ufs=[ls[0], ls[1]]
 O = te.ragged_compute((M, M), [md, nd], loop_ufs,
-                      lambda ds, rds: tvm.sum(A[ds[md], rds['k']] * B[rds['k'], ds[nd]],
+                      # lambda ds, rds: tvm.sum(tvm.tir.Cast('int32', rds['k'] > (ds[md] + 1)) *
+                                              # A[ds[md], rds['k']] * B[rds['k'], ds[nd]],
+                                              # axis=rds['k'], dimensions = [kd]),
+                      lambda ds, rds: tvm.sum(tvm.if_then_else(rds['k'] > (ds[md] + 1),
+                                                               A[ds[md], rds['k']] * B[rds['k'], ds[nd]],
+                                                               0),
                                               axis=rds['k'], dimensions = [kd]),
+                      # lambda ds, rds: tvm.sum(A[ds[md], rds['k']] * B[rds['k'], ds[nd]],
+                                              # axis=rds['k'], dimensions = [kd]),
                       name = 'O', reduce_axis_ufs = [('k', luf)], width_uf_lists=None)
 
 s = tvm.create_schedule([O.op])
@@ -123,6 +130,8 @@ else:
 
     S_k_o_o, S_k_o_i = s[S].split(S_k, factor=4)
     s[S].reorder(S_l_o_o_i, S_k_o_o, S_k_o_i, S_l_o_i, S_o, S_l_i)
+    # s[S].peel(S_k_o_o)
+    s[S].unroll(S_l_i)
 
     O_l, O_o, O_k = tuple(O.op.axis) + tuple(O.op.reduce_axis)
     O_l_o_i, O_l_i = s[O].split(O_l, factor=32)
@@ -153,7 +162,7 @@ else:
     s[A_shared].bind(A_shared_ax0_ax1_fused_o_i, te.thread_axis("threadIdx.x"))
 
     B_shared_ax0_ax1_fused = s[B_shared].fuse(B_shared_ax0, B_shared_ax1)
-    B_shared_ax0_ax1_fused_o, B_shared_ax0_ax1_fused_i = s[B_shared].split(B_shared_ax0_ax1_fused, factor=2)
+    B_shared_ax0_ax1_fused_o, B_shared_ax0_ax1_fused_i = s[B_shared].split(B_shared_ax0_ax1_fused, factor=4)
     s[B_shared].vectorize(B_shared_ax0_ax1_fused_i)
     B_shared_ax0_ax1_fused_o_o, B_shared_ax0_ax1_fused_o_i = s[B_shared].split(B_shared_ax0_ax1_fused_o, factor=64)
     s[B_shared].bind(B_shared_ax0_ax1_fused_o_i, te.thread_axis("threadIdx.x"))

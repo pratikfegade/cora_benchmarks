@@ -12,7 +12,7 @@ import utils
 import run_utils
 
 parser = run_utils.get_cmd_parser()
-parser.add_argument('--s2', dest='s2', default=False, action='store_true')
+parser.add_argument('--sched', dest='sched', default=1, type=int)
 args = parser.parse_args()
 
 BS_VAR = te.var('bs')
@@ -217,46 +217,39 @@ if args.target == "cuda":
 
         s[S].set_scope('local')
     else:
-        S_l, S_o, S_k = tuple(S.op.axis) + tuple(S.op.reduce_axis)
+        S_b, S_l, S_o, S_k = tuple(S.op.axis) + tuple(S.op.reduce_axis)
+        S_l = s[S].fuse(S_l, S_b)
 
-        O_l, O_o = tuple(O.op.axis) + tuple(O.op.reduce_axis)
-
-        S_l_o_i, S_l_i = s[S].split(S_l, factor=1)
-        S_l_o_o_i, S_l_o_i = s[S].split(S_l_o_i, factor=8)
+        S_l_o_o_i, S_l_o_i = s[S].split(S_l, factor=8)
         S_l_o_o_o_i, S_l_o_o_i = s[S].split(S_l_o_o_i, factor=4)
-        S_l_o_o_o_o, S_l_o_o_o_i = s[S].split(S_l_o_o_o_i, factor=1)
-        S_o_o_i, S_o_i = s[S].split(S_o, factor=2)
-        S_o_o_o_i, S_o_o_i = s[S].split(S_o_o_i, factor=1)
-        S_o_o_o_o_i, S_o_o_o_i = s[S].split(S_o_o_o_i, factor=32)
-        S_o_o_o_o_o, S_o_o_o_o_i = s[S].split(S_o_o_o_o_i, factor=1)
-        S_k_o_i, S_k_i = s[S].split(S_k, factor=32)
-        S_k_o_o, S_k_o_i = s[S].split(S_k_o_i, factor=1)
-        s[S].reorder(S_l_o_o_o_o, S_o_o_o_o_o, S_l_o_o_o_i, S_o_o_o_o_i, S_l_o_o_i, S_o_o_o_i, S_k_o_o, S_k_o_i, S_l_o_i, S_o_o_i, S_k_i, S_l_i, S_o_i)
 
+        S_k_o_i, S_k_i = s[S].split(S_k, factor=32)
+        s[S].reorder(S_l_o_o_o_i, S_l_o_o_i, S_k_o_i, S_l_o_i, S_k_i, S_o)
+
+        O_b, O_l, O_o = tuple(O.op.axis) + tuple(O.op.reduce_axis)
+        O_l = s[O].fuse(O_b, O_l, padding=32)
         O_l_o_i, O_l_i = s[O].split(O_l, factor=8)
         O_l_o_o_i, O_l_o_i = s[O].split(O_l_o_i, factor=4)
-        O_l_o_o_o, O_l_o_o_i = s[O].split(O_l_o_o_i, factor=1)
+
         O_o_o_i, O_o_i = s[O].split(O_o, factor=2)
         O_o_o_o_i, O_o_o_i = s[O].split(O_o_o_i, factor=32)
-        O_o_o_o_o, O_o_o_o_i = s[O].split(O_o_o_o_i, factor=1)
-        s[O].reorder(O_l_o_o_o, O_o_o_o_o, O_l_o_o_i, O_o_o_o_i, O_l_o_i, O_o_o_i, O_l_i, O_o_i)
 
-        s[S].compute_at(s[O], O_o_o_i)
+        s[O].reorder(O_l_o_o_i, O_o_o_o_i, O_l_o_i, O_o_o_i, O_l_i, O_o_i)
 
         A_shared = s.cache_read(A, "shared", [S])
-        A_shared_ax0, A_shared_ax1 = tuple(A_shared.op.axis)
-        s[A_shared].compute_at(s[S], S_k_o_o)
+        A_shared_axm1, A_shared_ax0, A_shared_ax1 = tuple(A_shared.op.axis)
+        A_shared_ax0 = s[A_shared].fuse(A_shared_axm1, A_shared_ax0)
+        s[A_shared].compute_at(s[S], S_k_o_i)
 
-        W_shared = s.cache_read(W, "shared", [S])
+        W_shared = s.cache_read(W, "shared", [S], vanilla=True)
         W_shared_ax0, W_shared_ax1 = tuple(W_shared.op.axis)
-        s[W_shared].compute_at(s[S], S_k_o_o)
+        s[W_shared].compute_at(s[S], S_k_o_i)
 
-        O_l_o_o_o_o_o_o_o_fused = s[O].fuse(O_l_o_o_o, O_o_o_o_o)
-        s[O].bind(O_l_o_o_o_o_o_o_o_fused, te.thread_axis("blockIdx.x"))
-        O_l_o_o_i_o_o_o_i_fused = s[O].fuse(O_l_o_o_i, O_o_o_o_i)
-        s[O].bind(O_l_o_o_i_o_o_o_i_fused, te.thread_axis("vthread"))
+        O_l_o_o_i_o_o_o_o_fused = s[O].fuse(O_l_o_o_i, O_o_o_o_i)
+        s[O].bind(O_l_o_o_i_o_o_o_o_fused, te.thread_axis("blockIdx.x"))
         O_l_o_i_o_o_i_fused = s[O].fuse(O_l_o_i, O_o_o_i)
         s[O].bind(O_l_o_i_o_o_i_fused, te.thread_axis("threadIdx.x"))
+        s[S].compute_at(s[O], O_l_o_i_o_o_i_fused)
 
         A_shared_ax0_ax1_fused = s[A_shared].fuse(A_shared_ax0, A_shared_ax1)
         A_shared_ax0_ax1_fused_o, A_shared_ax0_ax1_fused_i = s[A_shared].split(A_shared_ax0_ax1_fused, factor=4)
@@ -270,8 +263,16 @@ if args.target == "cuda":
         W_shared_ax0_ax1_fused_o_o, W_shared_ax0_ax1_fused_o_i = s[W_shared].split(W_shared_ax0_ax1_fused_o, factor=128)
         s[W_shared].bind(W_shared_ax0_ax1_fused_o_i, te.thread_axis("threadIdx.x"))
 
-        s[S].pragma(S_l_o_o_o_o, "auto_unroll_max_step", 512)
-        s[S].pragma(S_l_o_o_o_o, "unroll_explicit", True)
+        # s[S].pragma(S_l_o_o_o_o, "auto_unroll_max_step", 512)
+        # s[S].pragma(S_l_o_o_o_o, "unroll_explicit", True)
+
+        s.fuse_tensor_dimensions(S, 0, 1)
+        s.fuse_tensor_dimensions(A_shared, 0, 1)
+
+        s[S].mark_no_bounds_check()
+        s[O].mark_no_bounds_check()
+
+        s[S].set_scope('local')
 
     gen_prefix = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0]
     _ = tvm.register_func(utils.get_tvm_callback_cuda_compile(256))
