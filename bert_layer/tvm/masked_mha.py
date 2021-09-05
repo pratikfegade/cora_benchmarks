@@ -20,6 +20,7 @@ parser.add_argument('--batch-size', dest='batch_size', default=32, type=int)
 parser.add_argument('--dense-storage', dest='dense_storage', default=False, action='store_true')
 parser.add_argument('--bin-packed', dest='bin_packed', default=False, action='store_true')
 parser.add_argument('--masked-mha', dest='masked_mha', default=False, action='store_true')
+parser.add_argument('--per-op', dest='per_op', default=False, action='store_true')
 parser.add_argument('--dataset', nargs='?', default='random_384_512')
 args = parser.parse_args()
 
@@ -163,9 +164,23 @@ for batch in batches:
     # times.append(sum(this_times) / args.iters)
 
     this_time = 0
+    time_dict = {}
+    if args.per_op:
+        for op in ops_order:
+            time_dict[op.name] = []
+
     for op in ops_order:
-        this_time += op.execute_multiple(l_inputs, dev_ctx)
+        op_time = op.execute_multiple(l_inputs, dev_ctx)
+        if (args.per_op):
+            time_dict[op.name].append(op_time)
+        this_time += op_time
     times.append(this_time)
+
+
+if args.per_op:
+    for op in ops_order:
+        time = sum(time_dict[op.name])*1000.0
+        print('RESULTS', op.name, time / (len(batches)), sep=',')
 
 total_time = sum(times)*1000.0
 print('RESULTS', total_time / (len(batches)), sep=',')
