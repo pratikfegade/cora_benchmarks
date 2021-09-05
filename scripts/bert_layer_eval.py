@@ -76,7 +76,6 @@ parser.add_argument('--max-batches', dest='max_batches', default=1, type=int)
 parser.add_argument('--bin-packed', dest='bin_packed', default=False, action='store_true')
 parser.add_argument('--prep-overhead', dest='prep_overhead', default=False, action='store_true')
 parser.add_argument('--gen-libs', dest='gen_libs', default=False, action='store_true')
-parser.add_argument('--masked-mha', dest='masked_mha', default=False, action='store_true')
 parser.add_argument('--mem', dest='mem', default=False, action='store_true')
 parser.add_argument('--stdout', dest='stdout', default=False, action='store_true')
 parser.add_argument('--append', dest='append', default=False, action='store_true')
@@ -93,11 +92,6 @@ datasets = com.cluster_datasets_by_max_len() if args.dataset is None else {com.g
 if args.prep_overhead:
     framework_funs = {
         'pytorch': lambda b_sizes, *args: com.batchify(b_sizes, run_pytorch, *args),
-    }
-elif args.masked_mha:
-    framework_funs = {
-        # 'pytorch': lambda b_sizes, *args: com.batchify(b_sizes, run_pytorch, *args),
-        'cora': lambda b_sizes, *args: com.batchify(b_sizes, run_tvm, *args),
     }
 else:
     framework_funs = {

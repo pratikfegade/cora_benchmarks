@@ -20,6 +20,7 @@ parser.add_argument('--batch-size', dest='batch_size', default=32, type=int)
 parser.add_argument('--dense-storage', dest='dense_storage', default=False, action='store_true')
 parser.add_argument('--bin-packed', dest='bin_packed', default=False, action='store_true')
 parser.add_argument('--masked-mha', dest='masked_mha', default=False, action='store_true')
+parser.add_argument('--plain-mha', dest='masked_mha', default=False, action='store_true')
 parser.add_argument('--per-op', dest='per_op', default=False, action='store_true')
 parser.add_argument('--dataset', nargs='?', default='random_384_512')
 args = parser.parse_args()
@@ -34,11 +35,13 @@ FF_DIM = 2048
 dev_ctx = run_utils.get_ctx(args.target)
 cpu_ctx = run_utils.get_ctx("llvm")
 
+only_mha = args.plain_mha or args.masked_mha
 
 qkt_module = 'qkt'
 attn_v_module = 'attn_v'
 softmax_module = 'softmax'
-assert not (args.bin_packed and args.masked_mha)
+assert not (args.bin_packed and only_mha)
+assert not (args.masked_mha and args.plain_mha)
 if args.bin_packed:
     qkt_module = 'qkt_bin_packed'
     attn_v_module = 'attn_v_bin_packed'
@@ -63,7 +66,7 @@ ops_order = [
     ops['post_linear'],
 ]
 
-if not args.masked_mha:
+if not only_mha:
     ops.update({
         'norm_add1': Op('norm_add1', 'norm_add', BATCH_SIZE, [], cpu_ctx, dev_ctx),
         'ff1': Op('ff1', 'ff1', BATCH_SIZE, [], cpu_ctx, dev_ctx),
@@ -85,7 +88,7 @@ pre_linear_in_w = run_utils.create_tvm_array((3, NUM_HEADS, HEAD_SIZE, MODEL_DIM
 pre_linear_in_b = run_utils.create_tvm_array((3, NUM_HEADS, HEAD_SIZE,), "float32", dev_ctx, lw_args={})
 post_linear_in_w = run_utils.create_tvm_array((NUM_HEADS * HEAD_SIZE, MODEL_DIM), "float32", dev_ctx, lw_args={})
 post_linear_in_b = run_utils.create_tvm_array((MODEL_DIM,), "float32", dev_ctx, lw_args={})
-if not args.masked_mha:
+if not only_mha:
     ff1_in_w = run_utils.create_tvm_array((MODEL_DIM, FF_DIM), "float32", dev_ctx, lw_args={})
     ff1_in_b = run_utils.create_tvm_array((FF_DIM,), "float32", dev_ctx, lw_args={})
     ff2_in_w = run_utils.create_tvm_array((FF_DIM, MODEL_DIM), "float32", dev_ctx, lw_args={})
@@ -124,7 +127,7 @@ for batch in batches:
     post_linear_in_a = attn_v_out
     post_linear_out = run_utils.create_ragged_array((batch_size_, MAX_LEN, MODEL_DIM), MODEL_DIM*sum1, "float32", dev_ctx)
 
-    if not args.masked_mha:
+    if not only_mha:
         norm_add1_in_a1 = pre_linear_in_qkv.create_view((batch_size_, MAX_LEN, MODEL_DIM))
         norm_add1_in_a2 = post_linear_out
         norm_add1_out = run_utils.create_ragged_array((batch_size_, MAX_LEN, MODEL_DIM), MODEL_DIM*sum1, "float32", dev_ctx)
@@ -145,7 +148,7 @@ for batch in batches:
     ops['softmax'].tensor_inputs = [softmax_in, softmax_out]
     ops['attn_v'].tensor_inputs = [attn_v_in_v, attn_v_in_attn, attn_v_out]
     ops['post_linear'].tensor_inputs = [post_linear_in_a, post_linear_in_w, post_linear_in_b, post_linear_out]
-    if not args.masked_mha:
+    if not only_mha:
         ops['norm_add1'].tensor_inputs = [norm_add1_in_a1, norm_add1_in_a2, norm_add1_out]
         ops['ff1'].tensor_inputs = [ff1_in_a, ff1_in_w, ff1_in_b, ff1_out]
         ops['ff2'].tensor_inputs = [ff2_in_a, ff2_in_w, ff2_in_b, ff2_out]
