@@ -50,6 +50,12 @@ class Op:
 
     def execute(self, l_inputs):
         inputs = [self.batch_size] + self.tensor_inputs + l_inputs + self.host_ibufs + self.dev_ibufs
-        print('Exe', self.name, len(inputs))
-        sys.stdout.flush()
+        # print('Exe', self.name, len(inputs))
+        # sys.stdout.flush()
         self.module(*inputs)
+
+    def execute_multiple(self, l_inputs, ctx):
+        inputs = [self.batch_size] + self.tensor_inputs + l_inputs + self.host_ibufs + self.dev_ibufs
+        evaluator = self.module.time_evaluator(self.module.entry_name, ctx, number=10, repeat=10)
+        eval_result = evaluator(*inputs)
+        return eval_result.mean
