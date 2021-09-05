@@ -24,7 +24,7 @@ parser.add_argument('--dataset', nargs='?', default='random_384_512')
 args = parser.parse_args()
 
 BATCH_SIZE = args.batch_size
-MAX_LEN = utils.ceilmult(run_utils.get_dataset_max_len(args.dataset), 32)
+MAX_LEN = max(128, utils.ceilmult(run_utils.get_dataset_max_len(args.dataset), 32))
 NUM_HEADS = 8
 HEAD_SIZE = 64
 MODEL_DIM = NUM_HEADS * HEAD_SIZE
@@ -94,7 +94,6 @@ times = []
 ctr = 0
 for batch in batches:
     ctr += 1
-    print('BATCH', ctr)
     batch = np.sort(batch).astype('int32')
     batch_size_ = BATCH_SIZE + 1
 
@@ -153,18 +152,20 @@ for batch in batches:
 
     l_inputs = [tvm.nd.array(batch, cpu_ctx)]
 
-    start = time.perf_counter()
+    # this_times = []
+    # for i in range(args.witers + args.iters):
+    #     start = time.perf_counter()
+    #     for op in ops_order: op.execute(l_inputs)
+    #     dev_ctx.sync()
+    #     end = time.perf_counter()
+    #     this_times.append(end - start)
+    # this_times = this_times[args.witers:]
+    # times.append(sum(this_times) / args.iters)
 
-    this_times = []
-    for i in range(args.witers + args.iters):
-        start = time.perf_counter()
-        for op in ops_order: op.execute(l_inputs)
-        dev_ctx.sync()
-        end = time.perf_counter()
-        this_times.append(end - start)
-
-    this_times = this_times[args.witers:]
-    times.append(sum(this_times) / args.iters)
+    this_time = 0
+    for op in ops_order:
+        this_time += op.execute_multiple(l_inputs, dev_ctx)
+    times.append(this_time)
 
 total_time = sum(times)*1000.0
 print('RESULTS', total_time / (len(batches)), sep=',')

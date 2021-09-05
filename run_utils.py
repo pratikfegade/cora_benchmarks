@@ -112,7 +112,7 @@ def create_tvm_array(t, dtype, ctx, rmap={}, lw_args=None):
     assert (lw_args is not None)
     if t in lw_args:
         flat_size = lw_args[t]
-        print(t, flat_size, shape)
+        # print(t, flat_size, shape)
         return create_ragged_array(shape, flat_size, dtype, ctx)
 
     # return np.zeros(shape, dtype)
