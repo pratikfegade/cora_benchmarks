@@ -12,7 +12,6 @@ import utils
 import run_utils
 
 parser = run_utils.get_cmd_parser()
-parser.add_argument('--sched', dest='sched', default=3, type=int)
 args = parser.parse_args()
 
 BS_VAR = te.var('bs')
@@ -60,7 +59,7 @@ O = te.ragged_compute((BATCH_SIZE, MAX_LEN, OUT_SIZE), [bd, s1, od], loop_ufs,
 s = tvm.create_schedule([O.op])
 
 if args.target == "cuda":
-    if args.sched == 1:
+    if False:
         b, l, o, k = tuple(S.op.axis) + tuple(S.op.reduce_axis)
         l = s[S].fuse(b, l, padding = 2)
         loi, li = s[S].split(l, factor=2)
@@ -138,7 +137,7 @@ if args.target == "cuda":
 
         s[O].mark_no_bounds_check()
         s[S].mark_no_bounds_check()
-    elif args.sched == 2:
+    elif False:
         S_b, S_l, S_o, S_k = tuple(S.op.axis) + tuple(S.op.reduce_axis)
         S_l = s[S].fuse(S_b, S_l, padding = 1)
 
