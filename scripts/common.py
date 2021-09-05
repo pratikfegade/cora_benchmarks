@@ -47,6 +47,18 @@ def extract_times(out, expect_num):
     else:
         return [INF] * expect_num
 
+def extract_time_batches(out):
+    lines = out.splitlines()
+    times = {}
+    res_line = None
+    for line in lines:
+        if marker in line:
+            arr = line.split(',')
+            print(arr)
+            assert len(arr) == 3
+            times[int(arr[1])] = float(arr[2])
+    return times
+
 def extract_mem(out):
     lines = out.splitlines()
     res_line = None

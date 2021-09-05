@@ -25,13 +25,14 @@ def get_runner_and_args(op, split_op, hfuse):
     else:
         raise ValueError('No such op')
 
-def prepare_and_execute(op, target, dataset, b_size, n_batch, split_op, hfuse):
+def prepare_and_execute(op, target, dataset, b_sizes, n_batch, split_op, hfuse):
     runner, extra_args = get_runner_and_args(op, split_op, hfuse)
-    cmd = [PYTHON, runner, '--target', target, '--batch-size', str(b_size), '--max-batches', str(n_batch), '--dataset', dataset]
+    cmd = ([PYTHON, runner, '--target', target, '--batch-sizes'] + [str(i) for i in b_sizes] +
+           ['--max-batches', str(n_batch), '--dataset', dataset])
     cmd += extra_args
     out, err = com.run_cmd(cmd)
     if err: print(err, file = results_err)
-    return com.extract_times(out, 1)[0]
+    return com.extract_time_batches(out)
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--target', nargs='?', default='cuda')
@@ -43,7 +44,7 @@ parser.add_argument('--append', dest='append', default=False, action='store_true
 args = parser.parse_args()
 
 ops = ['qkt', 'attn_v']
-batch_sizes = [2, 8, 32, 128]
+b_sizes = [2, 8, 32, 128]
 datasets = com.get_all_datasets() if args.dataset is None else [args.dataset]
 
 results_out, results_err = get_out_files(args, 'bin_packed', 'a' if args.append else 'w')
@@ -52,11 +53,16 @@ print(header, file = results_out)
 
 for op in ops:
     for dataset in datasets:
-        for b_size in batch_sizes:
-            vanilla_time = prepare_and_execute(op, args.target, dataset, b_size, args.max_batches, False, False)
-            op_split_time = prepare_and_execute(op, args.target, dataset, b_size, args.max_batches, True, False)
-            op_split_hfuse_time = prepare_and_execute(op, args.target, dataset, b_size, args.max_batches, True, False)
-            out_str = '%s,%s,%s,%d,%g,%g,%g' % (op, args.target, dataset, b_size, vanilla_time, op_split_time, op_split_hfuse_time)
+        log(args, 'Running vanilla %s %s' % (op, dataset))
+        vanilla_times = prepare_and_execute(op, args.target, dataset, b_sizes, args.max_batches, False, False)
+        log(args, 'Running +split %s %s' % (op, dataset))
+        op_split_times = prepare_and_execute(op, args.target, dataset, b_sizes, args.max_batches, True, False)
+        log(args, 'Running +fuse %s %s' % (op, dataset))
+        op_split_hfuse_times = prepare_and_execute(op, args.target, dataset, b_sizes, args.max_batches, True, False)
+        for i in range(len(b_sizes)):
+            b_size = b_sizes[i]
+            out_str = '%s,%s,%s,%d,%g,%g,%g' % (op, args.target, dataset, b_size, vanilla_times[b_size],
+                                                op_split_times[b_size], op_split_hfuse_times[b_size])
             print(out_str, file = results_out)
 
 if not args.stdout:
