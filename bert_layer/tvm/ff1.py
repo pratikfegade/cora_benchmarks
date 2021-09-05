@@ -12,7 +12,7 @@ import utils
 import run_utils
 
 parser = run_utils.get_cmd_parser()
-parser.add_argument('--sched', dest='sched', default=1, type=int)
+parser.add_argument('--sched', dest='sched', default=3, type=int)
 args = parser.parse_args()
 
 BS_VAR = te.var('bs')
@@ -223,6 +223,9 @@ if args.target == "cuda":
         S_k_o_i, S_k_i = s[S].split(S_k, factor=32)
         s[S].reorder(S_k_o_i, S_l, S_k_i, S_o)
 
+        if not args.debug_code:
+            s[S].unroll(S_o)
+
         O_b, O_l, O_o = tuple(O.op.axis) + tuple(O.op.reduce_axis)
         O_l = s[O].fuse(O_b, O_l, padding=32)
         O_l_o_i, O_l_i = s[O].split(O_l, factor=8)
@@ -291,10 +294,10 @@ name = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0]
 out, batches = run_utils.lower_or_build(name, s, inputs, args, size_fn=size_fn, pad_sum=32,
                                         run_function=run_utils.get_bert_layer_run_fn(BS_VAR))
 
-# _, A, W, B, O  = out
-# ctr = 0
-# O = O.flatten()
-# for length in batches[0]:
-#     this_extent = length * OUT_SIZE
-#     print(length, np.mean(O[ctr:ctr + this_extent]))
-#     ctr += this_extent
+_, A, W, B, O  = out
+ctr = 0
+O = O.flatten()
+for length in batches[0]:
+    this_extent = length * OUT_SIZE
+    print(length, np.mean(O[ctr:ctr + this_extent]))
+    ctr += this_extent
