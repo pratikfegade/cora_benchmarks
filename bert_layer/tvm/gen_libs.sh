@@ -8,17 +8,21 @@ YES="1"
 set -x
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
 
-python3 ${SCRIPT_DIR}/ff2.py --target cuda --dataset $DS --gen-lib --sched 1
-python3 ${SCRIPT_DIR}/ff2.py --target cuda --dataset $DS --gen-lib --sched 2
-python3 ${SCRIPT_DIR}/ff2.py --target cuda --dataset $DS --gen-lib --sched 3
-python3 ${SCRIPT_DIR}/pre_linear.py --target cuda --dataset $DS --gen-lib
-python3 ${SCRIPT_DIR}/post_linear.py --target cuda --dataset $DS --gen-lib
-python3 ${SCRIPT_DIR}/norm_add.py --target cuda --dataset $DS --gen-lib
-python3 ${SCRIPT_DIR}/ff1.py --target cuda --dataset $DS --gen-lib
-
 EXTRA_ARGS=""
 if [ $OP == $YES ]; then
     EXTRA_ARGS="--only-prep-code"
+fi
+
+python3 ${SCRIPT_DIR}/norm_add.py --target cuda --dataset $DS --gen-lib $EXTRA_ARGS
+python3 ${SCRIPT_DIR}/pre_linear.py --target cuda --dataset $DS --gen-lib $EXTRA_ARGS
+python3 ${SCRIPT_DIR}/post_linear.py --target cuda --dataset $DS --gen-lib $EXTRA_ARGS
+if [ $MS == $YES ]; then
+    echo -ne ""
+else
+    python3 ${SCRIPT_DIR}/ff2.py --target cuda --dataset $DS --gen-lib $EXTRA_ARGS --sched 1
+    python3 ${SCRIPT_DIR}/ff2.py --target cuda --dataset $DS --gen-lib $EXTRA_ARGS --sched 2
+    python3 ${SCRIPT_DIR}/ff2.py --target cuda --dataset $DS --gen-lib $EXTRA_ARGS --sched 3
+    python3 ${SCRIPT_DIR}/ff1.py --target cuda --dataset $DS --gen-lib $EXTRA_ARGS
 fi
 
 if [ $MS == $YES ]; then
