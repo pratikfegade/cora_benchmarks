@@ -14,12 +14,13 @@ parser = run_utils.get_cmd_parser()
 parser.add_argument('--hfuse', dest='hfuse', default=False, action='store_true')
 args = parser.parse_args()
 
+BATCH_SIZE = te.var('bs')
 MAX_LEN = utils.ceilmult(run_utils.get_dataset_max_len(args.dataset), 64)
 NUM_HEADS = 8
 HEAD_SIZE = 64
 red_tile = 16
 
-lens = te.placeholder((args.batch_size,), name = 'lens', dtype = 'int32')
+lens = te.placeholder((BATCH_SIZE,), name = 'lens', dtype = 'int32')
 
 bd = Dim('bd')
 md = Dim('md')
@@ -38,7 +39,7 @@ def ub_pad(name, pad): return Uf(name, 'l', (pad, MAX_LEN), [bd], lambda b: util
 def lb(name): return Uf(name, 'l', (0, MAX_LEN), [bd], lambda b: utils.floormult(lens[b], 64))
 
 qk_uf = Uf.from_constant('qk', 3, 'l')
-bd_uf = Uf.from_constant('bd', args.batch_size, 'l')
+bd_uf = Uf.from_constant('bd', BATCH_SIZE, 'l')
 md_uf = Uf.from_constant('md', NUM_HEADS, 'l')
 lb_uf = lbufw.get_uf()
 ub_uf = ubufw32.get_uf()
@@ -47,17 +48,17 @@ s1_uf = ubufwrt.get_uf()
 
 loop_ufs=[bd_uf, ub_uf, md_uf, s1_uf]
 width_ufs=loop_ufs
-A = te.ragged_placeholder((args.batch_size, MAX_LEN, NUM_HEADS, MAX_LEN), [bd, s2, md, s1], loop_ufs,
+A = te.ragged_placeholder((BATCH_SIZE, MAX_LEN, NUM_HEADS, MAX_LEN), [bd, s2, md, s1], loop_ufs,
                           name='A', width_ufs=width_ufs)
 
 loop_ufs=[qk_uf, bd_uf, s1_uf, md_uf, hd_uf]
 width_ufs=loop_ufs
-V = te.ragged_placeholder((3, args.batch_size, MAX_LEN, NUM_HEADS, HEAD_SIZE), [qk, bd, s1, md, hd], loop_ufs,
+V = te.ragged_placeholder((3, BATCH_SIZE, MAX_LEN, NUM_HEADS, HEAD_SIZE), [qk, bd, s1, md, hd], loop_ufs,
                           name='V', width_ufs=width_ufs)
 
 loop_ufs=[bd_uf, ub_uf, md_uf, hd_uf]
 width_ufs=[loop_ufs]
-O = te.ragged_compute((args.batch_size, MAX_LEN, NUM_HEADS, HEAD_SIZE), [bd, s2, md, hd], loop_ufs,
+O = te.ragged_compute((BATCH_SIZE, MAX_LEN, NUM_HEADS, HEAD_SIZE), [bd, s2, md, hd], loop_ufs,
                       lambda ds, rds: tvm.sum(A[ds[bd], ds[s2], ds[md], rds['k']] *
                                               V(2, ds[bd], rds['k'], ds[md], ds[hd]),
                                               axis=rds['k'], dimensions=[s1]),
@@ -147,16 +148,17 @@ def size_fn(l_inputs):
         V: 3 * NUM_HEADS * HEAD_SIZE * run_utils.prefix_sum(len(lens), lambda b: (ubufwrt.get_fn(lens)(b))),
         A: NUM_HEADS * run_utils.prefix_sum(len(lens), lambda b: (ubufwrt.get_fn(lens)(b) *
                                                                   ubufw32.get_fn(lens)(b))),
-        O: NUM_HEADS * HEAD_SIZE * run_utils.prefix_sum(len(lens), lambda b: lufw64.get_fn(lens)(b))
+        O: NUM_HEADS * HEAD_SIZE * run_utils.prefix_sum(len(lens), lambda b: ubufw32.get_fn(lens)(b))
     }
 
 bO = tvm.tir.decl_buffer(output_layout, name="bO")
 binds = {O1:bO, O2:bO}
-inputs = [[lens], [V, A, bO]]
+inputs = [[lens], [BATCH_SIZE, V, A, bO]]
 
 name = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0]
-out, batches = run_utils.lower_or_build(name, s, inputs, args, size_fn=size_fn, binds=binds)
-V, A, O  = out
-for i in range(args.batch_size):
-    rounded64 = utils.ceilmult(batches[0][i], 64)
-    print(batches[0][i], np.mean(O[i,0:rounded64,:,:]))
+out, batches = run_utils.lower_or_build(name, s, inputs, args, size_fn=size_fn, binds=binds,
+                                        run_function=run_utils.get_bert_layer_run_fn(BATCH_SIZE))
+# _, V, A, O  = out
+# for i in range(BATCH_SIZE):
+#     rounded64 = utils.ceilmult(batches[0][i], 64)
+#     print(batches[0][i], np.mean(O[i,0:rounded64,:,:]))

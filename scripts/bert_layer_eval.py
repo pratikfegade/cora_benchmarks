@@ -19,9 +19,10 @@ def generate_tvm_libs(dataset, args):
            '1' if args.prep_overhead else '0']
     print(' '.join(cmd))
     out, err = run_cmd(cmd)
-    print(err)
+    print(out, err)
 
 def run_pytorch(b_size, dataset, n_batch, err_file, args):
+    log(args, ' Batch size %d' % (b_size))
     cmd = [PYTHON, PYTORCH_RUNNER, '--target', com.get_tvm_target(target), '--batch-size', str(b_size),
            '--max-batches', str(n_batch), '--dataset', dataset]
     if args.mem: cmd += ['--mem']
@@ -51,15 +52,17 @@ def get_ftrans_runner(no_pad):
     return run_ftrans
 
 def run_tvm(b_size, dataset, n_batch, err_file, args):
+    log(args, ' Batch size %d' % (b_size))
     runner = TVM_MEM_RUNNER if args.mem else TVM_EXE_RUNNER
 
     cmd = [PYTHON, runner, '--target', com.get_tvm_target(target), '--batch-size', str(b_size),
            '--max-batches', str(n_batch), '--dataset', dataset]
     if args.bin_packed: cmd += ['--bin-packed']
     if args.masked_mha: cmd += ['--masked-mha']
-    # print(' '.join(cmd))
+    print(' '.join(cmd))
     out, err = '', ''
     out, err = run_cmd(cmd)
+    print(out)
     if err: print(err, file = err_file)
 
     if args.mem: return com.extract_mem(out)
@@ -83,7 +86,9 @@ args = parser.parse_args()
 batch_sizes = [8]
 # batch_sizes = [2, 8, 32, 128]
 targets = [args.target] if args.target else ['cuda']
-datasets = com.cluster_datasets_by_max_len() if args.dataset is None else {com.get_dataset_max_len(args.dataset) : [args.dataset]}
+# datasets = com.cluster_datasets_by_max_len() if args.dataset is None else {com.get_dataset_max_len(args.dataset) : [args.dataset]}
+# datasets = {512:['race', 'wiki_512'],384:['squadv2'],128:['wiki_128','mnli','xnli'],112:['mrpc'],48:['cola']}
+datasets = {512:['race']}
 
 if args.prep_overhead:
     framework_funs = {
@@ -92,9 +97,9 @@ if args.prep_overhead:
 else:
     framework_funs = {
         # 'pytorch': lambda b_sizes, *args: com.batchify(b_sizes, run_pytorch, *args),
-        'ftrans_pad': lambda b_sizes, *args: com.batchify(b_sizes, get_ftrans_runner(False), *args),
-        'ftrans_nopad': lambda b_sizes, *args: com.batchify(b_sizes, get_ftrans_runner(True), *args),
-        # 'cora': lambda b_sizes, *args: com.batchify(b_sizes, run_tvm, *args),
+        # 'ftrans_pad': lambda b_sizes, *args: com.batchify(b_sizes, get_ftrans_runner(False), *args),
+        # 'ftrans_nopad': lambda b_sizes, *args: com.batchify(b_sizes, get_ftrans_runner(True), *args),
+        'cora': lambda b_sizes, *args: com.batchify(b_sizes, run_tvm, *args),
     }
 
 out_prefix = 'bert_layer'

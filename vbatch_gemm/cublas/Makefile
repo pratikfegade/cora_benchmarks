@@ -7,3 +7,6 @@ CUDAFLAGS=-O3 -arch=compute_${CUDA_ARCH} -code=sm_${CUDA_ARCH} -D_FORCE_INLINES 
 
 gemm_cublas: gemm_cublas.cu utils.h
 	$(CC) -o $@ $< $(CUDAFLAGS)
+
+clean:
+	rm gemm_cublas

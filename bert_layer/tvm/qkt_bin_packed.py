@@ -14,13 +14,14 @@ parser = run_utils.get_cmd_parser()
 parser.add_argument('--hfuse', dest='hfuse', default=False, action='store_true')
 args = parser.parse_args()
 
+BATCH_SIZE = te.var('bs')
 NUM_HEADS = 8
 HEAD_SIZE = 64
 TILE=64
 RTILE=4
 MAX_LEN = utils.ceilmult(run_utils.get_dataset_max_len(args.dataset), TILE)
 
-lens = te.placeholder((args.batch_size,), name = 'lens', dtype = 'int32')
+lens = te.placeholder((BATCH_SIZE,), name = 'lens', dtype = 'int32')
 
 bd = Dim('bd')
 md = Dim('md')
@@ -35,7 +36,7 @@ lbufw = lbw('lb')
 ubufw = ubw('ub')
 
 qk_uf = Uf.from_constant('qk', 3, "l")
-bd_uf = Uf.from_constant('bd', args.batch_size, "l")
+bd_uf = Uf.from_constant('bd', BATCH_SIZE, "l")
 md_uf = Uf.from_constant('md', NUM_HEADS, "l")
 lb_uf = lbufw.get_uf()
 ub_uf = ubufw.get_uf()
@@ -43,23 +44,23 @@ hd_uf = Uf.from_constant('hd', HEAD_SIZE, "l")
 
 loop_ufs=[qk_uf, bd_uf, ub_uf, md_uf, hd_uf]
 width_ufs = None if args.dense_storage else loop_ufs
-Q = te.ragged_placeholder((3, args.batch_size, MAX_LEN, NUM_HEADS, HEAD_SIZE), [qk, bd, s1, md, hd], loop_ufs,
+Q = te.ragged_placeholder((3, BATCH_SIZE, MAX_LEN, NUM_HEADS, HEAD_SIZE), [qk, bd, s1, md, hd], loop_ufs,
                           name='Q', width_ufs=width_ufs)
 
 loop_ufs=[qk_uf, bd_uf, ub_uf, md_uf, hd_uf]
 width_ufs = None if args.dense_storage else loop_ufs
-K = te.ragged_placeholder((3, args.batch_size, MAX_LEN, NUM_HEADS, HEAD_SIZE), [qk, bd, s2, md, hd], loop_ufs,
+K = te.ragged_placeholder((3, BATCH_SIZE, MAX_LEN, NUM_HEADS, HEAD_SIZE), [qk, bd, s2, md, hd], loop_ufs,
                           name='K', width_ufs=width_ufs)
 
 loop_ufs=[bd_uf, ub_uf, md_uf, ub_uf]
 width_ufs = None if args.dense_storage else [loop_ufs]
 k = tvm.reduce_axis((0, HEAD_SIZE), name = 'k')
-S = te.ragged_compute((args.batch_size, MAX_LEN, NUM_HEADS, MAX_LEN), [bd, s1, md, s2], loop_ufs,
+S = te.ragged_compute((BATCH_SIZE, MAX_LEN, NUM_HEADS, MAX_LEN), [bd, s1, md, s2], loop_ufs,
                       lambda ds: tvm.sum(Q[0, ds[bd], ds[s1], ds[md], k] * K[1, ds[bd], ds[s2], ds[md], k],
                                          axis = k, dimensions=[hd]),
                       name = 'S', width_uf_lists=width_ufs)
 
-O = te.ragged_compute((args.batch_size, MAX_LEN, NUM_HEADS, MAX_LEN), [bd, s1, md, s2], loop_ufs,
+O = te.ragged_compute((BATCH_SIZE, MAX_LEN, NUM_HEADS, MAX_LEN), [bd, s1, md, s2], loop_ufs,
                       lambda ds: tvm.if_then_else(ds[s1] >= lens[ds[bd]], -float('inf'), S[ds[bd], ds[s1], ds[md], ds[s2]]),
                       name = 'O', width_uf_lists=width_ufs)
 
@@ -163,13 +164,14 @@ def size_fn(l_inputs):
     }
 
 bO = tvm.tir.decl_buffer(output_layout, name="bO")
-inputs = [[lens], [Q, K, bO]]
+inputs = [[lens], [BATCH_SIZE, Q, K, bO]]
 binds = {O1:bO, O2:bO, O3:bO, O4:bO}
 
 name = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0]
-out, batches = run_utils.lower_or_build(name, s, inputs, args, size_fn=size_fn, binds=binds)
-Q, K, O = out
-for i in range(args.batch_size):
-    length = batches[0][i]
-    rounded = utils.ceilmult(length, TILE)
-    print(rounded, np.mean(O[i,0:rounded,:,0:rounded]))
+out, batches = run_utils.lower_or_build(name, s, inputs, args, size_fn=size_fn, binds=binds,
+                                        run_function=run_utils.get_bert_layer_run_fn(BATCH_SIZE))
+# _, Q, K, O = out
+# for i in range(BATCH_SIZE):
+#     length = batches[0][i]
+#     rounded = utils.ceilmult(length, TILE)
+#     print(rounded, np.mean(O[i,0:rounded,:,0:rounded]))
