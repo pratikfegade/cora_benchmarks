@@ -102,11 +102,25 @@ def schedule_op(S, O, tile_x, tile_y, suffix):
     s[O].reorder(xio, yii, yio, xii)
     s[S].compute_at(s[O], xii)
 
+    ko_tile = 2 if tile_x * tile_y < 4096 else 1
     x, h, y, k = s[S].leaf_iter_vars[1:5]
+    s[S].reorder(h, k, x, y)
     ko, ki = s[S].split(k, nparts = 4)
-    s[S].reorder(h, ko, ki, x, y)
-    s[Qs].compute_at(s[S], ko)
-    s[Ks].compute_at(s[S], ko)
+    koo, koi = s[S].split(ko, nparts = ko_tile)
+
+    if tile_x == 64 and tile_y == 64:
+        s[Qs].compute_at(s[S], koi)
+        s[Ks].compute_at(s[S], koi)
+    elif tile_x == 32 and tile_y == 64:
+        s[Qs].compute_at(s[S], koi)
+        s[Ks].compute_at(s[S], koo)
+    elif tile_x == 64 and tile_y == 32:
+        s[Qs].compute_at(s[S], koo)
+        s[Ks].compute_at(s[S], koi)
+    else:
+        s[Qs].compute_at(s[S], koo)
+        s[Ks].compute_at(s[S], koo)
+
     s[Ql].compute_at(s[S], ki)
     s[Kl].compute_at(s[S], ki)
 
