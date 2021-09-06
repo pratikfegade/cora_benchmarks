@@ -85,8 +85,8 @@ def schedule_op(S, O, tile_x, tile_y, suffix):
     Kl = s.cache_read(Ks, "local", [S], layouts='dense', suffix=suffix)
 
     b, x, h, y = s[O].leaf_iter_vars[0:4]
-    xo, xi = s[O].split(x, factor=tile_y)
-    yo, yi = s[O].split(y, factor=tile_x)
+    xo, xi = s[O].split(x, factor=tile_x)
+    yo, yi = s[O].split(y, factor=tile_y)
 
     s[O].reorder(b, xo, yo, h, xi, yi)
     f1 = s[O].fuse(xo, yo)
@@ -201,5 +201,5 @@ for length in batches[0]:
     rounded = utils.ceilmult(length, 32)
     this_extent = rounded
     this_storage_extent = rounded * rounded * NUM_HEADS
-    print(rounded, np.mean(O[ctr:ctr+this_extent]))
+    print(rounded, np.mean(O[ctr:ctr+this_storage_extent]))
     ctr += this_storage_extent

@@ -166,5 +166,5 @@ for length in batches[0]:
     rounded = utils.ceilmult(length, TILE)
     this_extent = rounded
     this_storage_extent = rounded * rounded * NUM_HEADS
-    print(rounded, np.mean(O[ctr:ctr+this_extent]))
+    print(rounded, np.mean(O[ctr:ctr+this_storage_extent]))
     ctr += this_storage_extent
