@@ -63,8 +63,7 @@ S = te.ragged_compute((BATCH_SIZE, MAX_LEN, NUM_HEADS, MAX_LEN), [bd, s1, md, s2
                       name = 'S', width_uf_lists=width_ufs)
 
 O = te.ragged_compute((BATCH_SIZE, MAX_LEN, NUM_HEADS, MAX_LEN), [bd, s1, md, s2], loop_ufs,
-                      # lambda ds: tvm.if_then_else(ds[s1] >= lens[ds[bd]], -float('inf'), S[ds[bd], ds[s1], ds[md], ds[s2]]),
-                      lambda ds: S[ds[bd], ds[s1], ds[md], ds[s2]],
+                      lambda ds: tvm.if_then_else(ds[s1] >= lens[ds[bd]], -float('inf'), S[ds[bd], ds[s1], ds[md], ds[s2]]),
                       name = 'O', width_uf_lists=width_ufs)
 
 output_layout = O.op.output_layout(0)

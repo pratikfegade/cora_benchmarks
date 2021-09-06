@@ -11,8 +11,8 @@ import utils
 import run_utils
 
 parser = run_utils.get_cmd_parser()
-parser.add_argument('--kt', dest='kt', default=8, type=int)
-parser.add_argument('--nt', dest='nt', default=4, type=int)
+parser.add_argument('--nt', dest='nt', default=8, type=int)
+parser.add_argument('--kt', dest='kt', default=4, type=int)
 args = parser.parse_args()
 
 BATCH_SIZE = te.var('bs')
@@ -61,8 +61,7 @@ S = te.ragged_compute((BATCH_SIZE, MAX_LEN, NUM_HEADS, MAX_LEN), [bd, s1, md, s2
                       name = 'S', width_uf_lists=width_ufs)
 
 O = te.ragged_compute((BATCH_SIZE, MAX_LEN, NUM_HEADS, MAX_LEN), [bd, s1, md, s2], loop_ufs,
-                      # lambda ds: tvm.if_then_else(ds[s1] >= lens[ds[bd]], -float('inf'), S[ds[bd], ds[s1], ds[md], ds[s2]]),
-                      lambda ds: S[ds[bd], ds[s1], ds[md], ds[s2]],
+                      lambda ds: tvm.if_then_else(ds[s1] >= lens[ds[bd]], -float('inf'), S[ds[bd], ds[s1], ds[md], ds[s2]]),
                       name = 'O', width_uf_lists=width_ufs)
 
 s = tvm.create_schedule([O.op])
@@ -73,8 +72,7 @@ if args.target == "cuda":
     block_x = lambda: tvm.thread_axis("blockIdx.x")
     block_y = lambda: tvm.thread_axis("blockIdx.y")
 
-    ntx = args.nt
-    nty = 8
+    nt = 8
 
     Qs = s.cache_read(Q, "shared", [S], layouts='dense')
     Ks = s.cache_read(K, "shared", [S], layouts='dense')
@@ -92,8 +90,8 @@ if args.target == "cuda":
     s[O].bind(f2, block_x())
     s[O].bind(h, block_y())
 
-    xio, xii = s[O].split(xi, factor = nty)
-    yio, yii = s[O].split(yi, factor = ntx)
+    xio, xii = s[O].split(xi, factor = nt)
+    yio, yii = s[O].split(yi, factor = nt)
     s[O].bind(xii, thread_y())
     s[O].bind(yii, thread_x())
     s[O].bind(yio, tvm.thread_axis("vthread", name="vth1"))
@@ -113,8 +111,8 @@ if args.target == "cuda":
     x, h, y = s[Ks].leaf_iter_vars[2], s[Ks].leaf_iter_vars[3], s[Ks].leaf_iter_vars[4]
     s[Ks].reorder(h, y, x)
     f = s[Ks].fuse(x, y)
-    fo, fi = s[Ks].split(f, factor = ntx * nty * 4)
-    fio, fii = s[Ks].split(fi, factor = ntx * 4)
+    fo, fi = s[Ks].split(f, factor = nt * nt * 4)
+    fio, fii = s[Ks].split(fi, factor = nt * 4)
     fiio, fiii = s[Ks].split(fii, factor = 4)
     s[Ks].bind(fio, thread_y())
     s[Ks].bind(fiio, thread_x())
@@ -123,8 +121,8 @@ if args.target == "cuda":
     x, h, y = s[Qs].leaf_iter_vars[2], s[Qs].leaf_iter_vars[3], s[Qs].leaf_iter_vars[4]
     s[Qs].reorder(h, y, x)
     f = s[Qs].fuse(x, y)
-    fo, fi = s[Qs].split(f, factor = ntx * nty * 4)
-    fio, fii = s[Qs].split(fi, factor = ntx * 4)
+    fo, fi = s[Qs].split(f, factor = nt * nt * 4)
+    fio, fii = s[Qs].split(fi, factor = nt * 4)
     fiio, fiii = s[Qs].split(fii, factor = 4)
     s[Qs].bind(fio, thread_y())
     s[Qs].bind(fiio, thread_x())
