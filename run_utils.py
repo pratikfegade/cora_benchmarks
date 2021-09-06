@@ -130,6 +130,9 @@ def get_ctx(target):
         raise ValueError('Unsupported target %s' % target)
     return ctx
 
+def mean(l):
+    return sum(l) / len(l)
+
 def execute(target, built, inputs, ctx, debug = False):
     if debug:
         if target == 'c':
@@ -144,10 +147,9 @@ def execute(target, built, inputs, ctx, debug = False):
             return -100000000
             evaluator = built.time_evaluator('default_function', ctx, 1, repeat=10)
         else:
-            evaluator = built.time_evaluator(built.entry_name, ctx, number=10, repeat=10)
-            # evaluator = built.time_evaluator(built.entry_name, ctx, number=1, repeat=1)
+            evaluator = built.time_evaluator(built.entry_name, ctx, repeat=3, number=100)
         eval_result = evaluator(*inputs)
-        return eval_result.mean * 1000
+        return mean(list(eval_result.results)[1:]) * 1000
 
 def chunks(lst, n, m):
     """Yield successive n-sized chunks from lst."""
@@ -249,8 +251,9 @@ def run2(built, i_inputs_tensors, t_inputs_tensors, lw_args, args, pad_sum=None)
         l_inputs = [tvm.nd.array(batch, cpu_ctx)]
         inputs = t_inputs + l_inputs + host_i_inputs + dev_i_inputs
         time += execute(args.target, built, inputs, ctx, args.debug)
-
     print("RESULTS", time / len(batches), sep=',')
+
+
     for i in range(len(t_inputs)):
         size_fn = lw_args([batch])
         target = None

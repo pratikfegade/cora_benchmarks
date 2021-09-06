@@ -26,7 +26,7 @@ def run_pytorch(b_size, dataset, n_batch, err_file, args):
     cmd = [PYTHON, PYTORCH_RUNNER, '--target', com.get_tvm_target(target), '--batch-size', str(b_size),
            '--max-batches', str(n_batch), '--dataset', dataset]
     if args.mem: cmd += ['--mem']
-    if args.masked_mha: cmd += ['--masked-mha']
+
     print(' '.join(cmd))
     out, err = run_cmd(cmd)
     if err: print(err, file = err_file)
@@ -95,16 +95,15 @@ if args.prep_overhead:
     }
 else:
     framework_funs = {
-        # 'pytorch': lambda b_sizes, *args: com.batchify(b_sizes, run_pytorch, *args),
+        'pytorch': lambda b_sizes, *args: com.batchify(b_sizes, run_pytorch, *args),
         # 'ftrans_pad': lambda b_sizes, *args: com.batchify(b_sizes, get_ftrans_runner(False), *args),
         # 'ftrans_nopad': lambda b_sizes, *args: com.batchify(b_sizes, get_ftrans_runner(True), *args),
-        'cora': lambda b_sizes, *args: com.batchify(b_sizes, run_tvm, *args),
+        # 'cora': lambda b_sizes, *args: com.batchify(b_sizes, run_tvm, *args),
     }
 
 out_prefix = 'bert_layer'
 if args.prep_overhead: out_prefix += '_prelude'
 if args.mem: out_prefix += '_mem'
-if args.masked_mha: out_prefix += '_mmha'
 
 results_out, results_err = get_out_files(args, out_prefix, 'a' if args.append else 'w')
 header = 'Target,Dataset,Batch Size'
