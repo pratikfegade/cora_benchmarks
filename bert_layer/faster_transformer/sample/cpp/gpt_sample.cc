@@ -31,6 +31,7 @@
 #include "fastertransformer/utils/nvtx_utils.h"
 
 static std::string MODEL_PATH_PREFIX;
+fastertransformer::MemoryTracker fastertransformer::MemoryTracker::instance;
 
 #ifdef USE_NVTX
   bool NVTX_ON = true;
@@ -265,7 +266,7 @@ int init_device_from_file(T **ptr, std::vector<int> shape, std::string filename,
   return 0;
 }
 
-int read_start_ids(int batch_size, std::vector<int>*v_start_lengths, std::vector<int>*v_start_ids, 
+int read_start_ids(int batch_size, std::vector<int>*v_start_lengths, std::vector<int>*v_start_ids,
                    int& max_input_len, const int end_id)
 {
   std::vector<std::vector<int>> tmp_start_ids;
@@ -280,7 +281,7 @@ int read_start_ids(int batch_size, std::vector<int>*v_start_lengths, std::vector
       std::stringstream lineStream(line);
       std::string vals;
       int i1 = 0;
-      std::vector<int> tmp_vec; 
+      std::vector<int> tmp_vec;
       while (std::getline(lineStream, vals, ','))
       {
         tmp_vec.push_back(std::stoi(vals));
@@ -349,7 +350,7 @@ void decoding_sample(const INIReader reader)
   const int size_per_head = reader.GetInteger(model_name, "size_per_head");
   const int vocab_size = reader.GetInteger(model_name, "vocab_size");
   const int decoder_layers = reader.GetInteger(model_name, "decoder_layers");
-  
+
   const int request_batch_size = reader.GetInteger("request", "request_batch_size");
   const int request_input_len = reader.GetInteger("request", "request_input_len"); // The length of the conditioned context
   const int request_output_len = reader.GetInteger("request", "request_output_len"); // The length of tokens we hope this model to generate
@@ -365,13 +366,13 @@ void decoding_sample(const INIReader reader)
   std::vector<int> v_start_lengths;
   std::vector<int> v_start_ids;
   int max_input_len = -1;
-  read_start_ids(request_batch_size, &v_start_lengths, &v_start_ids, 
+  read_start_ids(request_batch_size, &v_start_lengths, &v_start_ids,
                  max_input_len, end_id);
   int* start_lengths = v_start_lengths.data();
   int* start_ids = v_start_ids.data();
   for(int i = 0; i < request_batch_size; i++)
   {
-    if(request_input_len > v_start_lengths[i]) 
+    if(request_input_len > v_start_lengths[i])
     {
       printf("[ERROR] input length (%d) should be smaller or equal to all start lengths (%d). \n", request_input_len, v_start_lengths[i]);
       exit(-1);
@@ -424,7 +425,7 @@ void decoding_sample(const INIReader reader)
   }
   ncclUniqueId tensor_para_nccl_uid;
   ncclUniqueId layer_para_nccl_uid;
-  
+
   // assume gpu_num = n * k,
 	// tensor parallelism group size is n
 	// layer parallelism group size is k
@@ -486,8 +487,8 @@ void decoding_sample(const INIReader reader)
     exit(-1);
   }
 
-  const int local_head_num = head_num / tensor_para_size; 
-  const int global_head_num = head_num; 
+  const int local_head_num = head_num / tensor_para_size;
+  const int global_head_num = head_num;
   const int local_hidden_units = local_head_num * size_per_head;
   const int global_hidden_units = global_head_num * size_per_head;
   const int local_inner_size = local_hidden_units * 4;
@@ -534,7 +535,7 @@ void decoding_sample(const INIReader reader)
     d_self_Q_bias = d_self_bias;
     d_self_K_bias = d_self_Q_bias + local_hidden_units;
     d_self_V_bias = d_self_K_bias + local_hidden_units;
-    
+
     init_device_from_file(&d_self_output_bias, {global_hidden_units}, path_to_weights("attention.dense.bias.bin", i, tensor_para_size));
 
     init_device_from_file(&d_ffn_bias1, {local_inner_size}, path_to_weights(add_rank_to_path("mlp.dense_h_to_4h.bias.", tensor_para_rank).c_str(), i, tensor_para_size));
@@ -600,7 +601,7 @@ void decoding_sample(const INIReader reader)
 
   const fastertransformer::OperationType type = std::is_same<T, float>::value ? OperationType::FP32 : OperationType::FP16;
 
-  DecodingGpt<type> *decoding = new DecodingGpt<type>(allocator, max_batch_size, 
+  DecodingGpt<type> *decoding = new DecodingGpt<type>(allocator, max_batch_size,
                                                         max_seq_len, global_head_num, size_per_head,
                                                         vocab_size, decoder_layers,
                                                         start_id, end_id,
@@ -635,7 +636,7 @@ void decoding_sample(const INIReader reader)
   decoding_params.d_start_ids = d_start_ids;
   decoding_params.d_start_lengths = d_start_lengths;
   decoding_params.d_attn_mask = d_attn_mask;
-  
+
   cudaDeviceSynchronize();
   check_cuda_error(cudaGetLastError());
   MPI_Barrier(MPI_COMM_WORLD);
@@ -645,7 +646,7 @@ void decoding_sample(const INIReader reader)
   int ite = 1;
   cudaDeviceSynchronize();
   MPI_Barrier(MPI_COMM_WORLD);
-  
+
   cudaProfilerStart();
   // warm up
   ite = 1;
@@ -693,10 +694,10 @@ void decoding_sample(const INIReader reader)
          request_batch_size, head_num, size_per_head, total_output_len, decoder_layers, vocab_size,
          ((end.tv_sec - start.tv_sec) * 1000 + (end.tv_usec - start.tv_usec) * 0.001) / ite,
          ((context_end.tv_sec - context_start.tv_sec) * 1000 + (context_end.tv_usec - context_start.tv_usec) * 0.001) / ite);
-    
+
   if(rank == 0)
   {
-    
+
     std::string fName = "out";
     auto outFile = std::ofstream(fName, std::ios::out);
     if(!outFile.is_open())

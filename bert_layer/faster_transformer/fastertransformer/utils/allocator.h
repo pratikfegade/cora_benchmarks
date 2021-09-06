@@ -45,6 +45,37 @@
 namespace fastertransformer
 {
 
+#define MEM_PROF 1
+
+  class MemoryTracker {
+    long long int total_allocated_memory;
+    long long int max_allocated_memory;
+    std::unordered_map<void*, size_t> alloc_sizes;
+
+    static MemoryTracker instance;
+
+  public:
+    static void alloc(void* ptr, size_t size) {
+      MemoryTracker::instance.total_allocated_memory += size;
+      MemoryTracker::instance.alloc_sizes[ptr] = size;
+      if (MemoryTracker::instance.total_allocated_memory >
+	  MemoryTracker::instance.max_allocated_memory) {
+	MemoryTracker::instance.max_allocated_memory =
+	  MemoryTracker::instance.total_allocated_memory;
+      }
+    }
+
+    static void free(void* ptr) {
+      MemoryTracker::instance.total_allocated_memory -= MemoryTracker::instance.alloc_sizes[ptr];
+      MemoryTracker::instance.alloc_sizes.erase(ptr);
+    }
+
+    static void print() {
+      float memory = (1.0 * MemoryTracker::instance.max_allocated_memory) / (1024.0 * 1024.0);
+      std::cout << "MEM," << memory << std::endl;
+    }
+  };
+
 // extern long long int total_allocated_memory;
 // extern long long int max_allocated_memory;
 // extern std::unordered_map<void*, size_t> alloc_sizes;
@@ -75,11 +106,9 @@ public:
     check_cuda_error(get_set_device(device_id_, &o_device));
     check_cuda_error(cudaMalloc(&ptr, size));
     check_cuda_error(get_set_device(o_device));
-    // total_allocated_memory += size;
-    // alloc_sizes[ptr] = size;
-    // if (total_allocated_memory > max_allocated_memory) {
-      // max_allocated_memory = total_allocated_memory;
-    // }
+#ifdef MEM_PROF
+    MemoryTracker::alloc(ptr, size);
+#endif
     return ptr;
   }
 
@@ -89,7 +118,9 @@ public:
     check_cuda_error(get_set_device(device_id_, &o_device));
     check_cuda_error(cudaFree(ptr));
     check_cuda_error(get_set_device(o_device));
-    // total_allocated_memory -= alloc_sizes[ptr];
+#ifdef MEM_PROF
+    MemoryTracker::free(ptr);
+#endif
     return;
   }
 };

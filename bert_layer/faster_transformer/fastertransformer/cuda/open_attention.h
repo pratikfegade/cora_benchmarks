@@ -28,6 +28,7 @@
 #include "fastertransformer/gemm_test/encoder_gemm_func.h"
 #include "fastertransformer/gemm_test/encoder_igemm_func.h"
 #include "fastertransformer/utils/functions.h"
+#include "fastertransformer/time_map.h"
 #include <assert.h>
 #include <cuda_runtime.h>
 #include <cuda_fp16.h>
@@ -40,114 +41,114 @@ void trt_add_QKV_bias_transpose_debug_kernelLauncher(
   const half* query_buf, const half* bias_Q,
   const half* key_buf, const half* bias_K,
   const half* value_buf, const half* bias_V,
-  half* context_buf, 
-  const int valid_word_num, 
+  half* context_buf,
+  const int valid_word_num,
   const int head_num, const int size_per_head,
   cudaStream_t stream); // Used to debug the trt_add_QKV_bias kernel
 
 template <typename T>
-void add_QK_bias_transform_kernelLauncher(int8_t *q_buf, int8_t *k_buf, const int32_t* Q, const T* bias_Q, 
-                                          const int32_t* K, const T* bias_K, const int batch_size, 
-                                          const int seq_len, const int head_num, const int size_per_head, 
-                                          const float * q_weight_amax, const float *q_input_deQFactor_div127_ptr, 
-                                          const float * k_weight_amax, const float *k_input_deQFactor_div127_ptr, 
+void add_QK_bias_transform_kernelLauncher(int8_t *q_buf, int8_t *k_buf, const int32_t* Q, const T* bias_Q,
+                                          const int32_t* K, const T* bias_K, const int batch_size,
+                                          const int seq_len, const int head_num, const int size_per_head,
+                                          const float * q_weight_amax, const float *q_input_deQFactor_div127_ptr,
+                                          const float * k_weight_amax, const float *k_input_deQFactor_div127_ptr,
                                           const float *q_output_scale_ptr, const float *k_output_scale_ptr,
                                           bool use_ORDER_COL32_2R_4R4, cudaStream_t stream);
-                                          
+
 template <typename T>
-void add_QK_bias_transform_kernelLauncher(int8_t *q_buf, int8_t *k_buf, const int8_t* Q, const T* bias_Q, 
-                                          const int8_t* K, const T* bias_K, const int batch_size, 
-                                          const int seq_len, const int head_num, const int size_per_head, 
-                                          const float *q_input_deQFactor_ptr, const float *k_input_deQFactor_ptr, 
+void add_QK_bias_transform_kernelLauncher(int8_t *q_buf, int8_t *k_buf, const int8_t* Q, const T* bias_Q,
+                                          const int8_t* K, const T* bias_K, const int batch_size,
+                                          const int seq_len, const int head_num, const int size_per_head,
+                                          const float *q_input_deQFactor_ptr, const float *k_input_deQFactor_ptr,
                                           const float *q_output_scale_ptr, const float *k_output_scale_ptr,
-                                          bool use_ORDER_COL32_2R_4R4, cudaStream_t stream);                                          
+                                          bool use_ORDER_COL32_2R_4R4, cudaStream_t stream);
 
 template <typename T>
-void add_V_bias_transform_kernelLauncher(int8_t *v_buf, const int32_t *V, const T *V_bias, 
-                                         const int batch_size, const int seq_len, 
-                                         const int head_num, const int size_per_head, 
-                                         const float* weight_amax, 
-                                         const float *input_deQFactor_div127_ptr, const float *out_scale_ptr, 
+void add_V_bias_transform_kernelLauncher(int8_t *v_buf, const int32_t *V, const T *V_bias,
+                                         const int batch_size, const int seq_len,
+                                         const int head_num, const int size_per_head,
+                                         const float* weight_amax,
+                                         const float *input_deQFactor_div127_ptr, const float *out_scale_ptr,
                                          bool use_ORDER_COL32_2R_4R4, cudaStream_t stream);
-                                         
+
 template <typename T>
-void add_V_bias_transform_kernelLauncher(int8_t *v_buf, const int8_t *V, const T *V_bias, const int batch_size, 
+void add_V_bias_transform_kernelLauncher(int8_t *v_buf, const int8_t *V, const T *V_bias, const int batch_size,
                                          const int seq_len, const int head_num, const int size_per_head,
-                                         const float *input_deQFactor_ptr, const float *out_scale_ptr, 
+                                         const float *input_deQFactor_ptr, const float *out_scale_ptr,
                                          bool use_ORDER_COL32_2R_4R4, cudaStream_t stream);
-                                         
-void mappingRemovePaddingData_kernelLauncher(const int batch_size, const int seq_len, 
-                                             const int valid_word_num, int *mapping, 
+
+void mappingRemovePaddingData_kernelLauncher(const int batch_size, const int seq_len,
+                                             const int valid_word_num, int *mapping,
                                              const int* sequence_id_offset, cudaStream_t stream);
-                                             
-template <typename T>
-void add_QK_bias_transform_rebuild_padding_kernelLauncher(int8_t *q_buf, int8_t *k_buf, 
-                                                          const int32_t* Q, const T* bias_Q, 
-                                                          const int32_t* K, const T* bias_K, 
-                                                          const int* sequence_id_offset, const int valid_word_num, 
-                                                          const int batch_size, const int seq_len, 
-                                                          const int head_num, const int size_per_head, 
-                                                          const float * q_weight_amax, 
-                                                          const float *q_input_deQFactor_div127_ptr, 
-                                                          const float * k_weight_amax, 
-                                                          const float *k_input_deQFactor_div127_ptr, 
-                                                          const float *q_output_scale_ptr, const float *k_output_scale_ptr,
-                                                          bool use_ORDER_COL32_2R_4R4, cudaStream_t stream);
-                                                          
-template <typename T>
-void add_QK_bias_transform_rebuild_padding_kernelLauncher(int8_t *q_buf, int8_t *k_buf, const int8_t* Q, const T* bias_Q, 
-                                                          const int8_t* K, const T* bias_K, const int* sequence_id_offset, 
-                                                          const int valid_word_num, 
-                                                          const int batch_size, const int seq_len, 
-                                                          const int head_num, const int size_per_head,  
-                                                          const float *q_deQFactor_ptr,  const float *k_deQFactor_ptr, 
-                                                          const float *q_output_scale_ptr, const float *k_output_scale_ptr,
-                                                          bool use_ORDER_COL32_2R_4R4, cudaStream_t stream);
-                                                          
-template <typename T>
-void add_V_bias_transform_rebuild_padding_kernelLauncher(int8_t *v_buf, const int32_t *V, const T *V_bias, 
-                                                         const int* sequence_id_map, const int valid_word_num, 
-                                                         const int batch_size, const int seq_len, 
-                                                         const int head_num, const int size_per_head, 
-                                                         const float* weight_amax, 
-                                                         const float *input_deQFactor_div127_ptr, 
-                                                         const float *out_scale_ptr, 
-                                                         bool use_ORDER_COL32_2R_4R4, cudaStream_t stream);
-                                                         
-template <typename T>
-void add_V_bias_transform_rebuild_padding_kernelLauncher(int8_t *v_buf, const int8_t *V, const T *V_bias, 
-                                                         const int* sequence_id_map, const int valid_word_num, 
-                                                         const int batch_size, const int seq_len, 
-                                                         const int head_num, const int size_per_head,
-                                                         const float *deQFactor_ptr, const float *out_scale_ptr, 
-                                                         bool use_ORDER_COL32_2R_4R4, cudaStream_t stream);  
 
 template <typename T>
-void softmax_COL32_kernelLauncher(int8_t* qk_buf, const int32_t* qk_int_buf, const T* attr_mask, 
-                                  const int batch_size, const int head_num, const int seq_len, 
-                                  const float scalar1a, const float *scalar1b, const float *scalar1c, 
+void add_QK_bias_transform_rebuild_padding_kernelLauncher(int8_t *q_buf, int8_t *k_buf,
+                                                          const int32_t* Q, const T* bias_Q,
+                                                          const int32_t* K, const T* bias_K,
+                                                          const int* sequence_id_offset, const int valid_word_num,
+                                                          const int batch_size, const int seq_len,
+                                                          const int head_num, const int size_per_head,
+                                                          const float * q_weight_amax,
+                                                          const float *q_input_deQFactor_div127_ptr,
+                                                          const float * k_weight_amax,
+                                                          const float *k_input_deQFactor_div127_ptr,
+                                                          const float *q_output_scale_ptr, const float *k_output_scale_ptr,
+                                                          bool use_ORDER_COL32_2R_4R4, cudaStream_t stream);
+
+template <typename T>
+void add_QK_bias_transform_rebuild_padding_kernelLauncher(int8_t *q_buf, int8_t *k_buf, const int8_t* Q, const T* bias_Q,
+                                                          const int8_t* K, const T* bias_K, const int* sequence_id_offset,
+                                                          const int valid_word_num,
+                                                          const int batch_size, const int seq_len,
+                                                          const int head_num, const int size_per_head,
+                                                          const float *q_deQFactor_ptr,  const float *k_deQFactor_ptr,
+                                                          const float *q_output_scale_ptr, const float *k_output_scale_ptr,
+                                                          bool use_ORDER_COL32_2R_4R4, cudaStream_t stream);
+
+template <typename T>
+void add_V_bias_transform_rebuild_padding_kernelLauncher(int8_t *v_buf, const int32_t *V, const T *V_bias,
+                                                         const int* sequence_id_map, const int valid_word_num,
+                                                         const int batch_size, const int seq_len,
+                                                         const int head_num, const int size_per_head,
+                                                         const float* weight_amax,
+                                                         const float *input_deQFactor_div127_ptr,
+                                                         const float *out_scale_ptr,
+                                                         bool use_ORDER_COL32_2R_4R4, cudaStream_t stream);
+
+template <typename T>
+void add_V_bias_transform_rebuild_padding_kernelLauncher(int8_t *v_buf, const int8_t *V, const T *V_bias,
+                                                         const int* sequence_id_map, const int valid_word_num,
+                                                         const int batch_size, const int seq_len,
+                                                         const int head_num, const int size_per_head,
+                                                         const float *deQFactor_ptr, const float *out_scale_ptr,
+                                                         bool use_ORDER_COL32_2R_4R4, cudaStream_t stream);
+
+template <typename T>
+void softmax_COL32_kernelLauncher(int8_t* qk_buf, const int32_t* qk_int_buf, const T* attr_mask,
+                                  const int batch_size, const int head_num, const int seq_len,
+                                  const float scalar1a, const float *scalar1b, const float *scalar1c,
                                   const float *amax_ptr, cudaStream_t stream);
 
 template <typename T>
-void softmax_COL32_kernelLauncher(int8_t* qk_buf, const int8_t* qk_int_buf, const T* attr_mask, 
-                                  const int batch_size, const int head_num, const int seq_len, 
-                                  const float scalar1a, const float *scalar1b, const float *amax_ptr, 
+void softmax_COL32_kernelLauncher(int8_t* qk_buf, const int8_t* qk_int_buf, const T* attr_mask,
+                                  const int batch_size, const int head_num, const int seq_len,
+                                  const float scalar1a, const float *scalar1b, const float *amax_ptr,
                                   cudaStream_t stream);
 
 template<typename T>
-void add_QKV_bias_rebuild_padding_kernelLauncher(T* Q, const T* bias_Q, T* K, const T* bias_K, 
-                                                 T* V, const T* bias_V, T* q_buf, T* k_buf, T* v_buf, 
-                                                 const int batch_size, const int seq_len, 
-                                                 const int head_num, const int size_per_head, const int valid_word_num, 
+void add_QKV_bias_rebuild_padding_kernelLauncher(T* Q, const T* bias_Q, T* K, const T* bias_K,
+                                                 T* V, const T* bias_V, T* q_buf, T* k_buf, T* v_buf,
+                                                 const int batch_size, const int seq_len,
+                                                 const int head_num, const int size_per_head, const int valid_word_num,
                                                  const int* mask_offset, cudaStream_t stream);
-                                                 
+
 template<typename T>
-void transpose_kernelLauncher(T* src, T* dst, const int batch_size, const int seq_len, const int head_num, const int size_per_head, cudaStream_t stream); 
+void transpose_kernelLauncher(T* src, T* dst, const int batch_size, const int seq_len, const int head_num, const int size_per_head, cudaStream_t stream);
 
 template<typename T>
 void transpose_rebuild_padding_kernelLauncher(T* src, T* dst, const int valid_word_num,
-                                              const int batch_size, const int seq_len, 
-                                              const int head_num, const int size_per_head, 
+                                              const int batch_size, const int seq_len,
+                                              const int head_num, const int size_per_head,
                                               const int* mask_offset, cudaStream_t stream);
 
 template<OperationType OpType_>
@@ -210,7 +211,7 @@ class OpenMultiHeadAttention: IMultiHeadAttention<OpType_>
   DataType_* v_buf_;
   DataType_* qk_buf_;
   DataType_* transpose_dst_;
-  
+
   DataType_** qkv_kernel_;
   DataType_** qkv_input_;
   DataType_** qkv_buf_;
@@ -253,11 +254,11 @@ class OpenMultiHeadAttention: IMultiHeadAttention<OpType_>
       dataType = HALF_DATATYPE;
     else
       dataType = FLOAT_DATATYPE;
-    //bmm1    
+    //bmm1
     batchCount = batch_size_*head_num_;
-    m = from_seq_len_; 
-    n = from_seq_len_; 
-    k = size_per_head_; 
+    m = from_seq_len_;
+    n = from_seq_len_;
+    k = size_per_head_;
     char mark[256];
     sprintf(mark, "%d_%d_%d_%d_%d", batchCount, n, m, k, dataType);
     if (cublasAlgoMap_.find(mark) != cublasAlgoMap_.end())
@@ -300,7 +301,7 @@ class OpenMultiHeadAttention: IMultiHeadAttention<OpType_>
     sprintf(mark, "1_%d_%d_%d_%d", n, m, k, dataType);
     sprintf(mark2, "3_%d_%d_%d_%d", n, m, k, dataType);
     if (
-        cublasAlgoMap_.find(mark) != cublasAlgoMap_.end() && 
+        cublasAlgoMap_.find(mark) != cublasAlgoMap_.end() &&
         cublasAlgoMap_.find(mark2) != cublasAlgoMap_.end() &&
         3*cublasAlgoMap_[mark].exec_time > cublasAlgoMap_[mark2].exec_time
        )
@@ -330,7 +331,7 @@ class OpenMultiHeadAttention: IMultiHeadAttention<OpType_>
   size_t get_workspace_size()
   {
     size_t size = 0;
-    
+
     const int buf_size = batch_size_ * head_num_ * from_seq_len_ * size_per_head_;
     const int qk_buf_size = batch_size_ * head_num_ * from_seq_len_ * from_seq_len_;
     const int seq_len_padded = (from_seq_len_ + 31)/32*32;
@@ -343,7 +344,7 @@ class OpenMultiHeadAttention: IMultiHeadAttention<OpType_>
       size = sizeof(int) * (4*buf_size + padded_qk_buf_size) +
              //int8 q_buf_ k_buf_ v_buf_ qk_buf_
              sizeof(int8_t) * (3*padded_buf_size + padded_qk_buf_size) +
-             //sequence_id_map 
+             //sequence_id_map
              (batch_size_*from_seq_len_)*sizeof(int) +
              //trt_attn_workspace_
              (dispatcher_int8.get() ? dispatcher_int8->getWorkspaceSize() : 0);
@@ -351,7 +352,7 @@ class OpenMultiHeadAttention: IMultiHeadAttention<OpType_>
     }
     else
     {
-      size = sizeof(DataType_) * (buf_size * 7 + qk_buf_size) + sizeof(DataType_*) * 9 + 
+      size = sizeof(DataType_) * (buf_size * 7 + qk_buf_size) + sizeof(DataType_*) * 9 +
                 (dispatcher_fp16.get() ? dispatcher_fp16->getWorkspaceSize() : 0);
     }
     return size;
@@ -370,7 +371,7 @@ class OpenMultiHeadAttention: IMultiHeadAttention<OpType_>
       printf("[ERROR][OpenMultiHeadAttention][allocateBuffer] allocator == NULL!\n");
       exit(-1);
     }
-    
+
     try
     {
       //only allocate new buffer when buf_ is empty
@@ -401,14 +402,14 @@ class OpenMultiHeadAttention: IMultiHeadAttention<OpType_>
             {
               //try
               {
-                dispatcher_int8.reset(new FusedMHARunnerInt8v2(head_num_, size_per_head_, sm_));    
+                dispatcher_int8.reset(new FusedMHARunnerInt8v2(head_num_, size_per_head_, sm_));
               }
             }
           }
           const int seq_len_padded = (from_seq_len_ + 31)/32*32;
           const int padded_buf_size = batch_size_ * head_num_ * seq_len_padded * size_per_head_;
           const int padded_qk_buf_size = batch_size_ * head_num_ * seq_len_padded * seq_len_padded;
-          
+
           buf_ = (DataType_*) allocator_->malloc(get_workspace_size(), false);
           if (buf_ == NULL)
             throw std::runtime_error(std::string("Allocator failed to allocate internal buffer."));
@@ -418,7 +419,7 @@ class OpenMultiHeadAttention: IMultiHeadAttention<OpType_>
           transpose_dst_int_buf_ = V_int_buf_ + buf_size;
           qk_int_buf_ = transpose_dst_int_buf_ + buf_size;
           q_buf_ = (DataType_*)(qk_int_buf_ + padded_qk_buf_size);
-          //the actual size is calculated with int8_t datatype 
+          //the actual size is calculated with int8_t datatype
           k_buf_ = (DataType_*)((int8_t*)q_buf_ + padded_buf_size);
           v_buf_ = (DataType_*)((int8_t*)k_buf_ + padded_buf_size);
           qk_buf_ = (DataType_*)((int8_t*)v_buf_ + padded_buf_size);
@@ -447,7 +448,7 @@ class OpenMultiHeadAttention: IMultiHeadAttention<OpType_>
         }
       }
 
-      //no gemm test in OpenMultiHeadAttention 
+      //no gemm test in OpenMultiHeadAttention
       //if config changes, read config again
       if (hasChangedConfig)
       {
@@ -481,7 +482,7 @@ class OpenMultiHeadAttention: IMultiHeadAttention<OpType_>
   }
 
   //Ctor
-  OpenMultiHeadAttention(int int8_mode=0, bool allow_gemm_test=false, bool use_ORDER_COL32_2R_4R4=false, int sm = 75, float q_scaling=1.0) : 
+  OpenMultiHeadAttention(int int8_mode=0, bool allow_gemm_test=false, bool use_ORDER_COL32_2R_4R4=false, int sm = 75, float q_scaling=1.0) :
     int8_mode_(int8_mode), allow_gemm_test_(allow_gemm_test), use_ORDER_COL32_2R_4R4_(use_ORDER_COL32_2R_4R4), sm_(sm), q_scaling_(q_scaling)
    {
 #ifndef NDEBUG
@@ -551,6 +552,10 @@ class OpenMultiHeadAttention: IMultiHeadAttention<OpType_>
       const int int8_mode_,
       const DataType_ scalar)
   {
+#ifdef OP_TIMES
+      cudaEvent_t start, end;
+      float elapsed = 0;
+#endif
     const int k = head_num * size_per_head;
 
     if (int8_mode_ != 0)
@@ -567,7 +572,7 @@ class OpenMultiHeadAttention: IMultiHeadAttention<OpType_>
       V_aftergemm_amax_ptr = param_.amaxList + 20;
       bmm1_amax_ptr = param_.amaxList + 28;
       in_amax_ptr = param_.amaxList;
-      
+
 	  if (size_per_head % 32 != 0)
       {
         printf("[ERROR][FT][multiHeadAttr_nofuse_kernelLauncher] int8 unfused mha kernel only works when size_per_head %% 32 == 0.\n");
@@ -584,205 +589,255 @@ class OpenMultiHeadAttention: IMultiHeadAttention<OpType_>
       {
         if (int8_mode_ == 1)
         {
-          add_QK_bias_transform_kernelLauncher((int8_t*)q_buf_, (int8_t*)k_buf_, 
-                                               (const int32_t*) Q, bias_Q, (const int32_t*) K, bias_K, 
-                                               batch_size, seq_len, head_num, size_per_head, 
-                                               query_weight_amax_list, in_amax_ptr+2, 
-                                               key_weight_amax_list, in_amax_ptr+2, 
+          add_QK_bias_transform_kernelLauncher((int8_t*)q_buf_, (int8_t*)k_buf_,
+                                               (const int32_t*) Q, bias_Q, (const int32_t*) K, bias_K,
+                                               batch_size, seq_len, head_num, size_per_head,
+                                               query_weight_amax_list, in_amax_ptr+2,
+                                               key_weight_amax_list, in_amax_ptr+2,
                                                Qbias_amax_ptr+3, Kbias_amax_ptr+3,
                                                use_ORDER_COL32_2R_4R4_, stream);
-          add_V_bias_transform_kernelLauncher((int8_t*)v_buf_, 
-                                              (const int32_t *)V, bias_V, 
-                                              batch_size, seq_len, head_num, size_per_head, 
-                                              value_weight_amax_list, in_amax_ptr+2, Vbias_amax_ptr+3, 
+          add_V_bias_transform_kernelLauncher((int8_t*)v_buf_,
+                                              (const int32_t *)V, bias_V,
+                                              batch_size, seq_len, head_num, size_per_head,
+                                              value_weight_amax_list, in_amax_ptr+2, Vbias_amax_ptr+3,
                                               use_ORDER_COL32_2R_4R4_, stream);
         }
         else if (int8_mode_ == 2 || int8_mode_ == 3)
         {
-          add_QK_bias_transform_kernelLauncher((int8_t*)q_buf_, (int8_t*)k_buf_, 
-                                               (const int8_t*) Q, bias_Q, (const int8_t*)K, bias_K, 
-                                               batch_size, seq_len, head_num, size_per_head, 
-                                               Q_aftergemm_amax_ptr+1, K_aftergemm_amax_ptr+1, 
+          add_QK_bias_transform_kernelLauncher((int8_t*)q_buf_, (int8_t*)k_buf_,
+                                               (const int8_t*) Q, bias_Q, (const int8_t*)K, bias_K,
+                                               batch_size, seq_len, head_num, size_per_head,
+                                               Q_aftergemm_amax_ptr+1, K_aftergemm_amax_ptr+1,
                                                Qbias_amax_ptr+3, Kbias_amax_ptr+3,
                                                use_ORDER_COL32_2R_4R4_, stream);
-          add_V_bias_transform_kernelLauncher((int8_t*)v_buf_, (const int8_t *)V, bias_V, 
+          add_V_bias_transform_kernelLauncher((int8_t*)v_buf_, (const int8_t *)V, bias_V,
                                                batch_size, seq_len, head_num, size_per_head,
-                                               V_aftergemm_amax_ptr+1, Vbias_amax_ptr+3, 
+                                               V_aftergemm_amax_ptr+1, Vbias_amax_ptr+3,
                                                use_ORDER_COL32_2R_4R4_, stream);
         }
       }
       else{
-        mappingRemovePaddingData_kernelLauncher(batch_size, seq_len, 
-                                                param_.valid_word_num, sequence_id_map_, 
+        mappingRemovePaddingData_kernelLauncher(batch_size, seq_len,
+                                                param_.valid_word_num, sequence_id_map_,
                                                 param_.sequence_id_offset, stream);
         // if we use remove padding, then initialize the q_buf_, k_buf_ and v_buf_ to prevent bugs. v_buf_ will be properly initiaized in add_V_bias_transform_rebuild_padding_kernelLauncher()
         cudaMemsetAsync((int8_t*)q_buf_, 0, 2 * batch_size_ * seq_len_padded * head_num * size_per_head * sizeof(int8_t), param_.stream);
-        if (int8_mode_ == 1)
-        {
-          
-          add_QK_bias_transform_rebuild_padding_kernelLauncher((int8_t*)q_buf_, (int8_t*)k_buf_, 
-                                                               (const int32_t*)Q, bias_Q, 
-                                                               (const int32_t*)K, bias_K, 
-                                                               param_.sequence_id_offset, param_.valid_word_num, 
-                                                               batch_size, seq_len, 
-                                                               head_num, size_per_head, 
-                                                               query_weight_amax_list, in_amax_ptr+2, 
-                                                               key_weight_amax_list, in_amax_ptr+2, 
-                                                               Qbias_amax_ptr+3, Kbias_amax_ptr+3,
-                                                               use_ORDER_COL32_2R_4R4_, stream);
+        if (int8_mode_ == 1) {
+	  {
+#ifdef OP_TIMES
+	    START_OPTIME_MEASUREMENT
+#endif
+	      add_QK_bias_transform_rebuild_padding_kernelLauncher((int8_t*)q_buf_, (int8_t*)k_buf_,
+								   (const int32_t*)Q, bias_Q,
+								   (const int32_t*)K, bias_K,
+								   param_.sequence_id_offset, param_.valid_word_num,
+								   batch_size, seq_len,
+								   head_num, size_per_head,
+								   query_weight_amax_list, in_amax_ptr+2,
+								   key_weight_amax_list, in_amax_ptr+2,
+								   Qbias_amax_ptr+3, Kbias_amax_ptr+3,
+								   use_ORDER_COL32_2R_4R4_, stream);
+#ifdef OP_TIMES
+	    END_OPTIME_MEASUREMENT("AttnQKV")
+#endif
+	    }
 
           add_V_bias_transform_rebuild_padding_kernelLauncher((int8_t*)v_buf_, (const int32_t *)V, bias_V,
-                                                              sequence_id_map_, param_.valid_word_num, 
-                                                              batch_size, seq_len, head_num, size_per_head, 
-                                                              value_weight_amax_list, in_amax_ptr+2, Vbias_amax_ptr+3, 
-                                                              use_ORDER_COL32_2R_4R4_, stream);      
+                                                              sequence_id_map_, param_.valid_word_num,
+                                                              batch_size, seq_len, head_num, size_per_head,
+                                                              value_weight_amax_list, in_amax_ptr+2, Vbias_amax_ptr+3,
+                                                              use_ORDER_COL32_2R_4R4_, stream);
         }
         else if (int8_mode_ == 2 || int8_mode_ == 3)
         {
-          add_QK_bias_transform_rebuild_padding_kernelLauncher((int8_t*)q_buf_, (int8_t*)k_buf_, 
-                                                               (const int8_t*)Q, bias_Q, 
+          add_QK_bias_transform_rebuild_padding_kernelLauncher((int8_t*)q_buf_, (int8_t*)k_buf_,
+                                                               (const int8_t*)Q, bias_Q,
                                                                (const int8_t*)K, bias_K,
                                                                param_.sequence_id_offset, param_.valid_word_num,
-                                                               batch_size, seq_len, head_num, size_per_head, 
+                                                               batch_size, seq_len, head_num, size_per_head,
                                                                Q_aftergemm_amax_ptr+1, K_aftergemm_amax_ptr+1,
                                                                Qbias_amax_ptr+3, Kbias_amax_ptr+3,
                                                                use_ORDER_COL32_2R_4R4_, stream);
 
-          add_V_bias_transform_rebuild_padding_kernelLauncher((int8_t*)v_buf_, (const int8_t *)V, bias_V, 
-                                                              sequence_id_map_, param_.valid_word_num, 
+          add_V_bias_transform_rebuild_padding_kernelLauncher((int8_t*)v_buf_, (const int8_t *)V, bias_V,
+                                                              sequence_id_map_, param_.valid_word_num,
                                                               batch_size, seq_len, head_num, size_per_head,
-                                                              V_aftergemm_amax_ptr+1, Vbias_amax_ptr+3, 
+                                                              V_aftergemm_amax_ptr+1, Vbias_amax_ptr+3,
                                                               use_ORDER_COL32_2R_4R4_, stream);
         }
       }
-  
+
       int batchCount = batch_size * head_num;
-    
+
       if (int8_mode_ == 1)
-      {     
-        cublasLtMM_withAlgo(qk_int_buf_, batchCount, seq_len, seq_len, size_per_head, 
-                            size_per_head*seq_len, size_per_head*seq_len, seq_len*seq_len, 
+      {
+        cublasLtMM_withAlgo(qk_int_buf_, batchCount, seq_len, seq_len, size_per_head,
+                            size_per_head*seq_len, size_per_head*seq_len, seq_len*seq_len,
                             (int8_t*)q_buf_, (int8_t*)k_buf_, cublaslt_handle, stream, cublasAlgoMap_, use_ORDER_COL32_2R_4R4_);
 
-        softmax_COL32_kernelLauncher((int8_t*)qk_buf_, qk_int_buf_, attr_mask, 
-                                     batch_size, head_num, seq_len, 
-                                     float(scalar), Qbias_amax_ptr + 1, Kbias_amax_ptr + 1, 
+        softmax_COL32_kernelLauncher((int8_t*)qk_buf_, qk_int_buf_, attr_mask,
+                                     batch_size, head_num, seq_len,
+                                     float(scalar), Qbias_amax_ptr + 1, Kbias_amax_ptr + 1,
                                      Softmax_amax_ptr, stream);
-      
-        cublasLtMM_withAlgo(transpose_dst_int_buf_, batchCount, seq_len, size_per_head, seq_len, 
-                            seq_len*seq_len, size_per_head*seq_len, size_per_head*seq_len, (int8_t*)qk_buf_, 
+
+        cublasLtMM_withAlgo(transpose_dst_int_buf_, batchCount, seq_len, size_per_head, seq_len,
+                            seq_len*seq_len, size_per_head*seq_len, size_per_head*seq_len, (int8_t*)qk_buf_,
                             (int8_t*)v_buf_, cublaslt_handle, stream, cublasAlgoMap_, use_ORDER_COL32_2R_4R4_);
 
         if(param_.sequence_id_offset == nullptr || param_.valid_word_num == batch_size * seq_len)
         {
-          transpose_COL32_kernelLauncher((int8_t*)dst, (const int*)transpose_dst_int_buf_, batch_size, seq_len, head_num, 
+          transpose_COL32_kernelLauncher((int8_t*)dst, (const int*)transpose_dst_int_buf_, batch_size, seq_len, head_num,
                                          size_per_head, Vbias_amax_ptr+1, Softmax_amax_ptr+1, bmm2_amax_ptr+3, stream);
         }
         else
         {
-          transpose_COL32_rebuild_padding_kernelLauncher((int8_t*)dst, (const int*)transpose_dst_int_buf_, sequence_id_map_, 
-                                                         param_.valid_word_num, batch_size, seq_len, head_num, size_per_head, 
-                                                         Vbias_amax_ptr+1, Softmax_amax_ptr+1, bmm2_amax_ptr+3, stream);     
-        }    
+          transpose_COL32_rebuild_padding_kernelLauncher((int8_t*)dst, (const int*)transpose_dst_int_buf_, sequence_id_map_,
+                                                         param_.valid_word_num, batch_size, seq_len, head_num, size_per_head,
+                                                         Vbias_amax_ptr+1, Softmax_amax_ptr+1, bmm2_amax_ptr+3, stream);
+        }
       }
       else if (int8_mode_ == 2 || int8_mode_ == 3)
       {
-        cublasLtMM_withAlgo_int8IO((int8_t*)qk_int_buf_, batchCount, seq_len, seq_len_padded, size_per_head, 
-                                    size_per_head*seq_len, size_per_head*seq_len_padded, seq_len*seq_len_padded, 
+        cublasLtMM_withAlgo_int8IO((int8_t*)qk_int_buf_, batchCount, seq_len, seq_len_padded, size_per_head,
+                                    size_per_head*seq_len, size_per_head*seq_len_padded, seq_len*seq_len_padded,
                                     param_.int8O_gemm_deQ_scale_list[3],
                                     (int8_t*)q_buf_, (int8_t*)k_buf_, cublaslt_handle, stream, cublasAlgoMap_, use_ORDER_COL32_2R_4R4_);
-       
-        softmax_COL32_kernelLauncher((int8_t*)qk_buf_, (int8_t*)qk_int_buf_, attr_mask, 
-                                     batch_size, head_num, seq_len, 
-                                     float(scalar), bmm1_amax_ptr + 1, Softmax_amax_ptr, 
-                                     stream); 
-      
-        cublasLtMM_withAlgo_int8IO((int8_t*)transpose_dst_int_buf_, batchCount, seq_len, size_per_head, seq_len_padded, 
-                                    seq_len*seq_len_padded, size_per_head*seq_len_padded, size_per_head*seq_len, param_.int8O_gemm_deQ_scale_list[4], (int8_t*)qk_buf_, 
+
+        softmax_COL32_kernelLauncher((int8_t*)qk_buf_, (int8_t*)qk_int_buf_, attr_mask,
+                                     batch_size, head_num, seq_len,
+                                     float(scalar), bmm1_amax_ptr + 1, Softmax_amax_ptr,
+                                     stream);
+
+        cublasLtMM_withAlgo_int8IO((int8_t*)transpose_dst_int_buf_, batchCount, seq_len, size_per_head, seq_len_padded,
+                                    seq_len*seq_len_padded, size_per_head*seq_len_padded, size_per_head*seq_len, param_.int8O_gemm_deQ_scale_list[4], (int8_t*)qk_buf_,
                                     (int8_t*)v_buf_, cublaslt_handle, stream, cublasAlgoMap_, use_ORDER_COL32_2R_4R4_);
         if(param_.sequence_id_offset == nullptr || param_.valid_word_num == batch_size * seq_len)
         {
-          transpose_COL32_kernelLauncher((int8_t*)dst, (const int8_t*)transpose_dst_int_buf_, batch_size, seq_len, head_num, 
+          transpose_COL32_kernelLauncher((int8_t*)dst, (const int8_t*)transpose_dst_int_buf_, batch_size, seq_len, head_num,
                                           size_per_head, bmm2_amax_ptr+1, bmm2_amax_ptr+3, stream);
         }
         else
         {
-          transpose_COL32_rebuild_padding_kernelLauncher((int8_t*)dst, (const int8_t*)transpose_dst_int_buf_, sequence_id_map_, 
-                                                          param_.valid_word_num, batch_size, seq_len, head_num, size_per_head, 
+          transpose_COL32_rebuild_padding_kernelLauncher((int8_t*)dst, (const int8_t*)transpose_dst_int_buf_, sequence_id_map_,
+                                                          param_.valid_word_num, batch_size, seq_len, head_num, size_per_head,
                                                           bmm2_amax_ptr+1, bmm2_amax_ptr+3, stream);
         }
       }
     }
     //FP32/FP16
     else
-    {
-      if(param_.sequence_id_offset == nullptr || param_.valid_word_num == batch_size * seq_len)
       {
-        add_QKV_bias_transpose_kernelLauncher(q_buf_, k_buf_, v_buf_,
-          Q, bias_Q,
-          K, bias_K,
-          V, bias_V,
-          batch_size_, seq_len,
-          head_num,
-          size_per_head, stream);
-      }
-      else
       {
-        // if we use remove padding, then initialize the q_buf_, k_buf_ and v_buf_ to prevent bugs.
-        cudaMemsetAsync(q_buf_, 0, 3 * batch_size_ * seq_len * head_num * size_per_head * sizeof(DataType_), param_.stream);
+#ifdef OP_TIMES
+	START_OPTIME_MEASUREMENT
+#endif
+	if(param_.sequence_id_offset == nullptr || param_.valid_word_num == batch_size * seq_len)
+	  {
+	    add_QKV_bias_transpose_kernelLauncher(q_buf_, k_buf_, v_buf_,
+						  Q, bias_Q,
+						  K, bias_K,
+						  V, bias_V,
+						  batch_size_, seq_len,
+						  head_num,
+						  size_per_head, stream);
+	  }
+	else
+	  {
+	    // if we use remove padding, then initialize the q_buf_, k_buf_ and v_buf_ to prevent bugs.
+	    cudaMemsetAsync(q_buf_, 0, 3 * batch_size_ * seq_len * head_num * size_per_head * sizeof(DataType_), param_.stream);
 
-        add_QKV_bias_rebuild_padding_kernelLauncher(Q, bias_Q, K, bias_K, V, bias_V, q_buf_, k_buf_, v_buf_, 
-          batch_size, seq_len, head_num, size_per_head, param_.valid_word_num, param_.sequence_id_offset, stream);
+	    add_QKV_bias_rebuild_padding_kernelLauncher(Q, bias_Q, K, bias_K, V, bias_V, q_buf_, k_buf_, v_buf_,
+							batch_size, seq_len, head_num, size_per_head,
+							param_.valid_word_num, param_.sequence_id_offset, stream);
+	  }
+#ifdef OP_TIMES
+	  END_OPTIME_MEASUREMENT("AttnQKVBiasAddPadding")
+#endif
       }
 
       DataType_ alpha = (DataType_)1.0f, beta = (DataType_)0.0f;
-    
-      check_cuda_error(cublasGemmStridedBatchedEx(cublas_handle,
-        CUBLAS_OP_T, CUBLAS_OP_N,
-        seq_len, seq_len, size_per_head,
-        &alpha,
-        k_buf_, AType_, size_per_head, seq_len * size_per_head,
-        q_buf_, BType_, size_per_head, seq_len * size_per_head,
-        &beta,
-        qk_buf_, CType_, seq_len, seq_len * seq_len,
-        batch_size * head_num,
-        computeType_,
-        static_cast<cublasGemmAlgo_t>(cublasBmmAlgo_[0])));
-    
-      attn_softmax_kernelLauncher(qk_buf_, attr_mask, batch_size, seq_len, head_num, scalar, stream);
 
-      check_cuda_error(cublasGemmStridedBatchedEx(cublas_handle,
-        CUBLAS_OP_N, CUBLAS_OP_N,
-        size_per_head, seq_len, seq_len,
-        &alpha,
-        v_buf_, AType_, size_per_head, seq_len * size_per_head,
-        qk_buf_, BType_, seq_len, seq_len * seq_len,
-        &beta,
-        transpose_dst_, CType_, size_per_head, seq_len * size_per_head,
-        batch_size * head_num,
-        computeType_,
-        static_cast<cublasGemmAlgo_t>(cublasBmmAlgo_[1])));
-      
-      if(param_.sequence_id_offset == nullptr || param_.valid_word_num == batch_size * seq_len)
       {
-        transpose_kernelLauncher(transpose_dst_, dst, batch_size, seq_len, head_num, size_per_head, stream);
+#ifdef OP_TIMES
+	START_OPTIME_MEASUREMENT
+#endif
+	check_cuda_error(cublasGemmStridedBatchedEx(cublas_handle,
+						    CUBLAS_OP_T, CUBLAS_OP_N,
+						    seq_len, seq_len, size_per_head,
+						    &alpha,
+						    k_buf_, AType_, size_per_head, seq_len * size_per_head,
+						    q_buf_, BType_, size_per_head, seq_len * size_per_head,
+						    &beta,
+						    qk_buf_, CType_, seq_len, seq_len * seq_len,
+						    batch_size * head_num,
+						    computeType_,
+						    static_cast<cublasGemmAlgo_t>(cublasBmmAlgo_[0])));
+#ifdef OP_TIMES
+	  END_OPTIME_MEASUREMENT("AttnQKt")
+#endif
       }
-      else
+
       {
-        transpose_rebuild_padding_kernelLauncher(transpose_dst_, dst, param_.valid_word_num,
-                                                 batch_size, seq_len, head_num, size_per_head, 
-                                                 param_.sequence_id_offset, stream);
+#ifdef OP_TIMES
+	START_OPTIME_MEASUREMENT
+#endif
+	attn_softmax_kernelLauncher(qk_buf_, attr_mask, batch_size, seq_len, head_num, scalar, stream);
+#ifdef OP_TIMES
+	  END_OPTIME_MEASUREMENT("AttnSoftmax")
+#endif
       }
-    }  
+
+      {
+#ifdef OP_TIMES
+	START_OPTIME_MEASUREMENT
+#endif
+	check_cuda_error(cublasGemmStridedBatchedEx(cublas_handle,
+						    CUBLAS_OP_N, CUBLAS_OP_N,
+						    size_per_head, seq_len, seq_len,
+						    &alpha,
+						    v_buf_, AType_, size_per_head, seq_len * size_per_head,
+						    qk_buf_, BType_, seq_len, seq_len * seq_len,
+						    &beta,
+						    transpose_dst_, CType_, size_per_head, seq_len * size_per_head,
+						    batch_size * head_num,
+						    computeType_,
+						    static_cast<cublasGemmAlgo_t>(cublasBmmAlgo_[1])));
+#ifdef OP_TIMES
+	  END_OPTIME_MEASUREMENT("AttnAttnV")
+#endif
+      }
+
+      {
+#ifdef OP_TIMES
+	START_OPTIME_MEASUREMENT
+#endif
+	if(param_.sequence_id_offset == nullptr || param_.valid_word_num == batch_size * seq_len)
+	  {
+	    transpose_kernelLauncher(transpose_dst_, dst, batch_size, seq_len, head_num, size_per_head, stream);
+	  }
+	else
+	  {
+	    transpose_rebuild_padding_kernelLauncher(transpose_dst_, dst, param_.valid_word_num,
+						     batch_size, seq_len, head_num, size_per_head,
+						     param_.sequence_id_offset, stream);
+	  }
+#ifdef OP_TIMES
+	  END_OPTIME_MEASUREMENT("AttnTransposeRemPad")
+#endif
+      }
+    }
   }
 
   void forward()
   {
+#ifdef OP_TIMES
+    // std::cout << "Attention forward " << std::endl;
+#endif
 #ifndef NDEBUG
     PRINT_FUNC_NAME_();
 #endif
     try
-    { 
+    {
       forward(param_.from_tensor, param_.to_tensor);
     }
     catch(std::runtime_error& error)
@@ -793,13 +848,18 @@ class OpenMultiHeadAttention: IMultiHeadAttention<OpType_>
 
   void forward(const DataType_* from_tensor, const DataType_* to_tensor)
   {
+#ifdef OP_TIMES
+      cudaEvent_t start, end;
+      float elapsed = 0;
+#endif
+
     if(param_.sequence_id_offset != nullptr && param_.valid_word_num != batch_size_ * from_seq_len_)
     {
       is_fuse_QKV_ = false;
     }
 
     if(is_fuse_QKV_ == true && int8_mode_ == 0)
-    {
+      {
       // For tensorrt, we cannot get the pointer of from tensor until enqueue
       const DataType_* hA[] {param_.self_attention.query_weight.kernel,
                              param_.self_attention.key_weight.kernel,
@@ -818,7 +878,7 @@ class OpenMultiHeadAttention: IMultiHeadAttention<OpType_>
     const DataType_ alpha = (DataType_)1.0f, beta = (DataType_)0.0f;
 
     try
-    { 
+    {
       if (int8_mode_ != 0){
         //K_int_buf_ V_int_buf_ should point to correct buffer according to param_.valid_word_num
         if (int8_mode_ == 1) {
@@ -840,56 +900,56 @@ class OpenMultiHeadAttention: IMultiHeadAttention<OpType_>
           //for QVK weight are int8 & continue
         else if ((Q_weight + n*k == K_weight) && (K_weight + n*k == V_weight))
           fusedINT8QKV = 2;
-        
+
         if (int8_mode_ == 1)
         {
           if (fusedINT8QKV == 0){
-            cublasLtMM_withAlgo(Q_int_buf_, 1, m, n, k, 0, 0, 0, 
-                                param_.int8_from_tensor, Q_weight, 
-                                param_.cublaslt_handle, param_.stream, 
+            cublasLtMM_withAlgo(Q_int_buf_, 1, m, n, k, 0, 0, 0,
+                                param_.int8_from_tensor, Q_weight,
+                                param_.cublaslt_handle, param_.stream,
                                 cublasAlgoMap_, use_ORDER_COL32_2R_4R4_);
-            cublasLtMM_withAlgo(K_int_buf_, 1, m, n, k, 0, 0, 0, 
-                                param_.int8_from_tensor, K_weight, 
-                                param_.cublaslt_handle, param_.stream, 
+            cublasLtMM_withAlgo(K_int_buf_, 1, m, n, k, 0, 0, 0,
+                                param_.int8_from_tensor, K_weight,
+                                param_.cublaslt_handle, param_.stream,
                                 cublasAlgoMap_, use_ORDER_COL32_2R_4R4_);
-            cublasLtMM_withAlgo(V_int_buf_, 1, m, n, k, 0, 0, 0, 
-                                param_.int8_from_tensor, V_weight, 
-                                param_.cublaslt_handle, param_.stream, 
+            cublasLtMM_withAlgo(V_int_buf_, 1, m, n, k, 0, 0, 0,
+                                param_.int8_from_tensor, V_weight,
+                                param_.cublaslt_handle, param_.stream,
                                 cublasAlgoMap_, use_ORDER_COL32_2R_4R4_);
           }
           else{
-            int strideFactor = (fusedINT8QKV == 1) ? (sizeof(DataType_)/sizeof(int8_t)) : 1; 
-            cublasLtMM_withAlgo(Q_int_buf_, 3, m, n, k, 0, n*k*strideFactor, 
-                                n*m, param_.int8_from_tensor, Q_weight, 
+            int strideFactor = (fusedINT8QKV == 1) ? (sizeof(DataType_)/sizeof(int8_t)) : 1;
+            cublasLtMM_withAlgo(Q_int_buf_, 3, m, n, k, 0, n*k*strideFactor,
+                                n*m, param_.int8_from_tensor, Q_weight,
                                 param_.cublaslt_handle, param_.stream, cublasAlgoMap_, use_ORDER_COL32_2R_4R4_);
           }
         }
         else if (int8_mode_ == 2 || int8_mode_ == 3)
         {
           if (fusedINT8QKV == 0){
-            cublasLtMM_withAlgo_int8IO((int8_t*)Q_int_buf_, 1, m, n, k, 0, 0, 0, 
-                                       param_.int8O_gemm_deQ_scale_list[0],  
-                                       param_.int8_from_tensor, Q_weight, 
-                                       param_.cublaslt_handle, param_.stream, 
+            cublasLtMM_withAlgo_int8IO((int8_t*)Q_int_buf_, 1, m, n, k, 0, 0, 0,
+                                       param_.int8O_gemm_deQ_scale_list[0],
+                                       param_.int8_from_tensor, Q_weight,
+                                       param_.cublaslt_handle, param_.stream,
                                        cublasAlgoMap_, use_ORDER_COL32_2R_4R4_);
-            cublasLtMM_withAlgo_int8IO((int8_t*)K_int_buf_, 1, m, n, k, 0, 0, 0, 
+            cublasLtMM_withAlgo_int8IO((int8_t*)K_int_buf_, 1, m, n, k, 0, 0, 0,
                                        param_.int8O_gemm_deQ_scale_list[1],
-                                       param_.int8_from_tensor, K_weight, 
-                                       param_.cublaslt_handle, param_.stream, 
+                                       param_.int8_from_tensor, K_weight,
+                                       param_.cublaslt_handle, param_.stream,
                                        cublasAlgoMap_, use_ORDER_COL32_2R_4R4_);
             cublasLtMM_withAlgo_int8IO((int8_t*)V_int_buf_, 1, m, n, k, 0, 0, 0,
-                                       param_.int8O_gemm_deQ_scale_list[2],            
-                                       param_.int8_from_tensor, V_weight, 
-                                       param_.cublaslt_handle, param_.stream, 
+                                       param_.int8O_gemm_deQ_scale_list[2],
+                                       param_.int8_from_tensor, V_weight,
+                                       param_.cublaslt_handle, param_.stream,
                                        cublasAlgoMap_, use_ORDER_COL32_2R_4R4_);
           }
           else{
-            int strideFactor = (fusedINT8QKV == 1) ? (sizeof(DataType_)/sizeof(int8_t)) : 1; 
-            cublasLtMM_withAlgo_int8IO((int8_t*)Q_int_buf_, 3, m, n, k, 0, n*k*strideFactor, n*m, 
+            int strideFactor = (fusedINT8QKV == 1) ? (sizeof(DataType_)/sizeof(int8_t)) : 1;
+            cublasLtMM_withAlgo_int8IO((int8_t*)Q_int_buf_, 3, m, n, k, 0, n*k*strideFactor, n*m,
                                        param_.int8O_gemm_deQ_scale_list[0],
-                                       param_.int8_from_tensor, Q_weight, 
+                                       param_.int8_from_tensor, Q_weight,
                                        param_.cublaslt_handle, param_.stream, cublasAlgoMap_, use_ORDER_COL32_2R_4R4_);
-          }  
+          }
         }
 
         int S;
@@ -901,8 +961,8 @@ class OpenMultiHeadAttention: IMultiHeadAttention<OpType_>
           // 1. INT8
           // 2. GPU SM >= 75
           int8_fused_multiHeadAttr_kernelLauncher((const void*)Q_int_buf_,
-                                                  param_.amaxList + 4 + 1, 
-                                                  param_.amaxList + 12 + 1, 
+                                                  param_.amaxList + 4 + 1,
+                                                  param_.amaxList + 12 + 1,
                                                   param_.amaxList + 20 + 1,
                                                   param_.trt_fused_mha_amax_list[0]/127.0f,
                                                   S
@@ -932,25 +992,29 @@ class OpenMultiHeadAttention: IMultiHeadAttention<OpType_>
                 scalar);
         }
       }
-      else{      
-        if(is_fuse_QKV_ == true)
+      else{
+	{
+#ifdef OP_TIMES
+	  START_OPTIME_MEASUREMENT
+#endif
+	  if(is_fuse_QKV_ == true)
         {
           int algoId = getAlgoIdFromMap(cublasAlgoMap_, 3, n, m, k, AType_ == CUDA_R_16F ? HALF_DATATYPE : FLOAT_DATATYPE);
-          check_cuda_error(cublasGemmBatchedEx(param_.cublas_handle, 
-                           CUBLAS_OP_N, CUBLAS_OP_N, 
-                           n, m, k, 
-                           &alpha, 
+          check_cuda_error(cublasGemmBatchedEx(param_.cublas_handle,
+                           CUBLAS_OP_N, CUBLAS_OP_N,
+                           n, m, k,
+                           &alpha,
                            (const void* const*) qkv_kernel_, AType_, n,
                            (const void* const*) qkv_input_, BType_, k,
-                           &beta, 
+                           &beta,
                            (void* const*)qkv_buf_, CType_, n,
                            3,
-                           computeType_, 
+                           computeType_,
                            static_cast<cublasGemmAlgo_t>(algoId)));
         }
-        else
+	  else
         {
-          cublasMM_cublasLtMM_wrapper(param_.cublaslt_handle, param_.cublas_handle, CUBLAS_OP_N, CUBLAS_OP_N, 
+          cublasMM_cublasLtMM_wrapper(param_.cublaslt_handle, param_.cublas_handle, CUBLAS_OP_N, CUBLAS_OP_N,
                            n, m, k, &alpha,
                            param_.self_attention.query_weight.kernel, AType_, n,
                            from_tensor, BType_, k,
@@ -961,26 +1025,30 @@ class OpenMultiHeadAttention: IMultiHeadAttention<OpType_>
           cudaDeviceSynchronize();
           check_cuda_error(cudaGetLastError());
 #endif
-          cublasMM_cublasLtMM_wrapper(param_.cublaslt_handle, param_.cublas_handle, CUBLAS_OP_N, CUBLAS_OP_N, 
+          cublasMM_cublasLtMM_wrapper(param_.cublaslt_handle, param_.cublas_handle, CUBLAS_OP_N, CUBLAS_OP_N,
                            n, m, k, &alpha,
                            param_.self_attention.key_weight.kernel, AType_, n,
                            to_tensor, BType_, k,
                            &beta, (DataType_ *)key_buf_, CType_, n,
-                           param_.stream, cublasAlgoMap_, sm_, cublas_workspace_); 
+                           param_.stream, cublasAlgoMap_, sm_, cublas_workspace_);
 
 #ifndef NDEBUG
           cudaDeviceSynchronize();
           check_cuda_error(cudaGetLastError());
 #endif
 
-          cublasMM_cublasLtMM_wrapper(param_.cublaslt_handle, param_.cublas_handle, CUBLAS_OP_N, CUBLAS_OP_N, 
+          cublasMM_cublasLtMM_wrapper(param_.cublaslt_handle, param_.cublas_handle, CUBLAS_OP_N, CUBLAS_OP_N,
                            n, m, k, &alpha,
                            param_.self_attention.value_weight.kernel, AType_, n,
                            to_tensor, BType_, k,
                            &beta, (DataType_ *)value_buf_, CType_, n,
-                           param_.stream, cublasAlgoMap_, sm_, cublas_workspace_); 
+                           param_.stream, cublasAlgoMap_, sm_, cublas_workspace_);
         }
-     
+#ifdef OP_TIMES
+	  END_OPTIME_MEASUREMENT("AttnQKV")
+#endif
+	}
+
 #ifndef NDEBUG
         cudaDeviceSynchronize();
         check_cuda_error(cudaGetLastError());
@@ -1000,24 +1068,31 @@ class OpenMultiHeadAttention: IMultiHeadAttention<OpType_>
         {
           DataType_ scalar = 1 / (sqrtf(size_per_head_ * 1.0f) * q_scaling_);
 
-          multiHeadAttr_nofuse_kernelLauncher(
-            param_.stream,
-            param_.cublas_handle,
-            param_.cublaslt_handle,
-            query_buf_,
-            param_.self_attention.query_weight.bias,
-            key_buf_,
-            param_.self_attention.key_weight.bias,
-            value_buf_,
-            param_.self_attention.value_weight.bias,
-            param_.attr_mask,
-            param_.attr_out,
-            batch_size_,
-            from_seq_len_,
-            head_num_,
-            size_per_head_,
-            int8_mode_,
-            scalar);
+	  {
+#ifdef OP_TIMES
+	    START_OPTIME_MEASUREMENT
+#endif
+	      multiHeadAttr_nofuse_kernelLauncher(param_.stream,
+						param_.cublas_handle,
+						param_.cublaslt_handle,
+						query_buf_,
+						param_.self_attention.query_weight.bias,
+						key_buf_,
+						param_.self_attention.key_weight.bias,
+						value_buf_,
+						param_.self_attention.value_weight.bias,
+						param_.attr_mask,
+						param_.attr_out,
+						batch_size_,
+						from_seq_len_,
+						head_num_,
+						size_per_head_,
+						int8_mode_,
+						scalar);
+#ifdef OP_TIMES
+	    END_OPTIME_MEASUREMENT("AttnMHA")
+#endif
+	  }
         }
       }
     }
@@ -1028,26 +1103,26 @@ class OpenMultiHeadAttention: IMultiHeadAttention<OpType_>
   }
 
   void fused_multiHeadAttr_kernelLauncher(const int S);
-  
-  void int8_fused_multiHeadAttr_kernelLauncher(const void* Q, 
-                                               const float *q_deQFactor_ptr, const float *k_deQFactor_ptr, const float *v_deQFactor_ptr, 
+
+  void int8_fused_multiHeadAttr_kernelLauncher(const void* Q,
+                                               const float *q_deQFactor_ptr, const float *k_deQFactor_ptr, const float *v_deQFactor_ptr,
                                                const float mScaleQkv, const int S);
 
   void trt_add_QKV_bias_kernelLauncher(
       const DataType_* bias_Q,
       const DataType_* bias_K,
       const DataType_* bias_V);
-      
+
   void trt_add_QKV_bias_COL32_int8IO_kernelLauncher(
       int8_t* output,
       const int8_t* Q,
       const DataType_* bias_Q,
       const DataType_* bias_K,
       const DataType_* bias_V,
-      const float *q_input_deQFactor_ptr, 
-      const float *k_input_deQFactor_ptr, 
-      const float *v_input_deQFactor_ptr, 
-      const float qkv_output_scale); 
+      const float *q_input_deQFactor_ptr,
+      const float *k_input_deQFactor_ptr,
+      const float *v_input_deQFactor_ptr,
+      const float qkv_output_scale);
 
   void trt_add_QKV_bias_COL32_int32Iint8O_kernelLauncher(
       int8_t* output,
@@ -1076,7 +1151,7 @@ class OpenMultiHeadAttention: IMultiHeadAttention<OpType_>
       {
         dispatcher_int8.get()->setScaleList(param_.trt_fused_mha_amax_list[0]/127.0f, param_.trt_fused_mha_amax_list[1]/127.0f, param_.trt_fused_mha_amax_list[2]/127.0f);
       }
-    } 
+    }
   }
 
   ~OpenMultiHeadAttention() override
@@ -1093,6 +1168,6 @@ class OpenMultiHeadAttention: IMultiHeadAttention<OpType_>
     }
   }
 };
-                                       
+
 }//namespace cuda
 }//namespace fastertransformer

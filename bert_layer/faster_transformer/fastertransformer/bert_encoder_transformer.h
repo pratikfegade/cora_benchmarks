@@ -29,6 +29,7 @@
 #include "fastertransformer/gemm_test/encoder_gemm_func.h"
 #include "fastertransformer/gemm_test/encoder_igemm_func.h"
 #include "fastertransformer/utils/functions.h"
+#include "fastertransformer/time_map.h"
 
 namespace fastertransformer
 {
@@ -581,6 +582,7 @@ public:
     attention_->initialize(multi_head_init_param);
   }
 
+
   /**
    * do forward
    **/
@@ -591,6 +593,12 @@ public:
 #endif
     try
     {
+#ifdef OP_TIMES
+      // std::cout << "[OLA] Per-op profiling " << std::endl;
+      cudaEvent_t start, end;
+      float elapsed = 0;
+#endif
+
       attention_->forward();
 
 #ifndef NDEBUG
@@ -709,19 +717,37 @@ public:
 #endif
       }
       else{
-        cublasMM_cublasLtMM_wrapper(param_.cublaslt_handle, param_.cublas_handle, CUBLAS_OP_N, CUBLAS_OP_N,
-                                    n, m, k, &alpha,
-                                    param_.self_attention.attention_output_weight.kernel, AType_, n,
-                                    attr_out_buf_, BType_, k,
-                                    &beta, (DataType_ *)attr_matmul_buf_, CType_, n,
-                                    param_.stream, cublasAlgoMap_, sm_, cublas_workspace_);
 
-        add_bias_input_layernorm_kernelLauncher<DataType_>(attr_matmul_buf_,
-                                                           param_.from_tensor,
-                                                           param_.self_attention.attention_output_weight.bias,
-                                                           param_.self_layernorm.gamma,
-                                                           param_.self_layernorm.beta,
-                                                           m, n, param_.stream);
+	{
+#ifdef OP_TIMES
+	  START_OPTIME_MEASUREMENT
+#endif
+	  cublasMM_cublasLtMM_wrapper(param_.cublaslt_handle, param_.cublas_handle, CUBLAS_OP_N, CUBLAS_OP_N,
+				      n, m, k, &alpha,
+				      param_.self_attention.attention_output_weight.kernel, AType_, n,
+				      attr_out_buf_, BType_, k,
+				      &beta, (DataType_ *)attr_matmul_buf_, CType_, n,
+				      param_.stream, cublasAlgoMap_, sm_, cublas_workspace_);
+
+#ifdef OP_TIMES
+	  END_OPTIME_MEASUREMENT("PostLinearMB")
+#endif
+	}
+
+	{
+#ifdef OP_TIMES
+	  START_OPTIME_MEASUREMENT
+#endif
+	  add_bias_input_layernorm_kernelLauncher<DataType_>(attr_matmul_buf_,
+							     param_.from_tensor,
+							     param_.self_attention.attention_output_weight.bias,
+							     param_.self_layernorm.gamma,
+							     param_.self_layernorm.beta,
+							     m, n, param_.stream);
+#ifdef OP_TIMES
+	  END_OPTIME_MEASUREMENT("PostLinearBiasNormAdd")
+#endif
+	}
 
 #ifndef NDEBUG
         cudaDeviceSynchronize();
@@ -730,14 +756,30 @@ public:
 
         n *= 4;
 
-        cublasMM_cublasLtMM_wrapper(param_.cublaslt_handle, param_.cublas_handle, CUBLAS_OP_N, CUBLAS_OP_N,
-                                    n, m, k, &alpha,
-                                    param_.ffn.intermediate_weight.kernel, AType_, n,
-                                    attr_matmul_buf_, BType_, k,
-                                    &beta, (DataType_ *)inter_matmul_buf_, CType_, n,
-                                    param_.stream, cublasAlgoMap_, sm_, cublas_workspace_);
+	{
+#ifdef OP_TIMES
+	  START_OPTIME_MEASUREMENT
+#endif
+	  cublasMM_cublasLtMM_wrapper(param_.cublaslt_handle, param_.cublas_handle, CUBLAS_OP_N, CUBLAS_OP_N,
+				      n, m, k, &alpha,
+				      param_.ffn.intermediate_weight.kernel, AType_, n,
+				      attr_matmul_buf_, BType_, k,
+				      &beta, (DataType_ *)inter_matmul_buf_, CType_, n,
+				      param_.stream, cublasAlgoMap_, sm_, cublas_workspace_);
+#ifdef OP_TIMES
+	  END_OPTIME_MEASUREMENT("FF1MM")
+#endif
+	}
 
-        add_bias_act_kernelLauncher<DataType_>(inter_matmul_buf_, param_.ffn.intermediate_weight.bias, m, n, ActivationType::GELU, param_.stream);
+	{
+#ifdef OP_TIMES
+	  START_OPTIME_MEASUREMENT
+#endif
+	    add_bias_act_kernelLauncher<DataType_>(inter_matmul_buf_, param_.ffn.intermediate_weight.bias, m, n, ActivationType::GELU, param_.stream);
+#ifdef OP_TIMES
+	  END_OPTIME_MEASUREMENT("FF1BiasAct")
+#endif
+	}
 
 #ifndef NDEBUG
         cudaDeviceSynchronize();
@@ -747,19 +789,35 @@ public:
         n = k;
         k *= 4;
 
-        cublasMM_cublasLtMM_wrapper(param_.cublaslt_handle, param_.cublas_handle, CUBLAS_OP_N, CUBLAS_OP_N,
-                                    n, m, k, &alpha,
-                                    param_.ffn.output_weight.kernel, AType_, n,
-                                    inter_matmul_buf_, BType_, k,
-                                    &beta, (DataType_ *)(param_.transformer_out), CType_, n,
-                                    param_.stream, cublasAlgoMap_, sm_, cublas_workspace_);
+	{
+#ifdef OP_TIMES
+	  START_OPTIME_MEASUREMENT
+#endif
+	    cublasMM_cublasLtMM_wrapper(param_.cublaslt_handle, param_.cublas_handle, CUBLAS_OP_N, CUBLAS_OP_N,
+					n, m, k, &alpha,
+					param_.ffn.output_weight.kernel, AType_, n,
+					inter_matmul_buf_, BType_, k,
+					&beta, (DataType_ *)(param_.transformer_out), CType_, n,
+					param_.stream, cublasAlgoMap_, sm_, cublas_workspace_);
+#ifdef OP_TIMES
+	  END_OPTIME_MEASUREMENT("FF1MM")
+#endif
+	}
 
-         add_bias_input_layernorm_kernelLauncher<DataType_>(param_.transformer_out,
-                                                            attr_matmul_buf_,
-                                                            param_.ffn.output_weight.bias,
-                                                            param_.ffn_layernorm.gamma,
-                                                            param_.ffn_layernorm.beta,
-                                                            m, n, param_.stream);
+	{
+#ifdef OP_TIMES
+	  START_OPTIME_MEASUREMENT
+#endif
+	  add_bias_input_layernorm_kernelLauncher<DataType_>(param_.transformer_out,
+							     attr_matmul_buf_,
+							     param_.ffn.output_weight.bias,
+							     param_.ffn_layernorm.gamma,
+							     param_.ffn_layernorm.beta,
+							     m, n, param_.stream);
+#ifdef OP_TIMES
+	  END_OPTIME_MEASUREMENT("FF2BiasNormAdd")
+#endif
+	}
 
 #ifndef NDEBUG
         cudaDeviceSynchronize();

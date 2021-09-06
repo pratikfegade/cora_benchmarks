@@ -18,6 +18,7 @@
 #include "fastertransformer/triton_backend/gpt_triton_backend.hpp"
 
 using namespace fastertransformer;
+fastertransformer::MemoryTracker fastertransformer::MemoryTracker::instance;
 
 #ifdef USE_NVTX
   bool NVTX_ON = true;
