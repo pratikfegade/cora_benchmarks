@@ -11,6 +11,8 @@ import utils
 import run_utils
 
 parser = run_utils.get_cmd_parser()
+parser.add_argument('--kt', dest='kt', default=8, type=int)
+parser.add_argument('--nt', dest='nt', default=4, type=int)
 args = parser.parse_args()
 
 BATCH_SIZE = te.var('bs')
@@ -70,8 +72,8 @@ if args.target == "cuda":
     block_x = lambda: tvm.thread_axis("blockIdx.x")
     block_y = lambda: tvm.thread_axis("blockIdx.y")
 
-    ntx = 16
-    nty = 16
+    ntx = args.nt
+    nty = 8
 
     Qs = s.cache_read(Q, "shared", [S], layouts='dense')
     Ks = s.cache_read(K, "shared", [S], layouts='dense')
@@ -88,8 +90,6 @@ if args.target == "cuda":
     f2 = s[O].fuse(b, f1)
     s[O].bind(f2, block_x())
     s[O].bind(h, block_y())
-    s[Qs].compute_at(s[O], h)
-    s[Ks].compute_at(s[O], h)
 
     xio, xii = s[O].split(xi, factor = nty)
     yio, yii = s[O].split(yi, factor = ntx)
@@ -100,10 +100,14 @@ if args.target == "cuda":
     s[O].reorder(xio, yii, yio, xii)
     s[S].compute_at(s[O], xii)
 
+    ktile = args.kt
     x, h, y, k = s[S].leaf_iter_vars[1:5]
-    s[S].reorder(h, k, x, y)
-    s[Ql].compute_at(s[S], k)
-    s[Kl].compute_at(s[S], k)
+    ko, ki = s[S].split(k, nparts = ktile)
+    s[S].reorder(h, ko, ki, x, y)
+    s[Qs].compute_at(s[S], ko)
+    s[Ks].compute_at(s[S], ko)
+    s[Ql].compute_at(s[S], ki)
+    s[Kl].compute_at(s[S], ki)
 
     x, h, y = s[Ks].leaf_iter_vars[2], s[Ks].leaf_iter_vars[3], s[Ks].leaf_iter_vars[4]
     s[Ks].reorder(h, y, x)
