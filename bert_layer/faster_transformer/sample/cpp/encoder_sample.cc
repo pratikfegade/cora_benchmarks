@@ -26,6 +26,9 @@
 
 using namespace fastertransformer;
 
+std::unordered_map<std::string, float> fastertransformer::TimeMap::times;
+fastertransformer::MemoryTracker fastertransformer::MemoryTracker::instance;
+
 template <typename T>
 void device_malloc(T **ptr, int size);
 
@@ -407,6 +410,14 @@ float encoder_sample(std::vector<int> batch,
   cudaDeviceSynchronize();
   gettimeofday(&end, NULL);
   cudaProfilerStop();
+
+#ifdef OP_TIMES
+  fastertransformer::TimeMap::Print();
+#endif
+
+#ifdef MEM_PROF
+  fastertransformer::MemoryTracker::print();
+#endif
 
   // printf("[INFO] batch_size %d seq_len %d layer %d FT-CPP-time %.2f ms ( %d iterations) \n", batch_size, seq_len, num_layers,
   // ((end.tv_sec - start.tv_sec) * 1000 + (end.tv_usec - start.tv_usec) * 0.001) / ite, ite);
