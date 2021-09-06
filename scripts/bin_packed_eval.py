@@ -63,10 +63,10 @@ parser.add_argument('--stdout', dest='stdout', default=False, action='store_true
 parser.add_argument('--append', dest='append', default=False, action='store_true')
 args = parser.parse_args()
 
-# ops = ['qkt', 'attn_v', 'bp_test']
-ops = ['bp_test']
+ops = ['qkt', 'attn_v', 'bp_test']
+# ops = ['bp_test']
 b_sizes = [2, 8, 32, 128, 256]
-# datasets = com.get_all_datasets() if args.dataset is None else [args.dataset]
+# datasets = (com.get_all_datasets() if args.dataset is None else [args.dataset]).remove('cola')
 datasets = ['mnli', 'random_96_128', 'random_169_192']
 
 results_out, results_err = get_out_files(args, 'bin_packed', 'a' if args.append else 'w')

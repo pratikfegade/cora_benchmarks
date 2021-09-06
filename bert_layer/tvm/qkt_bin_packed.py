@@ -63,7 +63,8 @@ S = te.ragged_compute((BATCH_SIZE, MAX_LEN, NUM_HEADS, MAX_LEN), [bd, s1, md, s2
                       name = 'S', width_uf_lists=width_ufs)
 
 O = te.ragged_compute((BATCH_SIZE, MAX_LEN, NUM_HEADS, MAX_LEN), [bd, s1, md, s2], loop_ufs,
-                      lambda ds: tvm.if_then_else(ds[s1] >= lens[ds[bd]], -float('inf'), S[ds[bd], ds[s1], ds[md], ds[s2]]),
+                      # lambda ds: tvm.if_then_else(ds[s1] >= lens[ds[bd]], -float('inf'), S[ds[bd], ds[s1], ds[md], ds[s2]]),
+                      lambda ds: S[ds[bd], ds[s1], ds[md], ds[s2]],
                       name = 'O', width_uf_lists=width_ufs)
 
 output_layout = O.op.output_layout(0)
@@ -192,3 +193,13 @@ out, batches = run_utils.lower_or_build(name, s, inputs, args, size_fn=size_fn, 
 #     length = batches[0][i]
 #     rounded = utils.ceilmult(length, TILE)
 #     print(rounded, np.mean(O[i,0:rounded,:,0:rounded]))
+
+_, Q, K, O = out
+O = O.flatten()
+ctr = 0
+for length in batches[0]:
+    rounded = utils.ceilmult(length, 32)
+    this_extent = rounded
+    this_storage_extent = rounded * rounded * NUM_HEADS
+    print(rounded, np.mean(O[ctr:ctr+this_extent]))
+    ctr += this_storage_extent
