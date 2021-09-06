@@ -95,8 +95,8 @@ if args.target == "cuda":
     yio, yii = s[O].split(yi, factor = ntx)
     s[O].bind(xii, thread_y())
     s[O].bind(yii, thread_x())
-    s[O].bind(yio, tvm.thread_axis("vthread"))
-    s[O].bind(xio, tvm.thread_axis("vthread"))
+    s[O].bind(yio, tvm.thread_axis("vthread", name="vth1"))
+    s[O].bind(xio, tvm.thread_axis("vthread", name="vth2"))
     s[O].reorder(xio, yii, yio, xii)
     s[S].compute_at(s[O], xii)
 

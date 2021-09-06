@@ -21,6 +21,8 @@ TILE=64
 RTILE=4
 MAX_LEN = utils.ceilmult(run_utils.get_dataset_max_len(args.dataset), TILE)
 
+assert MAX_LEN > 64
+
 lens = te.placeholder((BATCH_SIZE,), name = 'lens', dtype = 'int32')
 
 bd = Dim('bd')
@@ -71,8 +73,8 @@ thread_x = lambda: tvm.thread_axis("threadIdx.x")
 thread_y = lambda: tvm.thread_axis("threadIdx.y")
 block_x = lambda: tvm.thread_axis("blockIdx.x")
 block_y = lambda: tvm.thread_axis("blockIdx.y")
-ntx = 16
-nty = 16
+ntx = 8
+nty = 8
 
 def schedule_op(S, O, tile_x, tile_y, suffix):
     Qs = s.cache_read(Q, "shared", [S], layouts='dense', suffix=suffix)
@@ -82,7 +84,7 @@ def schedule_op(S, O, tile_x, tile_y, suffix):
     Kl = s.cache_read(Ks, "local", [S], layouts='dense', suffix=suffix)
 
     b, x, h, y = s[O].leaf_iter_vars[0:4]
-    xo, xi = s[O].split(x, factor=tile_x)
+    xo, xi = s[O].split(x, factor=tile_y)
     yo, yi = s[O].split(y, factor=tile_x)
 
     s[O].reorder(b, xo, yo, h, xi, yi)
@@ -90,8 +92,6 @@ def schedule_op(S, O, tile_x, tile_y, suffix):
     f2 = s[O].fuse(b, f1)
     s[O].bind(f2, block_x())
     s[O].bind(h, block_y())
-    s[Qs].compute_at(s[O], h)
-    s[Ks].compute_at(s[O], h)
 
     xio, xii = s[O].split(xi, factor = nty)
     yio, yii = s[O].split(yi, factor = ntx)
@@ -103,9 +103,12 @@ def schedule_op(S, O, tile_x, tile_y, suffix):
     s[S].compute_at(s[O], xii)
 
     x, h, y, k = s[S].leaf_iter_vars[1:5]
-    s[S].reorder(h, k, x, y)
-    s[Ql].compute_at(s[S], k)
-    s[Kl].compute_at(s[S], k)
+    ko, ki = s[S].split(k, nparts = 4)
+    s[S].reorder(h, ko, ki, x, y)
+    s[Qs].compute_at(s[S], ko)
+    s[Ks].compute_at(s[S], ko)
+    s[Ql].compute_at(s[S], ki)
+    s[Kl].compute_at(s[S], ki)
 
     x, h, y = s[Ks].leaf_iter_vars[2], s[Ks].leaf_iter_vars[3], s[Ks].leaf_iter_vars[4]
     s[Ks].reorder(h, y, x)

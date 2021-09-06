@@ -90,8 +90,8 @@ if args.target == "cuda":
     yo, yi = s[O].split(y, factor = nt)
     s[O].bind(xii, thread_y())
     s[O].bind(yi, thread_x())
-    s[O].bind(xio, tvm.thread_axis("vthread"))
-    s[O].bind(yo, tvm.thread_axis("vthread"))
+    s[O].bind(xio, tvm.thread_axis("vthread", name="vth1"))
+    s[O].bind(yo, tvm.thread_axis("vthread", name="vth2"))
     s[Ol].compute_at(s[O], yi)
 
     b, x, h, y, k = s[Ol].leaf_iter_vars
@@ -107,11 +107,11 @@ if args.target == "cuda":
     s[As].reorder(h, x, y)
     f = s[As].fuse(x, y)
     fo, fi = s[As].split(f, factor = nt * nt * 4)
-    fio, fii = s[As].split(fi, factor = nt * 4)
-    fiio, fiii = s[As].split(fii, factor = 4)
-    s[As].bind(fio, thread_y())
-    s[As].bind(fiio, thread_x())
-    s[As].vectorize(fiii)
+    # fio, fii = s[As].split(fi, factor = nt * 4)
+    # fiio, fiii = s[As].split(fii, factor = 4)
+    # s[As].bind(fio, thread_y())
+    # s[As].bind(fiio, thread_x())
+    # s[As].vectorize(fiii)
 
     _, _, x, h, y = s[Vs].leaf_iter_vars
     s[Vs].reorder(h, x, y)
