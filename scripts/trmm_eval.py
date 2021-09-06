@@ -31,7 +31,7 @@ parser.add_argument('--stdout', dest='stdout', default=False, action='store_true
 parser.add_argument('--append', dest='append', default=False, action='store_true')
 args = parser.parse_args()
 
-m_sizes = [128, 256, 512, 1024, 2048, 4096]
+m_sizes = [128, 256, 512, 1024, 2048, 4096, 8192]
 targets = [args.target] if args.target else ['cuda']
 
 if args.target == 'cuda':

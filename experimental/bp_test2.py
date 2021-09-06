@@ -148,8 +148,8 @@ if args.split:
     if args.hfuse:
         s.hfuse([(s[O1].op, s[O1].leaf_iter_vars[0]), (s[O2].op, s[O2].leaf_iter_vars[0])])
 else:
-    # schedule_op(O, 64, '1')
-    schedule_op(O, 32, '1')
+    schedule_op(O, 64, '1')
+    # schedule_op(O, 32, '1')
 
 
 gen_prefix = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0]
