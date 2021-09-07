@@ -28,10 +28,11 @@ parser.add_argument('--data-file', nargs='?', default='random')
 
 parser.add_argument('--m1', dest='m1', default=2, type=int)
 parser.add_argument('--m2', dest='m2', default=1, type=int)
-parser.add_argument('--n1', dest='n1', default=16, type=int)
-parser.add_argument('--n2', dest='n2', default=8, type=int)
+parser.add_argument('--n1', dest='n1', default=32, type=int)
+parser.add_argument('--n2', dest='n2', default=4, type=int)
 parser.add_argument('--k1', dest='k1', default=8, type=int)
 parser.add_argument('--k2', dest='k2', default=8, type=int)
+parser.add_argument('--fs', dest='fs', default=3, type=int)
 args = parser.parse_args()
 
 BATCH_SIZE = args.batch_size
@@ -159,8 +160,9 @@ else:
     s[Bl].compute_at(s[O_local], ko)
     s[Al].compute_at(s[O_local], ko)
 
-    if not args.debug_code:
-        s[O_local].unroll(mii)
+    # if not args.debug_code:
+    s[O_local].unroll(mii)
+    s[O_local].unroll(kii)
 
     O_b, O_m, O_n, O_k = tuple(O.op.axis) + tuple(O.op.reduce_axis)
     O_m_o_o, O_m_i = s[O].split(O_m, factor=128)
@@ -170,12 +172,16 @@ else:
 
     s[O].reorder(O_b, O_m_o_o, O_n_o_o, O_m_i_o, O_n_i_o, O_m_i_i, O_n_i_i)
 
-    if args.batch_size <= 8:
+    if args.fs == 1:
+        s[O].parallel(O_b)
+        prep_code_mode='no_prep_code'
+    elif args.fs == 2:
         fused = s[O].fuse(O_b, O_m_o_o)
         s[O].parallel(fused)
     else:
-        s[O].parallel(O_b)
-        prep_code_mode='no_prep_code'
+        fused = s[O].fuse(O_b, O_m_o_o)
+        fused = s[O].fuse(fused, O_n_o_o)
+        s[O].parallel(fused)
 
     s[O_local].compute_at(s[O], O_n_i_o)
 
