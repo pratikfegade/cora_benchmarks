@@ -320,9 +320,12 @@ def run_vbatch_gemm(built, i_inputs_tensors, t_inputs_tensors, lw_args, args, pa
     t_inputs = [create_tvm_array(i, "float32", ctx, lw_args={}) for i in t_inputs_tensors]
     time = 0
     for i in range(len(ms)):
-        mb = (ms[i] / args.tile_size).astype('int32')
-        nb = (ns[i] / args.tile_size).astype('int32')
-        kb = (ks[i] / args.tile_size).astype('int32')
+        mb = np.ceil(ms[i] / args.tile_size).astype('int32')
+        nb = np.ceil(ns[i] / args.tile_size).astype('int32')
+        kb = np.ceil(ks[i] / args.tile_size).astype('int32')
+        # mb = np.array([x for _, x in sorted(zip(list(kb), list(mb)), reverse=False)]).astype('int32')
+        # nb = np.array([x for _, x in sorted(zip(list(kb), list(nb)), reverse=False)]).astype('int32')
+        # kb = np.array([x for _, x in sorted(zip(list(kb), list(kb)), reverse=False)]).astype('int32')
         l_inputs = [tvm.nd.array(mb, cpu_ctx), tvm.nd.array(nb, cpu_ctx), tvm.nd.array(kb, cpu_ctx)]
         inputs = t_inputs + l_inputs + host_i_inputs + dev_i_inputs
         time += execute(args.target, built, inputs, ctx, args.debug)

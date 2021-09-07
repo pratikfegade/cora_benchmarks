@@ -64,10 +64,10 @@ parser.add_argument('--append', dest='append', default=False, action='store_true
 args = parser.parse_args()
 
 ops = ['qkt', 'attn_v', 'bp_test']
-# ops = ['bp_test']
+# ops = ['qkt']
 b_sizes = [2, 8, 32, 128, 256]
 # datasets = (com.get_all_datasets() if args.dataset is None else [args.dataset]).remove('cola')
-datasets = ['mnli', 'random_96_128', 'random_169_192']
+datasets = ['mnli', 'random_80_96', 'random_144_160']
 
 results_out, results_err = get_out_files(args, 'bin_packed', 'a' if args.append else 'w')
 header = 'Op,Target,Dataset,Batch Size,Vanilla Time,+OpSplit,+HFuse'

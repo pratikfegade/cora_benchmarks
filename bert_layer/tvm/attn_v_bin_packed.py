@@ -63,7 +63,7 @@ O = te.ragged_compute((BATCH_SIZE, MAX_LEN, NUM_HEADS, HEAD_SIZE), [bd, s2, md, 
                       lambda ds, rds: tvm.sum(A[ds[bd], ds[s2], ds[md], rds['k']] *
                                               V(2, ds[bd], rds['k'], ds[md], ds[hd]),
                                               axis=rds['k'], dimensions=[s1]),
-                      name = 'O', reduce_axis_ufs = [('k', s1_uf)],
+                      name = 'O', reduce_axis_ufs = [('k', ubpw('ub', 1).get_uf())],
                       width_uf_lists=width_ufs)
 
 output_layout = O.op.output_layout(0)
@@ -159,7 +159,12 @@ inputs = [[lens], [BATCH_SIZE, V, A, bO]]
 name = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0]
 out, batches = run_utils.lower_or_build(name, s, inputs, args, size_fn=size_fn, binds=binds,
                                         run_function=run_utils.get_bert_layer_run_fn(BATCH_SIZE))
-# _, V, A, O  = out
-# for i in range(BATCH_SIZE):
-#     rounded64 = utils.ceilmult(batches[0][i], 64)
-#     print(batches[0][i], np.mean(O[i,0:rounded64,:,:]))
+
+_, V, A, O  = out
+ctr = 0
+O = O.flatten()
+for length in batches[0]:
+    rounded64 = utils.ceilmult(length, 32)
+    this_extent = rounded64 * NUM_HEADS * HEAD_SIZE
+    print(length, np.mean(O[ctr:ctr + this_extent]))
+    ctr += this_extent

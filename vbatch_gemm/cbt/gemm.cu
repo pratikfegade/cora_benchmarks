@@ -5,6 +5,8 @@
 #include "util.h"
 #include "kernel.h"
 
+#define CEIL(A, F) (F * ((A + F - 1) / (F)))
+
 double runBatch(int batch_size, int* M, int* N, int* K, int iters, bool warmup, int TLP_thres) {
   int BATCH = batch_size;
   float **A;
@@ -16,9 +18,9 @@ double runBatch(int batch_size, int* M, int* N, int* K, int iters, bool warmup, 
   C = (float**) malloc(BATCH * sizeof(float*));
 
   for (int i=0; i<BATCH; ++i){
-    ErrChk(cudaMalloc((void**)&A[i], M[i]*K[i]*sizeof(float)));
-    ErrChk(cudaMalloc((void**)&B[i], K[i]*N[i]*sizeof(float)));
-    ErrChk(cudaMalloc((void**)&C[i], M[i]*N[i]*sizeof(float)));
+    ErrChk(cudaMalloc((void**)&A[i], CEIL(M[i], 128)*CEIL(K[i], 128)*sizeof(float)));
+    ErrChk(cudaMalloc((void**)&B[i], CEIL(K[i], 128)*CEIL(N[i], 128)*sizeof(float)));
+    ErrChk(cudaMalloc((void**)&C[i], CEIL(M[i], 128)*CEIL(N[i], 128)*sizeof(float)));
   }
 
   float **dev_A;
@@ -229,7 +231,7 @@ int main(int argc, char** argv) {
 
   batch_size *= ((mode == "qkt" || mode == "attn_v") ? NUM_HEADS : 1);
 
-  std::cout << "Opening file " << data_file << std::endl;
+  // std::cout << "Opening file " << data_file << std::endl;
 
   std::fstream fs;
   fs.open(data_file);
@@ -244,24 +246,29 @@ int main(int argc, char** argv) {
     std::vector<int> Ns(batch_size, -1);
     std::vector<int> Ks(batch_size, -1);
 
+    // std::cout << "BS " << batch_size << std::endl;
+
     if (mode == "gemm") {
       //read matrix config
       for (int i = 0; i < batch_size; ++i){
 	fs >> Ms[i] >> Ns[i] >> Ks[i];
       }
     } else {
-      for (int i = 0; i < (batch_size / 8); ++i){
+      for (int i = 0; i < (batch_size / NUM_HEADS); ++i){
 	int length;
 	fs >> length;
 	for (int j = 0; j < 8; ++j) {
+	  int n = 16;
+	  length = n * ((length + (n - 1)) / n);
+	  // std::cout << "  L " << length << std::endl;
 	  if (mode == "qkt") {
-	    Ms.push_back(length);
-	    Ns.push_back(length);
-	    Ks.push_back(HEAD_SIZE);
+	    Ms[i*8+j] = length;
+	    Ns[i*8+j] = length;
+	    Ks[i*8+j] = HEAD_SIZE;
 	  } else {
-	    Ms.push_back(length);
-	    Ns.push_back(HEAD_SIZE);
-	    Ks.push_back(length);
+	    Ms[i*8+j] = length;
+	    Ns[i*8+j] = HEAD_SIZE;
+	    Ks[i*8+j] = length;
 	  }
 	}
       }

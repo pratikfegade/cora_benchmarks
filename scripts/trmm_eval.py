@@ -10,19 +10,22 @@ TVM_RUNNER = SCRIPT_DIR + '/../trmm/tvm/trmm.py'
 PYTHON = 'python3'
 
 def get_cublas_runner(pad):
-    def run_cublas(m_size, err_file, args):
-        cmd = [CUBLAS_RUNNER, str(m_size), '1' if pad else'0', str(100), str(1)]
+    def run_cublas(m_size, n_size, err_file, args):
+        cmd = [CUBLAS_RUNNER, str(m_size), str(n_size), '1' if pad else'0', str(100), str(1)]
         out, err = run_cmd(cmd)
         if err: print(err, file = err_file)
         return com.extract_times(out, 1)[0]
     return run_cublas
 
-def run_tvm(m_size, err_file, args):
-    runner = TVM_RUNNER
-    cmd = [PYTHON, runner, '--target', com.get_tvm_target(target), '--m', str(m_size)]
-    out, err = run_cmd(cmd)
-    if err: print(err, file = err_file)
-    return com.extract_times(out, 1)[0]
+def get_tvm_runner(balance):
+    def run_tvm(m_size, n_size, err_file, args):
+        runner = TVM_RUNNER
+        cmd = [PYTHON, runner, '--target', com.get_tvm_target(target), '--m', str(m_size), '--n', str(n_size)]
+        if balance: cmd += ['--load-balance']
+        out, err = run_cmd(cmd)
+        if err: print(err, file = err_file)
+        return com.extract_times(out, 1)[0]
+    return run_tvm
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--target', nargs='?', default=None)
@@ -31,33 +34,45 @@ parser.add_argument('--stdout', dest='stdout', default=False, action='store_true
 parser.add_argument('--append', dest='append', default=False, action='store_true')
 args = parser.parse_args()
 
-m_sizes = [128, 256, 512, 1024, 2048, 4096, 8192]
+ops = ['Sq', 'Th']
+op_m_sizes = {
+    'Sq': [128, 256, 512, 1024, 2048, 4096, 8192],
+    'Th': [128, 256, 512, 1024, 2048, 4096, 8192, 8192*2, 8192*4],
+}
+
+def get_op_n_size(op, m):
+    if op == 'Sq': return m_size
+    else: return 128
+
 targets = [args.target] if args.target else ['cuda']
 
 if args.target == 'cuda':
     framework_funs = {
         'cublas_nopad': get_cublas_runner(False),
         'cublas_pad': get_cublas_runner(True),
-        'cora': run_tvm,
+        'cora_unbalanced': get_tvm_runner(False),
+        'cora_balanced': get_tvm_runner(True),
     }
 
 results_out, results_err = get_out_files(args, 'trmm', 'a' if args.append else 'w')
-header = 'Target,M'
+header = 'Op,Target,M,N'
 for framework, func in framework_funs.items(): header += ',' + framework + ' (ms)'
 print(header, file = results_out)
 
-for target in targets:
-    exe_times = {}
-    for m_size in m_sizes:
-        for framework, func in framework_funs.items():
-            log(args, 'Running %s %s %d' % (target, framework, m_size))
-            exe_times[framework] = func(m_size, results_err, args)
-            # print(exe_times[framework])
+for op in ops:
+    for target in targets:
+        exe_times = {}
+        for m_size in op_m_sizes[op]:
+            n_size = get_op_n_size(op, m_size)
+            for framework, func in framework_funs.items():
+                log(args, 'Running %s %s %s %d %d' % (op, target, framework, m_size, n_size))
+                exe_times[framework] = func(m_size, n_size, results_err, args)
+                # print(exe_times[framework])
 
-        out_str = '%s,%d' % (target, m_size)
-        for framework, framework_exe_time in exe_times.items():
-            out_str += ',%g' % framework_exe_time
-        print(out_str, file = results_out)
+            out_str = '%s,%s,%d,%d' % (op, target, m_size, n_size)
+            for framework, framework_exe_time in exe_times.items():
+                out_str += ',%g' % framework_exe_time
+            print(out_str, file = results_out)
 
 if not args.stdout:
     results_out.close()

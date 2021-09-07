@@ -5,7 +5,7 @@
 
 #include "utils.h"
 
-float testCuBLASPad(int M, int iters, int warmup) {
+float testCuBLASPad(int M, int N, int iters, int warmup) {
   cublasHandle_t cublas_handle;
   cublasCreate(&cublas_handle);
 
@@ -21,8 +21,8 @@ float testCuBLASPad(int M, int iters, int warmup) {
   int ldc = M;
 
   CUDA_CHECK(cudaMalloc((void**)&A, M * M * sizeof(float)));
-  CUDA_CHECK(cudaMalloc((void**)&B, M * M * sizeof(float)));
-  CUDA_CHECK(cudaMalloc((void**)&C, M * M * sizeof(float)));
+  CUDA_CHECK(cudaMalloc((void**)&B, M * N * sizeof(float)));
+  CUDA_CHECK(cudaMalloc((void**)&C, M * N * sizeof(float)));
 
   auto runner = [&]() {
     float time = 0;
@@ -40,7 +40,7 @@ float testCuBLASPad(int M, int iters, int warmup) {
 
       cublasStatus_t  cublas_result = cublasSgemm(cublas_handle,
 						  op_a, op_b,
-						  M, M, M,
+						  M, N, M,
 						  &alpha,
 						  A, lda,
 						  B, ldb,
@@ -67,7 +67,7 @@ float testCuBLASPad(int M, int iters, int warmup) {
 }
 
 
-float testCuBLASNoPad(int M, int iters, int warmup) {
+float testCuBLASNoPad(int M, int N, int iters, int warmup) {
   cublasHandle_t cublas_handle;
   cublasCreate(&cublas_handle);
 
@@ -82,8 +82,8 @@ float testCuBLASNoPad(int M, int iters, int warmup) {
   int ldc = M;
 
   CUDA_CHECK(cudaMalloc((void**)&A, M * M * sizeof(float)));
-  CUDA_CHECK(cudaMalloc((void**)&B, M * M * sizeof(float)));
-  CUDA_CHECK(cudaMalloc((void**)&C, M * M * sizeof(float)));
+  CUDA_CHECK(cudaMalloc((void**)&B, M * N * sizeof(float)));
+  CUDA_CHECK(cudaMalloc((void**)&C, M * N * sizeof(float)));
 
   auto runner = [&]() {
     float time = 0;
@@ -101,7 +101,7 @@ float testCuBLASNoPad(int M, int iters, int warmup) {
       cublasStatus_t cublas_result = cublasStrmm(cublas_handle,
 						 CUBLAS_SIDE_LEFT, CUBLAS_FILL_MODE_LOWER,
 						 op_a, CUBLAS_DIAG_NON_UNIT,
-						 M, M,
+						 M, N,
 						 &alpha,
 						 A, lda,
 						 B, ldb,
@@ -128,15 +128,16 @@ float testCuBLASNoPad(int M, int iters, int warmup) {
 
 int main(int argc, char *argv[]) {
   int M = std::stoi(argv[1]);
-  bool pad = (bool)(std::stoi(argv[2]));
-  int iters = std::stoi(argv[3]);
-  int warmup = std::stoi(argv[4]);
+  int N = std::stoi(argv[2]);
+  bool pad = (bool)(std::stoi(argv[3]));
+  int iters = std::stoi(argv[4]);
+  int warmup = std::stoi(argv[5]);
 
   if (pad) {
-    float time = testCuBLASPad(M, iters, warmup);
+    float time = testCuBLASPad(M, N, iters, warmup);
     std::cout << "RESULTS," << time << std::endl;
   } else {
-    float time = testCuBLASNoPad(M, iters, warmup);
+    float time = testCuBLASNoPad(M, N, iters, warmup);
     std::cout << "RESULTS," << time << std::endl;
   }
 }

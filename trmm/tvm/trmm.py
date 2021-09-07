@@ -14,7 +14,9 @@ parser = run_utils.get_cmd_parser(no_options=True)
 parser.add_argument('--target', nargs='?', default='llvm')
 parser.add_argument('--dtype', dest='dtype', nargs='?', default='float32')
 parser.add_argument('--m', dest='m', default=1024, type=int)
+parser.add_argument('--n', dest='n', default=128, type=int)
 parser.add_argument('--debug', dest='debug', default=False, action='store_true')
+parser.add_argument('--load-balance', dest='load_balance', default=False, action='store_true')
 parser.add_argument('--debug-code', dest='debug_code', default=None, type=str)
 parser.add_argument('--debug-functions', dest='debug_functions', default=False, action='store_true')
 parser.add_argument('--manual-code', dest='manual_code', default=False, action='store_true')
@@ -24,6 +26,7 @@ parser.add_argument('--only-prep-code', dest='only_prep_code', default=False, ac
 args = parser.parse_args()
 
 M = args.m
+N = args.n
 md = Dim('md')
 nd = Dim('nd')
 kd = Dim('kd')
@@ -34,7 +37,7 @@ lufw = len_ufw('s2k', 32)
 luf = lufw.get_uf()
 ls =  {
     0: Uf.from_constant('md', M, 'l'),
-    1: Uf.from_constant('nd', M, 'l'),
+    1: Uf.from_constant('nd', N, 'l'),
     2: Uf.from_constant('kd', M, 'l'),
 }
 
@@ -42,22 +45,22 @@ loop_ufs=[ls[0], ls[2]]
 width_ufs=loop_ufs
 A = te.ragged_placeholder((M, M), [md, kd], loop_ufs, name='A', width_ufs=None)
 
-B = te.placeholder((M, M), name='B')
+B = te.placeholder((M, N), name='B')
 
 loop_ufs=[ls[0], ls[1]]
-O1 = te.ragged_compute((M, M), [md, nd], loop_ufs,
+O1 = te.ragged_compute((M, N), [md, nd], loop_ufs,
                        lambda ds, rds: tvm.sum(A[ds[md], rds['k']] * B[rds['k'], ds[nd]],
                                                axis=rds['k'], dimensions = [kd]),
                        name = 'O1', reduce_axis_ufs = [('k', luf)], width_uf_lists=None)
 
-O2i = te.ragged_compute((M, M), [md, nd], loop_ufs,
+O2i = te.ragged_compute((M, N), [md, nd], loop_ufs,
                         lambda ds, rds: tvm.sum(tvm.tir.Cast('int32', utils.floormult(ds[md], 32) + rds['k'] < (ds[md] + 1)) *
                                                 A[ds[md], utils.floormult(ds[md], 32) + rds['k']] *
                                                 B[utils.floormult(ds[md], 32) + rds['k'], ds[nd]],
                                                 axis=rds['k'], dimensions = [kd]),
                         name = 'O2i', reduce_axis_ufs = [('k', Uf.from_constant('kd', 32, 'l'))], width_uf_lists=None)
 
-O2 = te.ragged_compute((M, M), [md, nd], loop_ufs,
+O2 = te.ragged_compute((M, N), [md, nd], loop_ufs,
                        lambda ds: O1[ds[md], ds[nd]] + O2i[ds[md], ds[nd]],
                        name = 'O2', width_uf_lists=None)
 
@@ -80,7 +83,7 @@ def schedule_op(O, suffix, rem):
 
     O_l, O_o = tuple(O.op.axis)
     if (rem):
-        O_l_o_i, O_l_i = s[O].split(O_l, factor=128)
+        O_l_o_i, O_l_i = s[O].split(O_l, factor=32)
     else:
         O_l_o_i, O_l_i = s[O].split(O_l, factor=32)
 
@@ -98,8 +101,8 @@ def schedule_op(O, suffix, rem):
     B_shared_ax0, B_shared_ax1 = tuple(B_shared.op.axis)
     s[B_shared].compute_at(s[S], S_k_o_o)
 
-    O_l_o_i_o_o_o_o_fused = s[O].fuse(O_l_o_i, O_o_o_o_o)
-    s[O].bind(O_l_o_i_o_o_o_o_fused, te.thread_axis("blockIdx.x"))
+    s[O].bind(O_l_o_i, te.thread_axis("blockIdx.y"))
+    s[O].bind(O_o_o_o_o, te.thread_axis("blockIdx.x"))
     s[O].bind(O_o_o_o_i, te.thread_axis("vthread"))
     s[O].bind(O_o_o_i, te.thread_axis("threadIdx.x"))
 
@@ -126,13 +129,16 @@ _ = tvm.register_func(utils.get_tvm_callback_cuda_compile(256))
 _ = tvm.register_func(
     utils.get_tvm_callback_cuda_postproc(args, os.path.realpath(__file__), fileprefix=gen_prefix))
 
-# bO = tvm.tir.decl_buffer((M, M), name="bO")
 inputs = [[], [A, B, O1, O2]]
-# binds={O1:bO, O2:bO}
-binds={}
+if args.load_balance:
+    max_by = M//32
+    substitutes={'blockIdx.y': Uf('sub', "", (0, max_by), [Dim('dum')], lambda b: max_by - b - 1)}
+    # substitutes={'blockIdx.y': Uf('sub', "", (0, max_by), [Dim('dum')], lambda b: tvm.tir.Select(b > max_by//2, b - max_by//2, max_by - b - 1))}
+else:
+    substitutes=None
 name = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0]
 out = run_utils.lower_or_build(name, s, inputs, args, run_function=run_utils.run_trmm,
-                               prep_code_mode='no_prep_code', binds=binds)
+                               prep_code_mode='no_prep_code', substitutes=substitutes)
 
 # A, B, O1, O2  = out
 # for i in range(args.m):

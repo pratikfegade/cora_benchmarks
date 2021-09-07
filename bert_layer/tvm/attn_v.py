@@ -12,7 +12,7 @@ import run_utils
 
 parser = run_utils.get_cmd_parser()
 parser.add_argument('--kt', dest='kt', default=8, type=int)
-parser.add_argument('--nt', dest='nt', default=4, type=int)
+parser.add_argument('--nt', dest='nt', default=16, type=int)
 args = parser.parse_args()
 
 BATCH_SIZE = te.var('bs')
@@ -107,11 +107,11 @@ if args.target == "cuda":
     s[As].reorder(h, x, y)
     f = s[As].fuse(x, y)
     fo, fi = s[As].split(f, factor = nt * nt * 4)
-    # fio, fii = s[As].split(fi, factor = nt * 4)
-    # fiio, fiii = s[As].split(fii, factor = 4)
-    # s[As].bind(fio, thread_y())
-    # s[As].bind(fiio, thread_x())
-    # s[As].vectorize(fiii)
+    fio, fii = s[As].split(fi, factor = nt * 4)
+    fiio, fiii = s[As].split(fii, factor = 4)
+    s[As].bind(fio, thread_y())
+    s[As].bind(fiio, thread_x())
+    s[As].vectorize(fiii)
 
     _, _, x, h, y = s[Vs].leaf_iter_vars
     s[Vs].reorder(h, x, y)
@@ -142,11 +142,11 @@ name = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0]
 out, batches = run_utils.lower_or_build(name, s, inputs, args, size_fn=size_fn,
                                         run_function=run_utils.get_bert_layer_run_fn(BATCH_SIZE))
 
-# _, V, A, O  = out
-# ctr = 0
-# O = O.flatten()
-# for length in batches[0]:
-#     rounded64 = utils.ceilmult(length, 64)
-#     this_extent = rounded64 * NUM_HEADS * HEAD_SIZE
-#     print(length, np.mean(O[ctr:ctr + this_extent]))
-#     ctr += this_extent
+_, V, A, O  = out
+ctr = 0
+O = O.flatten()
+for length in batches[0]:
+    rounded64 = utils.ceilmult(length, 64)
+    this_extent = rounded64 * NUM_HEADS * HEAD_SIZE
+    print(length, np.mean(O[ctr:ctr + this_extent]))
+    ctr += this_extent
