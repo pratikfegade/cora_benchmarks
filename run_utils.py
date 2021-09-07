@@ -285,7 +285,7 @@ def get_bert_layer_run_fn(bs_var):
 
             time = 0
             for batch in batches:
-                sorted(batch)
+                batchd = sorted(batch, reverse=True)
                 t_inputs = ([batch_size] +
                             [create_tvm_array(i, "float32", ctx, rmap=rmap, lw_args=lw_args([batch]))
                              for i in t_inputs_tensors[1:]])

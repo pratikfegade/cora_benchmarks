@@ -79,7 +79,10 @@ def schedule_op(O, suffix, rem):
     s[S].unroll(S_l_i)
 
     O_l, O_o = tuple(O.op.axis)
-    O_l_o_i, O_l_i = s[O].split(O_l, factor=32)
+    if (rem):
+        O_l_o_i, O_l_i = s[O].split(O_l, factor=128)
+    else:
+        O_l_o_i, O_l_i = s[O].split(O_l, factor=32)
 
     O_o_o_o_i, O_o_o_i = s[O].split(O_o, factor=64)
     O_o_o_o_o, O_o_o_o_i = s[O].split(O_o_o_o_i, factor=2)
@@ -133,4 +136,4 @@ out = run_utils.lower_or_build(name, s, inputs, args, run_function=run_utils.run
 
 # A, B, O1, O2  = out
 # for i in range(args.m):
-    # print(i + 1, np.mean(O1[i, 0:(i+1)]), np.mean(O2[i, 0:(i+1)]))
+#     print(i + 1, np.mean(O1[i, 0:(i+1)]), np.mean(O2[i, 0:(i+1)]))
