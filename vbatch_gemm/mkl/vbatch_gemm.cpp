@@ -184,5 +184,5 @@ int main(int argc, char *argv[]) {
   time /= num_batches;
   time /= 1000;
 
-  std::cout << 'RESULTS,' << time << std::endl;
+  std::cout << "RESULTS," << time << std::endl;
 }

@@ -98,8 +98,9 @@ def ensure_dir(path):
 def get_out_files(args, prefix, mode = 'w'):
     out_dir = os.getcwd() + '/' + args.out_dir
     ensure_dir(out_dir)
-    results_out = sys.stdout if args.stdout else open(out_dir + '/' + prefix + '_results_' + args.target + '.csv', mode)
-    results_err = sys.stderr if args.stdout else open(out_dir + '/' + prefix + '_errors_' + args.target + '.txt', mode)
+    target_part = '_' + args.target if len(args.target) > 0 else ''
+    results_out = sys.stdout if args.stdout else open(out_dir + '/' + prefix + '_results' + target_part + '.csv', mode)
+    results_err = sys.stderr if args.stdout else open(out_dir + '/' + prefix + '_errors' + target_part + '.txt', mode)
     return results_out, results_err
 
 

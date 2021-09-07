@@ -147,9 +147,11 @@ def execute(target, built, inputs, ctx, debug = False):
             return -100000000
             evaluator = built.time_evaluator('default_function', ctx, 1, repeat=10)
         else:
-            evaluator = built.time_evaluator(built.entry_name, ctx, repeat=3, number=100)
+            # evaluator = built.time_evaluator(built.entry_name, ctx, repeat=1, number=10)
+            evaluator = built.time_evaluator(built.entry_name, ctx, repeat=3, number=50)
         eval_result = evaluator(*inputs)
         return mean(list(eval_result.results)[1:]) * 1000
+        # return mean(list(eval_result.results)) * 1000
 
 def chunks(lst, n, m):
     """Yield successive n-sized chunks from lst."""
@@ -323,9 +325,7 @@ def run_vbatch_gemm(built, i_inputs_tensors, t_inputs_tensors, lw_args, args, pa
         mb = np.ceil(ms[i] / args.tile_size).astype('int32')
         nb = np.ceil(ns[i] / args.tile_size).astype('int32')
         kb = np.ceil(ks[i] / args.tile_size).astype('int32')
-        # mb = np.array([x for _, x in sorted(zip(list(kb), list(mb)), reverse=False)]).astype('int32')
-        # nb = np.array([x for _, x in sorted(zip(list(kb), list(nb)), reverse=False)]).astype('int32')
-        # kb = np.array([x for _, x in sorted(zip(list(kb), list(kb)), reverse=False)]).astype('int32')
+
         l_inputs = [tvm.nd.array(mb, cpu_ctx), tvm.nd.array(nb, cpu_ctx), tvm.nd.array(kb, cpu_ctx)]
         inputs = t_inputs + l_inputs + host_i_inputs + dev_i_inputs
         time += execute(args.target, built, inputs, ctx, args.debug)
