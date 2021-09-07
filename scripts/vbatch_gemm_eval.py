@@ -54,8 +54,8 @@ parser.add_argument('--stdout', dest='stdout', default=False, action='store_true
 parser.add_argument('--append', dest='append', default=False, action='store_true')
 args = parser.parse_args()
 
-# batch_sizes = [1, 2, 4, 8, 16, 32, 64, 128]
-batch_sizes = [1]
+batch_sizes = [1, 2, 4, 8, 16, 32, 64, 128]
+# batch_sizes = [1]
 targets = [args.target] if args.target else ['cuda']
 
 if args.prep_overhead:

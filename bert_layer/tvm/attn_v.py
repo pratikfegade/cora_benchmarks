@@ -11,6 +11,8 @@ import utils
 import run_utils
 
 parser = run_utils.get_cmd_parser()
+parser.add_argument('--kt', dest='kt', default=8, type=int)
+parser.add_argument('--nt', dest='nt', default=4, type=int)
 args = parser.parse_args()
 
 BATCH_SIZE = te.var('bs')
@@ -83,17 +85,18 @@ if args.target == "cuda":
     s[O].bind(f, block_x())
     s[O].bind(h, block_y())
 
-    xio, xii = s[O].split(xi, factor = 16)
-    yo, yi = s[O].split(y, factor = 16)
+    nt = args.nt
+    xio, xii = s[O].split(xi, factor = nt)
+    yo, yi = s[O].split(y, factor = nt)
     s[O].bind(xii, thread_y())
     s[O].bind(yi, thread_x())
-    s[O].bind(xio, tvm.thread_axis("vthread"))
-    s[O].bind(yo, tvm.thread_axis("vthread"))
+    s[O].bind(xio, tvm.thread_axis("vthread", name="vth1"))
+    s[O].bind(yo, tvm.thread_axis("vthread", name="vth2"))
     s[Ol].compute_at(s[O], yi)
 
     b, x, h, y, k = s[Ol].leaf_iter_vars
     s[Ol].reorder(b, h, k, x, y)
-    ko, ki = s[Ol].split(k, factor = 16)
+    ko, ki = s[Ol].split(k, factor = args.kt)
     s[As].compute_at(s[Ol], ko)
     s[Vs].compute_at(s[Ol], ko)
     s[Al].compute_at(s[Ol], ki)
@@ -103,18 +106,18 @@ if args.target == "cuda":
     _, x, h, y = s[As].leaf_iter_vars
     s[As].reorder(h, x, y)
     f = s[As].fuse(x, y)
-    fo, fi = s[As].split(f, factor = 256 * 4)
-    fio, fii = s[As].split(fi, factor = 16 * 4)
-    fiio, fiii = s[As].split(fii, factor = 4)
-    s[As].bind(fio, thread_y())
-    s[As].bind(fiio, thread_x())
-    s[As].vectorize(fiii)
+    fo, fi = s[As].split(f, factor = nt * nt * 4)
+    # fio, fii = s[As].split(fi, factor = nt * 4)
+    # fiio, fiii = s[As].split(fii, factor = 4)
+    # s[As].bind(fio, thread_y())
+    # s[As].bind(fiio, thread_x())
+    # s[As].vectorize(fiii)
 
     _, _, x, h, y = s[Vs].leaf_iter_vars
     s[Vs].reorder(h, x, y)
     f = s[Vs].fuse(x, y)
-    fo, fi = s[Vs].split(f, factor = 256 * 4)
-    fio, fii = s[Vs].split(fi, factor = 16 * 4)
+    fo, fi = s[Vs].split(f, factor = nt * nt * 4)
+    fio, fii = s[Vs].split(fi, factor = nt * 4)
     fiio, fiii = s[Vs].split(fii, factor = 4)
     s[Vs].bind(fio, thread_y())
     s[Vs].bind(fiio, thread_x())

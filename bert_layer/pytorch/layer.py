@@ -20,6 +20,7 @@ parser.add_argument('--max-batches', dest='max_batches', default=10, type=int)
 parser.add_argument('--batch-size', dest='batch_size', default=32, type=int)
 parser.add_argument('--profile', dest='profile', default=False, action='store_true')
 parser.add_argument('--mem', dest='mem', default=False, action='store_true')
+parser.add_argument('--masked-mha', dest='masked_mha', default=False, action='store_true')
 parser.add_argument('--dataset', nargs='?', default='random_384_512')
 args = parser.parse_args()
 
@@ -63,6 +64,29 @@ class Encoder(nn.Module):
         ff_out = f.layer_norm(ff2_out + sa_out, normalized_shape = (self.model_size,))
         return ff_out
 
+class MaskedMHA(nn.Module):
+    def __init__(self, device, max_len, batch_size, num_heads, head_size, model_size):
+        super(MaskedMHA, self).__init__()
+        self.pre_linear_w = get_np_tensor((3, num_heads, model_size, head_size), device, True)
+        self.pre_linear_b = get_np_tensor((3, num_heads, 1, head_size), device, True)
+        self.post_linear_w = get_np_tensor((model_size, model_size), device, True)
+        self.post_linear_b = get_np_tensor((model_size,), device, True)
+        self.batch_size = batch_size
+        self.num_heads = num_heads
+        self.head_size = head_size
+        self.model_size = model_size
+        self.max_len = max_len
+
+    def forward(self, inp):
+        qkv = torch.matmul(inp, self.pre_linear_w) + self.pre_linear_b
+        qkv = qkv.view(3, self.num_heads, self.batch_size, self.max_len, self.head_size)
+        q, k, v = torch.split(qkv, 1, 0)
+        attn = torch.matmul(q, k.permute(0, 1, 2, 4, 3))
+        attn = f.softmax(attn, dim = 4)
+        attn = torch.reshape(torch.matmul(attn, v).permute(0, 2, 3, 1, 4), (self.batch_size, self.max_len, self.model_size))
+        sa_out = torch.matmul(attn, self.post_linear_w) + self.post_linear_b
+        return sa_out
+
 num_heads = 8
 head_size = 64
 ff_size = 2048
@@ -79,7 +103,12 @@ def run_for_batches():
     for batch in batches:
         max_len = int(np.amax(batch))
 
-        encoder = Encoder(device, max_len, args.batch_size, num_heads, head_size, model_size, ff_size)
+
+        if args.masked_mha:
+            encoder = MaskedMHA(device, max_len, args.batch_size, num_heads, head_size, model_size)
+        else:
+            encoder = Encoder(device, max_len, args.batch_size, num_heads, head_size, model_size, ff_size)
+
         traced_encoder = torch.jit.script(encoder)
 
         inp = get_np_tensor((args.batch_size * max_len, model_size), device, True)

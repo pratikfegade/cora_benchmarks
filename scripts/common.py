@@ -17,6 +17,9 @@ def run_cmd(cmd):
 def get_all_datasets():
     return list(run_utils.dataset_max_lens.keys())
 
+def get_dataset_file(dataset):
+    return run_utils.DATA_DIR + run_utils.dataset_files[dataset]
+
 def cluster_datasets_by_max_len():
     ret = {}
     for ds, ml in run_utils.dataset_max_lens.items():
@@ -43,6 +46,18 @@ def extract_times(out, expect_num):
         return [float(i) for i in arr[1:]]
     else:
         return [INF] * expect_num
+
+def extract_time_batches(out):
+    lines = out.splitlines()
+    times = {}
+    res_line = None
+    for line in lines:
+        if marker in line:
+            arr = line.split(',')
+            print(arr)
+            assert len(arr) == 3
+            times[int(arr[1])] = float(arr[2])
+    return times
 
 def extract_mem(out):
     lines = out.splitlines()

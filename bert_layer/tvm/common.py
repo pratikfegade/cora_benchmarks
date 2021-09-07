@@ -8,44 +8,79 @@ import utils
 import run_utils
 
 
-def load_module(op_name):
-    return tvm.runtime.module.load_module(run_utils.MODULE_DIR + '/' + op_name + '.so')
+def load_module(op_name, variants=None):
+    if variants:
+        return [tvm.runtime.module.load_module(run_utils.MODULE_DIR + '/' + op_name + str(variant) + '.so') for variant in variants]
+    else:
+        return [tvm.runtime.module.load_module(run_utils.MODULE_DIR + '/' + op_name + '.so')]
 
-def load_ibuf_info(op_name):
-    bufs = [[], []]
-    with open(run_utils.MODULE_DIR + '/' + op_name + '_bufs.txt') as topo_file:
-        for line in topo_file:
-            arr = line.strip().split('|')
-            arr[1] = 'lambda bs: (' + arr[1] + ')'
-            data = (eval(arr[1]), arr[2])
-            if arr[0] == 'h':
-                bufs[0].append(data)
-            else:
-                bufs[1].append(data)
-    return bufs
+def load_ibuf_info(op_name, variants=None):
+    if variants:
+        ret = []
+        for variant in variants:
+            bufs = [[], []]
+            with open(run_utils.MODULE_DIR + '/' + op_name + str(variant) + '_bufs.txt') as topo_file:
+                for line in topo_file:
+                    arr = line.strip().split('|')
+                    arr[1] = 'lambda bs: (' + arr[1] + ')'
+                    data = (eval(arr[1]), arr[2])
+                    if arr[0] == 'h':
+                        bufs[0].append(data)
+                    else:
+                        bufs[1].append(data)
+            ret.append(bufs)
+        return ret;
+    else:
+        bufs = [[], []]
+        with open(run_utils.MODULE_DIR + '/' + op_name + '_bufs.txt') as topo_file:
+            for line in topo_file:
+                arr = line.strip().split('|')
+                arr[1] = 'lambda bs: (' + arr[1] + ')'
+                data = (eval(arr[1]), arr[2])
+                if arr[0] == 'h':
+                    bufs[0].append(data)
+                else:
+                    bufs[1].append(data)
+        return [bufs]
 
-def create_ibufs(ibuf_info, batch_size, cpu_ctx, dev_ctx):
+def create_ibufs(ibuf_infos, batch_size, cpu_ctx, dev_ctx, alloc_op=None):
     def get_or_call(i):
         if isinstance(i, int): return i
         else:
             assert callable(i)
+            # print(i(batch_size))
             return i(batch_size)
-    host_bufs = [tvm.nd.array(run_utils.create_numpy_array(get_or_call(i[0]), i[1]), cpu_ctx) for i in ibuf_info[0]]
-    dev_bufs = [tvm.nd.array(run_utils.create_numpy_array(get_or_call(i[0]), i[1]), dev_ctx) for i in ibuf_info[1]]
-    return host_bufs, dev_bufs
+
+    ret = []
+    for ibuf_info in ibuf_infos:
+        host_bufs = [tvm.nd.array(run_utils.create_numpy_array(get_or_call(i[0]), i[1]), cpu_ctx) for i in ibuf_info[0]]
+        dev_bufs = [tvm.nd.array(run_utils.create_numpy_array(get_or_call(i[0]), i[1]), dev_ctx) for i in ibuf_info[1]]
+        if alloc_op:
+            [alloc_op([get_or_call(i[0])], get_or_call(i[0]), i[1], cpu_ctx) for i in ibuf_info[0]]
+            [alloc_op([get_or_call(i[0])], get_or_call(i[0]), i[1], cpu_ctx) for i in ibuf_info[1]]
+        ret.append((host_bufs, dev_bufs))
+    return ret
 
 class Op:
-    def __init__(self, name, module_name, batch_size, tensor_inputs, cpu_ctx, dev_ctx):
+    def __init__(self, name, module_name, batch_size, tensor_inputs, cpu_ctx, dev_ctx, alloc_op=None, variants=None):
         self.name = name
         self.module_name = module_name
         self.tensor_inputs = tensor_inputs
-        self.module = load_module(module_name)
-        ibuf_info = load_ibuf_info(module_name)
-        self.host_ibufs, self.dev_ibufs = create_ibufs(ibuf_info, batch_size, cpu_ctx, dev_ctx)
+        self.modules = load_module(module_name, variants)
+        ibuf_info = load_ibuf_info(module_name, variants)
+        self.host_ibufs, self.dev_ibufs = list(zip(*create_ibufs(ibuf_info, batch_size, cpu_ctx, dev_ctx, alloc_op=alloc_op)))
         self.batch_size = batch_size
 
     def execute(self, l_inputs):
         inputs = [self.batch_size] + self.tensor_inputs + l_inputs + self.host_ibufs + self.dev_ibufs
         # print('Exe', self.name, len(inputs))
         # sys.stdout.flush()
-        self.module(*inputs)
+        self.modules[0](*inputs)
+
+    def execute_multiple(self, l_inputs, ctx):
+        means = []
+        for i in range(len(self.modules)):
+            inputs = [self.batch_size] + self.tensor_inputs + l_inputs + self.host_ibufs[i] + self.dev_ibufs[i]
+            evaluator = self.modules[i].time_evaluator(self.modules[i].entry_name, ctx, number=10, repeat=10)
+            means.append(evaluator(*inputs).mean)
+        return min(means)

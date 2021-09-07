@@ -208,6 +208,9 @@ double runBatch(int batch_size, int* M, int* N, int* K, int iters, bool warmup, 
 
 
 int main(int argc, char** argv) {
+  int NUM_HEADS = 8;
+  int HEAD_SIZE = 64;
+
   ErrChk(cudaSetDevice(0));
 
   if(argc < 6){
@@ -220,8 +223,11 @@ int main(int argc, char** argv) {
   std::string data_file = argv[3];
   int iters = std::stoi(argv[4]);
   int warmup = std::stoi(argv[5]);
-  //int TLP_thres = atoi(argv[6]);
+  std::string mode = argv[6];
+  //int TLP_thres = atoi(argv[7]);
   int TLP_thres = 65536*2;
+
+  batch_size *= ((mode == "qkt" || mode == "attn_v") ? NUM_HEADS : 1);
 
   std::cout << "Opening file " << data_file << std::endl;
 
@@ -238,9 +244,27 @@ int main(int argc, char** argv) {
     std::vector<int> Ns(batch_size, -1);
     std::vector<int> Ks(batch_size, -1);
 
-    //read matrix config
-    for (int i = 0; i < batch_size; ++i){
-      fs >> Ms[i] >> Ns[i] >> Ks[i];
+    if (mode == "gemm") {
+      //read matrix config
+      for (int i = 0; i < batch_size; ++i){
+	fs >> Ms[i] >> Ns[i] >> Ks[i];
+      }
+    } else {
+      for (int i = 0; i < (batch_size / 8); ++i){
+	int length;
+	fs >> length;
+	for (int j = 0; j < 8; ++j) {
+	  if (mode == "qkt") {
+	    Ms.push_back(length);
+	    Ns.push_back(length);
+	    Ks.push_back(HEAD_SIZE);
+	  } else {
+	    Ms.push_back(length);
+	    Ns.push_back(HEAD_SIZE);
+	    Ks.push_back(length);
+	  }
+	}
+      }
     }
 
     total_time += runBatch(batch_size, Ms.data(), Ns.data(), Ks.data(), iters, warmup, TLP_thres);
