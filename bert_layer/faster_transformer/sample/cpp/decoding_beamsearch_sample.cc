@@ -30,6 +30,7 @@
   bool NVTX_ON = true;
 #endif
 
+fastertransformer::MemoryTracker fastertransformer::MemoryTracker::instance;
 using namespace fastertransformer;
 
 template<typename T>
@@ -51,7 +52,7 @@ int main(int argc, char* argv[])
   struct cudaDeviceProp prop;
   check_cuda_error(cudaGetDeviceProperties(&prop, 0));
   printf("Device %s\n", prop.name);
-  
+
   if(argc != 10)
   {
     printf("[ERROR] decoding_beamsearch_sample batch_size beam_width head_num size_per_head vocab_size seq_len num_layer memory_hidden_units is_fp16\n");
@@ -67,7 +68,7 @@ int main(int argc, char* argv[])
   const int seq_len = atoi(argv[6]);
   const int decoder_layers = atoi(argv[7]);
   const int memory_hidden_units = atoi(argv[8]);
-  
+
   if(atoi(argv[9]) == 0)
     decoding_sample<float>(batch_size, beam_width, head_num, size_per_head, vocab_size, seq_len, decoder_layers, memory_hidden_units);
   else if(atoi(argv[9]) == 1)
@@ -77,7 +78,7 @@ int main(int argc, char* argv[])
     printf("[ERROR] is_fp16 should be 0 (use float) or 1 (use half). \n");
     return -1;
   }
-  
+
   return 0;
 }
 
@@ -102,7 +103,7 @@ void decoding_sample(int batch_size,
                     int memory_hidden_units)
 {
   const int max_seq_len = seq_len;
-  const int memory_max_seq_len = seq_len; 
+  const int memory_max_seq_len = seq_len;
   const int start_id = 1;
   const int end_id = 2;
   const int hidden_units = head_num * size_per_head;
@@ -135,7 +136,7 @@ void decoding_sample(int batch_size,
     T *d_self_gamma, *d_self_beta;
     T *d_cross_gamma, *d_cross_beta;
     T *d_ffn_gamma, *d_ffn_beta;
-    
+
     device_malloc(&d_self_Q_kernel, hidden_units * hidden_units * 3); // fuse qkv
     // device_malloc(&d_self_Q_kernel, hidden_units * hidden_units);
     // device_malloc(&d_self_K_kernel, hidden_units * hidden_units);
@@ -197,7 +198,7 @@ void decoding_sample(int batch_size,
     param[i].ffn.intermediate_weight.kernel = d_ffn_kernel1;
     param[i].ffn.output_weight.kernel = d_ffn_kernel2;
   }
-  
+
   DecodingInitParam<T> decoding_params;
 
   T *d_memory_tensor;
@@ -209,7 +210,7 @@ void decoding_sample(int batch_size,
   int* d_parent_ids;
   int* d_sequence_lengths;
   int* d_memory_sequence_lengths;
-  T *d_gamma, *d_beta;    
+  T *d_gamma, *d_beta;
 
   device_malloc(&d_memory_tensor, memory_hidden_units * memory_max_seq_len * batch_size * beam_width);
   device_malloc(&d_embedding_table, hidden_units * vocab_size);
@@ -243,14 +244,14 @@ void decoding_sample(int batch_size,
   decoding_params.layernorm.beta = d_beta;
 
   const fastertransformer::OperationType type = sizeof(T) == sizeof(float) ? OperationType::FP32 : OperationType::FP16;
-  
-  DecodingBeamsearch<type> *decoding = new 
+
+  DecodingBeamsearch<type> *decoding = new
     DecodingBeamsearch<type>(allocator, batch_size, beam_width,
-                                         max_seq_len, head_num, size_per_head, 
+                                         max_seq_len, head_num, size_per_head,
                                          vocab_size, decoder_layers,
-                                         memory_hidden_units, memory_max_seq_len, 
+                                         memory_hidden_units, memory_max_seq_len,
                                          start_id, end_id, -0.0f, true, true);
- 
+
   //warm up
   int ite = 50;
   for(int i = 0; i < ite; ++i)
@@ -262,10 +263,10 @@ void decoding_sample(int batch_size,
 
   for(int i = 0; i < ite; ++i)
     decoding->forward(param, decoding_params);
- 
+
   cudaDeviceSynchronize();
   gettimeofday(&end, NULL);
-  
+
   printf("[INFO] batch_size %d beam_width %d head_num %d size_per_head %d seq_len %d" \
     " decoder_layers %d vocab_size %d FT-CPP-decoding-beamsearch-time %.2f ms\n",
     batch_size, beam_width, head_num, size_per_head, seq_len, decoder_layers, vocab_size,

@@ -16,6 +16,7 @@ args = parser.parse_args()
 
 BATCH_SIZE = te.var('bs')
 MAX_LEN = utils.ceilmult(run_utils.get_dataset_max_len(args.dataset), 64)
+assert MAX_LEN > 64
 NUM_HEADS = 8
 HEAD_SIZE = 64
 red_tile = 16
@@ -72,8 +73,8 @@ thread_x = lambda: tvm.thread_axis('threadIdx.x')
 thread_y = lambda: tvm.thread_axis('threadIdx.y')
 block_x = lambda: tvm.thread_axis('blockIdx.x')
 block_y = lambda: tvm.thread_axis('blockIdx.y')
-ntx = 16
-nty = 16
+ntx = 8
+nty = 8
 
 def schedule_op(O, tile, suffix):
     Ol = s.cache_write(O, 'local')

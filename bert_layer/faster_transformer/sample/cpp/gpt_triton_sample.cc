@@ -21,9 +21,9 @@ using namespace fastertransformer;
 int main(int argc, char *argv[])
 {
   /*
-    Prepare the nccl ids, node id, device id and world size 
+    Prepare the nccl ids, node id, device id and world size
     by MPI or triton
-  */ 
+  */
 
   int node_id = 0;
   int device_id = 0;
@@ -73,7 +73,7 @@ int main(int argc, char *argv[])
     int nccl_size = nccl_ids.size();
     MPI_Barrier(MPI_COMM_WORLD);
     MPICHECK(MPI_Bcast(&nccl_size, 1, MPI_INT, 0, MPI_COMM_WORLD));
-    if(node_id != 0 || device_id != 0) 
+    if(node_id != 0 || device_id != 0)
       nccl_ids = std::vector<ncclUniqueId>(nccl_size);
     MPI_Barrier(MPI_COMM_WORLD);
     for(int i = 0; i < nccl_ids.size(); i++)
@@ -99,9 +99,9 @@ int main(int argc, char *argv[])
   auto param_instance = model->createParamInstance(node_id, device_id, world_size, stream, nccl_ids);
   modelInstance->set_param(param_instance.get());
   printf("model instance is created \n");
-  
+
   auto request = prepareRequest(ini_name);
-    
+
   printf("request is created \n");
 
   print_mem_usage();
@@ -115,7 +115,7 @@ int main(int argc, char *argv[])
 
   if(node_id == 0 && device_id == 0)
     check_outputs(output);
-  
+
   if(use_mpi)
   {
     MPICHECK(MPI_Finalize());

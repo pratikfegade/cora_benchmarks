@@ -68,8 +68,8 @@ thread_x = lambda: tvm.thread_axis("threadIdx.x")
 thread_y = lambda: tvm.thread_axis("threadIdx.y")
 block_x = lambda: tvm.thread_axis("blockIdx.x")
 block_y = lambda: tvm.thread_axis("blockIdx.y")
-ntx = 16
-nty = 16
+ntx = 8
+nty = 8
 
 def schedule_op(O, tile, suffix):
     S = s.cache_write(O, 'local')

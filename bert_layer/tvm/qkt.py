@@ -11,6 +11,8 @@ import utils
 import run_utils
 
 parser = run_utils.get_cmd_parser()
+parser.add_argument('--nt', dest='nt', default=8, type=int)
+parser.add_argument('--kt', dest='kt', default=4, type=int)
 args = parser.parse_args()
 
 BATCH_SIZE = te.var('bs')
@@ -70,8 +72,7 @@ if args.target == "cuda":
     block_x = lambda: tvm.thread_axis("blockIdx.x")
     block_y = lambda: tvm.thread_axis("blockIdx.y")
 
-    ntx = 16
-    nty = 16
+    nt = 8
 
     Qs = s.cache_read(Q, "shared", [S], layouts='dense')
     Ks = s.cache_read(K, "shared", [S], layouts='dense')
@@ -88,28 +89,30 @@ if args.target == "cuda":
     f2 = s[O].fuse(b, f1)
     s[O].bind(f2, block_x())
     s[O].bind(h, block_y())
-    s[Qs].compute_at(s[O], h)
-    s[Ks].compute_at(s[O], h)
 
-    xio, xii = s[O].split(xi, factor = nty)
-    yio, yii = s[O].split(yi, factor = ntx)
+    xio, xii = s[O].split(xi, factor = nt)
+    yio, yii = s[O].split(yi, factor = nt)
     s[O].bind(xii, thread_y())
     s[O].bind(yii, thread_x())
-    s[O].bind(yio, tvm.thread_axis("vthread"))
-    s[O].bind(xio, tvm.thread_axis("vthread"))
+    s[O].bind(yio, tvm.thread_axis("vthread", name="vth1"))
+    s[O].bind(xio, tvm.thread_axis("vthread", name="vth2"))
     s[O].reorder(xio, yii, yio, xii)
     s[S].compute_at(s[O], xii)
 
+    ktile = args.kt
     x, h, y, k = s[S].leaf_iter_vars[1:5]
-    s[S].reorder(h, k, x, y)
-    s[Ql].compute_at(s[S], k)
-    s[Kl].compute_at(s[S], k)
+    ko, ki = s[S].split(k, nparts = ktile)
+    s[S].reorder(h, ko, ki, x, y)
+    s[Qs].compute_at(s[S], ko)
+    s[Ks].compute_at(s[S], ko)
+    s[Ql].compute_at(s[S], ki)
+    s[Kl].compute_at(s[S], ki)
 
     x, h, y = s[Ks].leaf_iter_vars[2], s[Ks].leaf_iter_vars[3], s[Ks].leaf_iter_vars[4]
     s[Ks].reorder(h, y, x)
     f = s[Ks].fuse(x, y)
-    fo, fi = s[Ks].split(f, factor = ntx * nty * 4)
-    fio, fii = s[Ks].split(fi, factor = ntx * 4)
+    fo, fi = s[Ks].split(f, factor = nt * nt * 4)
+    fio, fii = s[Ks].split(fi, factor = nt * 4)
     fiio, fiii = s[Ks].split(fii, factor = 4)
     s[Ks].bind(fio, thread_y())
     s[Ks].bind(fiio, thread_x())
@@ -118,8 +121,8 @@ if args.target == "cuda":
     x, h, y = s[Qs].leaf_iter_vars[2], s[Qs].leaf_iter_vars[3], s[Qs].leaf_iter_vars[4]
     s[Qs].reorder(h, y, x)
     f = s[Qs].fuse(x, y)
-    fo, fi = s[Qs].split(f, factor = ntx * nty * 4)
-    fio, fii = s[Qs].split(fi, factor = ntx * 4)
+    fo, fi = s[Qs].split(f, factor = nt * nt * 4)
+    fio, fii = s[Qs].split(fi, factor = nt * 4)
     fiio, fiii = s[Qs].split(fii, factor = 4)
     s[Qs].bind(fio, thread_y())
     s[Qs].bind(fiio, thread_x())
@@ -154,12 +157,12 @@ name = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0]
 out, batches = run_utils.lower_or_build(name, s, inputs, args, size_fn=size_fn,
                                         run_function=run_utils.get_bert_layer_run_fn(BATCH_SIZE))
 
-# _, Q, K, O = out
-# O = O.flatten()
-# ctr = 0
-# for length in batches[0]:
-#     rounded = utils.ceilmult(length, TILE)
-#     this_extent = rounded
-#     this_storage_extent = rounded * rounded * NUM_HEADS
-#     print(rounded, np.mean(O[ctr:ctr+this_extent]))
-#     ctr += this_storage_extent
+_, Q, K, O = out
+O = O.flatten()
+ctr = 0
+for length in batches[0]:
+    rounded = utils.ceilmult(length, TILE)
+    this_extent = rounded
+    this_storage_extent = rounded * rounded * NUM_HEADS
+    print(rounded, np.mean(O[ctr:ctr+this_extent]))
+    ctr += this_storage_extent
