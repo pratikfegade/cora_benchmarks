@@ -358,7 +358,8 @@ def run_trmm(built, i_inputs_tensors, t_inputs_tensors, lw_args, args, pad_sum=N
         t_inputs[i] = t_inputs[i].asnumpy(target=target, is_src_ragged=is_ragged(t_inputs_tensors[i]))
     return t_inputs
 
-def lower_or_build(name, s, inputs, args, prep_code_mode='with_prep_code', binds=None, size_fn={}, pad_sum=None, run_function=run2):
+def lower_or_build(name, s, inputs, args, prep_code_mode='with_prep_code', binds=None,
+                   size_fn={}, pad_sum=None, substitutes=None, run_function=run2):
     import tvm
     with tvm.build_config(prep_code_mode=prep_code_mode, fill_in_function_bodies=not args.debug_functions):
         if args.gen_lib:
@@ -374,7 +375,7 @@ def lower_or_build(name, s, inputs, args, prep_code_mode='with_prep_code', binds
             return None, None
         else:
             if args.debug_code == 'ir':
-                lowered = tvm.lower(s, inputs, args.target, simple_mode=True, binds=binds)
+                lowered = tvm.lower(s, inputs, args.target, simple_mode=True, binds=binds, substitutes=substitutes)
                 print(lowered)
                 return None, None
             elif args.debug_code == 'code':
@@ -386,6 +387,6 @@ def lower_or_build(name, s, inputs, args, prep_code_mode='with_prep_code', binds
                 return None, None
             else:
                 assert args.debug_code is None
-                fadd, i_bufs = tvm.build(s, inputs, args.target, binds=binds)
+                fadd, i_bufs = tvm.build(s, inputs, args.target, binds=binds, substitutes=substitutes)
                 # fadd = tvm.runtime.module.load_module('/home/ppf/benchmarks/bert_layer/tvm/genlibs/pre_linear.so')
                 return run_function(fadd, i_bufs, inputs[1], size_fn, args, pad_sum=pad_sum)
