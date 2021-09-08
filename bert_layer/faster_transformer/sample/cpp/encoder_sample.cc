@@ -68,10 +68,23 @@ int main(int argc, char* argv[])
   int seq_len = atoi(argv[5]);
   int head_num = atoi(argv[6]);
   int size_per_head = atoi(argv[7]);
+  int is_fp16 = atoi(argv[8]);
   bool is_remove_padding = (bool)atoi(argv[9]);
   int int8_mode = atoi(argv[10]);
 
-  if(atoi(argv[8]) != 0 && atoi(argv[8]) != 1) {
+  std::cout << "File " << data_file << std::endl;
+  std::cout << "NumB " << num_batches << std::endl;
+  std::cout << "BatS " << batch_size << std::endl;
+  std::cout << "NumL " << num_layers << std::endl;
+  std::cout << "SeqL " << seq_len << std::endl;
+  std::cout << "HedN " << head_num << std::endl;
+  std::cout << "HedS " << size_per_head << std::endl;
+  std::cout << "FP16 " << is_fp16 << std::endl;
+  std::cout << "RemP " << is_remove_padding << std::endl;
+  std::cout << "Int8 " << int8_mode << std::endl;
+
+
+  if(is_fp16 != 0 && is_fp16 != 1) {
     printf("[ERROR] is_fp16 should be 0 (use float) or 1 (use half). \n");
     return -1;
   }
@@ -83,14 +96,13 @@ int main(int argc, char* argv[])
     for (int j = 0; j < batch_size; ++j) {
       int l;
       l_file >> l;
-      l = ((l + 31) / 32)*32;
       batch.push_back(l);
     }
 
-    if(atoi(argv[8]) == 0)
+    if(is_fp16 == 0)
       total_time += encoder_sample<float>(batch, num_layers, seq_len, head_num, size_per_head,
 					  is_remove_padding, int8_mode, allow_gemm_test);
-    else if(atoi(argv[8]) == 1)
+    else if(is_fp16 == 1)
       total_time += encoder_sample<half>(batch, num_layers, seq_len, head_num, size_per_head,
 					 is_remove_padding, int8_mode, allow_gemm_test);
   }
@@ -174,16 +186,19 @@ float encoder_sample(std::vector<int> batch,
     if (batch[i] > max_seq_len) max_seq_len = batch[i];
   }
 
+  seq_len = max_seq_len;
+
   int from_seq_len = max_seq_len;
   int to_seq_len = max_seq_len;
 
   int* h_sequence_length = new int[batch_size];
   for(int i = 0; i < batch_size; i++)
   {
-    if (is_remove_padding)
+    if (is_remove_padding) {
       h_sequence_length[i] = batch[i];
-    else
+    } else {
       h_sequence_length[i] = max_seq_len;
+    }
   }
 
   int h_trt_seqlen_size = 0;

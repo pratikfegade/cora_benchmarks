@@ -45,7 +45,7 @@
 namespace fastertransformer
 {
 
-#define MEM_PROF 1
+// #define MEM_PROF 1
 
   class MemoryTracker {
     long long int total_allocated_memory;

@@ -141,7 +141,7 @@ __global__ void update_logits_kernel_without_softmax(T* logits, const T* bias, c
   int bid = blockIdx.x;
   bool finish = finished != nullptr ? finished[bid] : false;
   int offset = bid * n;
-  
+
   const bool IS_FP16 = std::is_same<T, half>::value;
   const T MAX_T_VAL = (IS_FP16)? HALF_FLT_MAX : FLT_MAX;
   for(int tid = threadIdx.x; tid < n; tid += blockDim.x)
@@ -234,8 +234,8 @@ __global__ void remove_sequence_length_padding(const T* src, T* tgt,
 }
 
 template<typename T>
-void remove_sequence_length_padding_kernelLauncher(const T* src, T* tgt, 
-                                                  const int* tmp_mask_offset, 
+void remove_sequence_length_padding_kernelLauncher(const T* src, T* tgt,
+                                                  const int* tmp_mask_offset,
                                                   int* mask_offset,
                                                   const int m, const int n, cudaStream_t stream)
 {
@@ -261,8 +261,8 @@ __global__ void rebuild_sequence_length_padding(const T* src, T* tgt,
 }
 
 template<typename T>
-void rebuild_sequence_length_padding_kernelLauncher(const T* src, T* tgt, 
-                                                  const int* mask_offset, const int m, 
+void rebuild_sequence_length_padding_kernelLauncher(const T* src, T* tgt,
+                                                  const int* mask_offset, const int m,
                                                   const int n, cudaStream_t stream)
 {
   // src: [valid_word_num, hidden_dim]
@@ -270,14 +270,13 @@ void rebuild_sequence_length_padding_kernelLauncher(const T* src, T* tgt,
   rebuild_sequence_length_padding<<<m, 256, 0, stream>>>(src, tgt, mask_offset, n);
 }
 
-__global__ void build_sequence_length_padding_offset(const int* sequence_length, 
-  const int batch_size, const int max_seq_len, int* valid_word_num, int* tmp_mask_offset)
-{
+__global__ void build_sequence_length_padding_offset(const int* sequence_length,
+  const int batch_size, const int max_seq_len, int* valid_word_num, int* tmp_mask_offset) {
   // do cumulated sum
   int total_seq_len = 0;
   int cum_offset = 0;
   int index = 0;
-  for(int i = 0; i < batch_size; i++) 
+  for(int i = 0; i < batch_size; i++)
   {
     const int seq_len = sequence_length[i];
     for(int j = 0; j < seq_len; j++)
@@ -291,31 +290,30 @@ __global__ void build_sequence_length_padding_offset(const int* sequence_length,
   valid_word_num[0] = total_seq_len;
 }
 
-void build_sequence_length_padding_offset_kernelLauncher(const int* sequence_length, 
+void build_sequence_length_padding_offset_kernelLauncher(const int* sequence_length,
   const int batch_size, const int max_seq_len, int* valid_word_num, int* tmp_mask_offset,
-  cudaStream_t stream)
-{
-  build_sequence_length_padding_offset<<<1, 1, 0, stream>>>(sequence_length, 
+  cudaStream_t stream) {
+  build_sequence_length_padding_offset<<<1, 1, 0, stream>>>(sequence_length,
     batch_size, max_seq_len, valid_word_num, tmp_mask_offset);
 }
 
-template void rebuild_sequence_length_padding_kernelLauncher(const float* src, float* tgt, 
-  const int* mask_offset, const int m, 
+template void rebuild_sequence_length_padding_kernelLauncher(const float* src, float* tgt,
+  const int* mask_offset, const int m,
   const int n, cudaStream_t stream);
 
 
-template void rebuild_sequence_length_padding_kernelLauncher(const half* src, half* tgt, 
-  const int* mask_offset, const int m, 
+template void rebuild_sequence_length_padding_kernelLauncher(const half* src, half* tgt,
+  const int* mask_offset, const int m,
   const int n, cudaStream_t stream);
 
-template void remove_sequence_length_padding_kernelLauncher(const float* src, float* tgt, 
-  const int* tmp_mask_offset, 
-  int* mask_offset, const int m, 
+template void remove_sequence_length_padding_kernelLauncher(const float* src, float* tgt,
+  const int* tmp_mask_offset,
+  int* mask_offset, const int m,
   const int n, cudaStream_t stream);
 
-template void remove_sequence_length_padding_kernelLauncher(const half* src, half* tgt, 
-  const int* tmp_mask_offset, 
-  int* mask_offset, const int m, 
+template void remove_sequence_length_padding_kernelLauncher(const half* src, half* tgt,
+  const int* tmp_mask_offset,
+  int* mask_offset, const int m,
   const int n, cudaStream_t stream);
 
 template <typename T>
@@ -340,7 +338,7 @@ template void cuda_random_uniform_kernelLauncher(float *buffer, const int size);
 template void cuda_random_uniform_kernelLauncher(half *buffer, const int size);
 
 template <typename T>
-void update_logits(float* logits, const T* tmp_logits, const T* bias, const int end_id, const bool* finished, 
+void update_logits(float* logits, const T* tmp_logits, const T* bias, const int end_id, const bool* finished,
   const int m, const int n, cudaStream_t stream)
 {
   dim3 grid(m);
@@ -356,7 +354,7 @@ template void update_logits(float* logits, const half* tmp_logits, const half* b
   const bool* finished, const int m, const int n, cudaStream_t stream);
 
 template<typename T>
-void update_logits_without_softmax(T* logits, const T* bias, const int end_id, const bool* finished, 
+void update_logits_without_softmax(T* logits, const T* bias, const int end_id, const bool* finished,
   const int m, const int n, cudaStream_t stream)
 {
   dim3 grid(m);
@@ -365,12 +363,12 @@ void update_logits_without_softmax(T* logits, const T* bias, const int end_id, c
   update_logits_kernel_without_softmax<<<grid, block, 0, stream>>>(logits, bias, end_id, finished, n);
 }
 
-template void update_logits_without_softmax(float* logits, const float* bias, const int end_id, const bool* finished, 
+template void update_logits_without_softmax(float* logits, const float* bias, const int end_id, const bool* finished,
   const int m, const int n, cudaStream_t stream);
 
-template void update_logits_without_softmax(half* logits, const half* bias, const int end_id, const bool* finished, 
+template void update_logits_without_softmax(half* logits, const half* bias, const int end_id, const bool* finished,
   const int m, const int n, cudaStream_t stream);
-  
+
 template<typename T>
 void softmax_kernelLauncher(T* logits, const T* bias, const int end_id, const bool* finished,
                             const int m, const int n_padded, const int n, cudaStream_t stream)
@@ -479,7 +477,7 @@ void topK_kernel(const T* log_probs, int* ids, const int batch_size, const int N
         s_max_val = max_val;
       __syncthreads();
 
-      if(s_max_val == val && !choosed && tid < N) 
+      if(s_max_val == val && !choosed && tid < N)
       {
         ids[ite * gridDim.x * K + blockIdx.x * K + kids] = tid + ite * N;
         val = -1e20f;
@@ -509,7 +507,7 @@ void topK_kernel_2nd(const T* log_probs, int* ids, const int batch_size, const i
 
     if(tid == 0) beam_index = 0;
     if(tid < 16) ids_before_sort[tid] = -1;
-    
+
     __syncthreads();
     while(beam_index < K){
       int begin_beam_index = beam_index;
@@ -589,7 +587,7 @@ void sine_position_encoder_kernel(T* output, int step, int n){
   float log_timescale_increment = __logf(10000) / (half_n - 1.f);
   float inv_timescales = __expf( (tid % (int)half_n) * -1 * log_timescale_increment );
   float scaled_time = inv_timescales * step;
-  
+
   T encoding_val = (tid < half_n) ? (T) __sinf(scaled_time) : (T) __cosf(scaled_time);
   output[bid * n + tid] = output[bid * n + tid]  + encoding_val;
 }
@@ -626,4 +624,4 @@ template void sine_position_encoder(
 
 /* *************************** end of depreciated kernels *********************************** */
 
-}//namespace 
+}//namespace
