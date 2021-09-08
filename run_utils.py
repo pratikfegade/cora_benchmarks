@@ -148,7 +148,7 @@ def execute(target, built, inputs, ctx, debug = False):
             evaluator = built.time_evaluator('default_function', ctx, 1, repeat=10)
         else:
             # evaluator = built.time_evaluator(built.entry_name, ctx, repeat=1, number=10)
-            evaluator = built.time_evaluator(built.entry_name, ctx, repeat=3, number=50)
+            evaluator = built.time_evaluator(built.entry_name, ctx, repeat=3, number=100)
         eval_result = evaluator(*inputs)
         return mean(list(eval_result.results)[1:]) * 1000
         # return mean(list(eval_result.results)) * 1000

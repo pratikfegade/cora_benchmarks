@@ -72,7 +72,7 @@ else:
 
     loop_ufs=[ls[0], ls[1]]
     O = te.ragged_compute((M, N), [md, nd], loop_ufs,
-                          lambda ds, rds: tvm.sum(tvm.tir.Cast('int32', utils.floormult(ds[md], 32) + rds['k'] < (ds[md] + 1)) *
+                          lambda ds, rds: tvm.sum(tvm.tir.Cast('int32', rds['k'] < (ds[md] + 1)) *
                                                   A[ds[md], rds['k']] * B[rds['k'], ds[nd]],
                                                   axis=rds['k'], dimensions = [kd]),
                           name = 'O', reduce_axis_ufs = [('k', luf)], width_uf_lists=None)
@@ -146,19 +146,20 @@ else: inputs = [[], [A, B, O]]
 
 substitutes=None
 if args.load_balance:
+    print('Load balancing')
     max_by = M//32
-    substitutes={'blockIdx.y': Uf('sub', "", (0, max_by), [Dim('dum')], lambda b: max_by - b - 1)}
-    # substitutes={'blockIdx.y': Uf('sub', "", (0, max_by), [Dim('dum')], lambda b: tvm.tir.Select(b > max_by//2, b - max_by//2, max_by - b - 1))}
+    # substitutes={'blockIdx.y': Uf('sub', "", (0, max_by), [Dim('dum')], lambda b: max_by - 1 - b)}
+    substitutes={'blockIdx.y': Uf('sub', "", (0, max_by), [Dim('dum')], lambda b: tvm.tir.Select(b > 80, b - 80, max_by - b - 1))}
 
 name = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0]
 out = run_utils.lower_or_build(name, s, inputs, args, run_function=run_utils.run_trmm,
                                prep_code_mode='no_prep_code', substitutes=substitutes)
 
-if args.op_split:
-    A, B, O1, O2  = out
-    for i in range(args.m):
-        print(i + 1, np.mean(O1[i, 0:(i+1)]), np.mean(O2[i, 0:(i+1)]))
-else:
-    A, B, O  = out
-    for i in range(args.m):
-        print(i + 1, np.mean(O[i, 0:(i+1)]))
+# if args.op_split:
+#     A, B, O1, O2  = out
+#     for i in range(args.m):
+#         print(i + 1, np.mean(O1[i, 0:(i+1)]), np.mean(O2[i, 0:(i+1)]))
+# else:
+#     A, B, O  = out
+#     for i in range(args.m):
+#         print(i + 1, np.mean(O[i, 0:(i+1)]))

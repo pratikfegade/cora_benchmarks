@@ -17,11 +17,12 @@ def get_cublas_runner(pad):
         return com.extract_times(out, 1)[0]
     return run_cublas
 
-def get_tvm_runner(balance):
+def get_tvm_runner(balance, split):
     def run_tvm(m_size, n_size, err_file, args):
         runner = TVM_RUNNER
         cmd = [PYTHON, runner, '--target', com.get_tvm_target(target), '--m', str(m_size), '--n', str(n_size)]
         if balance: cmd += ['--load-balance']
+        if split: cmd += ['--op-split']
         out, err = run_cmd(cmd)
         if err: print(err, file = err_file)
         return com.extract_times(out, 1)[0]
@@ -37,7 +38,7 @@ args = parser.parse_args()
 ops = ['Sq', 'Th']
 op_m_sizes = {
     'Sq': [128, 256, 512, 1024, 2048, 4096, 8192],
-    'Th': [128, 256, 512, 1024, 2048, 4096, 8192, 8192*2, 8192*4],
+    # 'Th': [128, 256, 512, 1024, 2048, 4096, 8192, 8192*2, 8192*4],
 }
 
 def get_op_n_size(op, m):
@@ -48,10 +49,11 @@ targets = [args.target] if args.target else ['cuda']
 
 if args.target == 'cuda':
     framework_funs = {
-        'cublas_nopad': get_cublas_runner(False),
-        'cublas_pad': get_cublas_runner(True),
-        'cora_unbalanced': get_tvm_runner(False),
-        'cora_balanced': get_tvm_runner(True),
+        # 'cublas_nopad': get_cublas_runner(False),
+        # 'cublas_pad': get_cublas_runner(True),
+        'cora_unsplit': get_tvm_runner(False, False),
+        # 'cora_unbalanced': get_tvm_runner(False, True),
+        # 'cora_balanced': get_tvm_runner(True, True),
     }
 
 results_out, results_err = get_out_files(args, 'trmm', 'a' if args.append else 'w')

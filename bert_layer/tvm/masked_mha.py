@@ -51,6 +51,7 @@ elif args.masked_mha:
     softmax_module = 'masked_softmax'
 
 ops = {
+    'memset': Op('memset', 'memset', BATCH_SIZE, [], cpu_ctx, dev_ctx),
     'pre_linear': Op('pre_linear', 'pre_linear', BATCH_SIZE, [], cpu_ctx, dev_ctx),
     'qkt': Op('qkt', qkt_module, BATCH_SIZE, [], cpu_ctx, dev_ctx),
     'softmax': Op('softmax', softmax_module, BATCH_SIZE, [], cpu_ctx, dev_ctx),
@@ -59,6 +60,7 @@ ops = {
 }
 
 ops_order = [
+    ops['memset'],
     ops['pre_linear'],
     ops['qkt'],
     ops['softmax'],
@@ -108,9 +110,11 @@ for batch in batches:
     sum264 = run_utils.prefix_sum(batch_size_, lambda i: utils.ceilmult(batch[i], 64) * utils.ceilmult(batch[i], 64))
 
     # t_inputs: Allocate tensors
-    pre_linear_in_qkv = run_utils.create_ragged_array((batch_size_ * MAX_LEN, MODEL_DIM), sum1*MODEL_DIM, "float32", dev_ctx)
-    pre_linear_out = run_utils.create_ragged_array((3, batch_size_, MAX_LEN, NUM_HEADS, HEAD_SIZE),
+    memset_out_qkv = run_utils.create_ragged_array((3, batch_size_, MAX_LEN, NUM_HEADS, HEAD_SIZE),
                                                    3*sum64*NUM_HEADS*HEAD_SIZE, "float32", dev_ctx)
+
+    pre_linear_in_qkv = run_utils.create_ragged_array((batch_size_ * MAX_LEN, MODEL_DIM), sum1*MODEL_DIM, "float32", dev_ctx)
+    pre_linear_out = memset_out_qkv
 
     qkt_in_q = pre_linear_out
     qkt_in_k = pre_linear_out
@@ -122,7 +126,6 @@ for batch in batches:
     attn_v_in_attn = softmax_out
     attn_v_in_v = pre_linear_out
     attn_v_out = run_utils.create_ragged_array((batch_size_, MAX_LEN, NUM_HEADS, HEAD_SIZE),
-                                               # NUM_HEADS*HEAD_SIZE*sum64, "float32", dev_ctx)
                                                NUM_HEADS*HEAD_SIZE*sum1, "float32", dev_ctx)
 
     post_linear_in_a = attn_v_out
@@ -144,6 +147,7 @@ for batch in batches:
         norm_add2_out = run_utils.create_ragged_array((batch_size_, MAX_LEN, MODEL_DIM), MODEL_DIM*sum1, "float32", dev_ctx)
 
 
+    ops['memset'].tensor_inputs = [memset_out_qkv]
     ops['pre_linear'].tensor_inputs = [pre_linear_in_qkv, pre_linear_in_w, pre_linear_in_b, pre_linear_out]
     ops['qkt'].tensor_inputs = [qkt_in_q, qkt_in_k, qkt_out]
     ops['softmax'].tensor_inputs = [softmax_in, softmax_out]
