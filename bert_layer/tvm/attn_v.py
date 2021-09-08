@@ -44,7 +44,7 @@ ls = {
 }
 
 loop_ufs=[ls[0], ls[3], ls[1], ls[2]]
-width_ufs=loop_ufs
+width_ufs=[ls[0], lufw64.get_uf(), ls[1], lufw64.get_uf()]
 A = te.ragged_placeholder((BATCH_SIZE, MAX_LEN, NUM_HEADS, MAX_LEN), [bd, s2, md, s1], loop_ufs,
                           name='A', width_ufs=width_ufs)
 
@@ -54,7 +54,7 @@ V = te.ragged_placeholder((3, BATCH_SIZE, MAX_LEN, NUM_HEADS, HEAD_SIZE), [qk, b
                           name='V', width_ufs=width_ufs)
 
 loop_ufs=[ls[0], ls[3], ls[1], ls[4]]
-width_ufs=None if args.dense_storage else [loop_ufs]
+width_ufs=None if args.dense_storage else [[ls[0], lufw1.get_uf(), ls[1], ls[4]]]
 O = te.ragged_compute((BATCH_SIZE, MAX_LEN, NUM_HEADS, HEAD_SIZE), [bd, s2, md, hd], loop_ufs,
                       lambda ds, rds: tvm.sum(A[ds[bd], ds[s2], ds[md], rds['k']] *
                                               V[2, ds[bd], rds['k'], ds[md], ds[hd]],
@@ -106,9 +106,9 @@ if args.target == "cuda":
     _, x, h, y = s[As].leaf_iter_vars
     s[As].reorder(h, x, y)
     f = s[As].fuse(x, y)
-    fo, fi = s[As].split(f, factor = nt * nt * 4)
-    fio, fii = s[As].split(fi, factor = nt * 4)
-    fiio, fiii = s[As].split(fii, factor = 4)
+    fo, fi = s[As].split(f, factor = nt * nt * 2)
+    fio, fii = s[As].split(fi, factor = nt * 2)
+    fiio, fiii = s[As].split(fii, factor = 2)
     s[As].bind(fio, thread_y())
     s[As].bind(fiio, thread_x())
     s[As].vectorize(fiii)
@@ -116,9 +116,9 @@ if args.target == "cuda":
     _, _, x, h, y = s[Vs].leaf_iter_vars
     s[Vs].reorder(h, x, y)
     f = s[Vs].fuse(x, y)
-    fo, fi = s[Vs].split(f, factor = nt * nt * 4)
-    fio, fii = s[Vs].split(fi, factor = nt * 4)
-    fiio, fiii = s[Vs].split(fii, factor = 4)
+    fo, fi = s[Vs].split(f, factor = nt * nt * 2)
+    fio, fii = s[Vs].split(fi, factor = nt * 2)
+    fiio, fiii = s[Vs].split(fii, factor = 2)
     s[Vs].bind(fio, thread_y())
     s[Vs].bind(fiio, thread_x())
     s[Vs].vectorize(fiii)
@@ -131,10 +131,10 @@ if args.target == "cuda":
 def size_fn(l_inputs):
     lens = l_inputs[0]
     return {
-        V: 3 * NUM_HEADS * HEAD_SIZE * run_utils.prefix_sum(len(lens), lambda b: (lufw16.get_fn(lens)(b))),
-        A: NUM_HEADS * run_utils.prefix_sum(len(lens), lambda b: (lufw16.get_fn(lens)(b) *
+        V: 3 * NUM_HEADS * HEAD_SIZE * run_utils.prefix_sum(len(lens), lambda b: (lufw64.get_fn(lens)(b))),
+        A: NUM_HEADS * run_utils.prefix_sum(len(lens), lambda b: (lufw64.get_fn(lens)(b) *
                                                                   lufw64.get_fn(lens)(b))),
-        O: NUM_HEADS * HEAD_SIZE * run_utils.prefix_sum(len(lens), lambda b: lufw64.get_fn(lens)(b))
+        O: NUM_HEADS * HEAD_SIZE * run_utils.prefix_sum(len(lens), lambda b: lufw1.get_fn(lens)(b))
     }
 
 inputs = [[lens], [BATCH_SIZE, V, A, O]]

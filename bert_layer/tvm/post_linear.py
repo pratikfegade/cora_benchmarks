@@ -43,7 +43,8 @@ ls =  {
 }
 
 loop_ufs=[ls[0], ls[1], ls[2], ls[3]]
-width_ufs=[ls[0], ls[1], lufw64.get_uf(), ls[3]]
+# width_ufs=[ls[0], ls[1], lufw64.get_uf(), ls[3]]
+width_ufs=[ls[0], ls[1], lufw1.get_uf(), ls[3]]
 A = te.ragged_placeholder((BATCH_SIZE, NUM_HEADS, MAX_LEN, HEAD_SIZE), [bd, md, s1, hd], loop_ufs,
                           name='A', width_ufs=width_ufs)
 
