@@ -45,7 +45,7 @@ ls =  {
 }
 
 loop_ufs=[ls[1], ls[3], ls[4]]
-width_ufs=loop_ufs
+width_ufs=[ls[1], ls[3], ls[4]]
 QKV = te.ragged_placeholder((BATCH_SIZE, MAX_LEN, IN_SIZE), [bd, s1, id], loop_ufs,
                             name='QKV', width_ufs=width_ufs)
 
@@ -53,13 +53,14 @@ W = te.placeholder((QKV_NUM, NUM_HEADS, OUT_SIZE, IN_SIZE), name='W')
 B = te.placeholder((QKV_NUM, NUM_HEADS, OUT_SIZE), name='B')
 
 loop_ufs=[ls[0], ls[1], ls[3], ls[2], ls[5]]
-width_ufs=None if args.dense_storage else [[ls[0], ls[1], ls[3], ls[2], ls[5]]]
+width_ufs=None if args.dense_storage else [loop_ufs]
 k = tvm.reduce_axis((0, IN_SIZE), name = 'k')
 S = te.ragged_compute((QKV_NUM, BATCH_SIZE, MAX_LEN, NUM_HEADS, OUT_SIZE), [qkv, bd, s1, md, od], loop_ufs,
                       lambda ds: tvm.sum(W[ds[qkv], ds[md], ds[od], k] * QKV[ds[bd], ds[s1], k],
                                          axis = k, dimensions = [id]),
                       name = 'S', width_uf_lists=width_ufs)
 
+width_ufs=None if args.dense_storage else [[ls[0], ls[1], lufw64.get_uf(), ls[2], ls[5]]]
 O = te.ragged_compute((QKV_NUM, BATCH_SIZE, MAX_LEN, NUM_HEADS, OUT_SIZE), [qkv, bd, s1, md, od], loop_ufs,
                       lambda ds: S[ds[qkv], ds[bd], ds[s1], ds[md], ds[od]] + B[ds[qkv], ds[md], ds[od]],
                       name = 'O', width_uf_lists=width_ufs)

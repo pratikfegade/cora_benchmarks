@@ -70,8 +70,8 @@ else:
         }
     else:
         framework_funs = {
-            'mkl_pad': get_mkl_runner(True),
             'mkl_nopad': get_mkl_runner(False),
+            'mkl_pad': get_mkl_runner(True),
             'cora': run_tvm,
         }
 

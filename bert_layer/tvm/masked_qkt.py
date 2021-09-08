@@ -53,7 +53,7 @@ Q = te.ragged_placeholder((3, BATCH_SIZE, MAX_LEN, NUM_HEADS, HEAD_SIZE), [qk, b
 
 loop_ufs=[ls[5], ls[0], ls[3], ls[1], ls[4]]
 width_ufs=[ls[5], ls[0], luf1, ls[1], ls[4]]
-K = te.ragged_placeholder((3, BATCH_SIZE, MAX_LEN, NUM_HEADS, HEAD_SIZE), [qk, bd, md, s2, hd], loop_ufs,
+K = te.ragged_placeholder((3, BATCH_SIZE, MAX_LEN, NUM_HEADS, HEAD_SIZE), [qk, bd, s2, md, hd], loop_ufs,
                           name='K', width_ufs=width_ufs)
 
 loop_ufs=[ls[0], luf1, ls[1], luf2]
