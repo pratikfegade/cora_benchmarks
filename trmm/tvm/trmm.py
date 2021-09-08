@@ -19,6 +19,7 @@ parser.add_argument('--debug', dest='debug', default=False, action='store_true')
 parser.add_argument('--load-balance', dest='load_balance', default=False, action='store_true')
 parser.add_argument('--debug-code', dest='debug_code', default=None, type=str)
 parser.add_argument('--debug-functions', dest='debug_functions', default=False, action='store_true')
+parser.add_argument('--op-split', dest='op_split', default=False, action='store_true')
 parser.add_argument('--manual-code', dest='manual_code', default=False, action='store_true')
 parser.add_argument('--dense-storage', dest='dense_storage', default=False, action='store_true')
 parser.add_argument('--gen-lib', dest='gen_lib', default=False, action='store_true')
@@ -31,10 +32,6 @@ md = Dim('md')
 nd = Dim('nd')
 kd = Dim('kd')
 
-def len_ufw(name, pad): return Ufw(name, "l", (pad, M), [md], [], lambda: lambda m: utils.floormult(m, pad))
-lufw = len_ufw('s2k', 32)
-
-luf = lufw.get_uf()
 ls =  {
     0: Uf.from_constant('md', M, 'l'),
     1: Uf.from_constant('nd', N, 'l'),
@@ -47,24 +44,40 @@ A = te.ragged_placeholder((M, M), [md, kd], loop_ufs, name='A', width_ufs=None)
 
 B = te.placeholder((M, N), name='B')
 
-loop_ufs=[ls[0], ls[1]]
-O1 = te.ragged_compute((M, N), [md, nd], loop_ufs,
-                       lambda ds, rds: tvm.sum(A[ds[md], rds['k']] * B[rds['k'], ds[nd]],
-                                               axis=rds['k'], dimensions = [kd]),
-                       name = 'O1', reduce_axis_ufs = [('k', luf)], width_uf_lists=None)
+if args.op_split:
+    def len_ufw(name, pad): return Ufw(name, "l", (pad, M), [md], [], lambda: lambda m: utils.floormult(m, pad))
+    luf = len_ufw('s2k', 32).get_uf()
 
-O2i = te.ragged_compute((M, N), [md, nd], loop_ufs,
-                        lambda ds, rds: tvm.sum(tvm.tir.Cast('int32', utils.floormult(ds[md], 32) + rds['k'] < (ds[md] + 1)) *
-                                                A[ds[md], utils.floormult(ds[md], 32) + rds['k']] *
-                                                B[utils.floormult(ds[md], 32) + rds['k'], ds[nd]],
-                                                axis=rds['k'], dimensions = [kd]),
-                        name = 'O2i', reduce_axis_ufs = [('k', Uf.from_constant('kd', 32, 'l'))], width_uf_lists=None)
+    loop_ufs=[ls[0], ls[1]]
+    O1 = te.ragged_compute((M, N), [md, nd], loop_ufs,
+                           lambda ds, rds: tvm.sum(A[ds[md], rds['k']] * B[rds['k'], ds[nd]],
+                                                   axis=rds['k'], dimensions = [kd]),
+                           name = 'O1', reduce_axis_ufs = [('k', luf)], width_uf_lists=None)
 
-O2 = te.ragged_compute((M, N), [md, nd], loop_ufs,
-                       lambda ds: O1[ds[md], ds[nd]] + O2i[ds[md], ds[nd]],
-                       name = 'O2', width_uf_lists=None)
+    O2i = te.ragged_compute((M, N), [md, nd], loop_ufs,
+                            lambda ds, rds: tvm.sum(tvm.tir.Cast('int32', utils.floormult(ds[md], 32) + rds['k'] < (ds[md] + 1)) *
+                                                    A[ds[md], utils.floormult(ds[md], 32) + rds['k']] *
+                                                    B[utils.floormult(ds[md], 32) + rds['k'], ds[nd]],
+                                                    axis=rds['k'], dimensions = [kd]),
+                            name = 'O2i', reduce_axis_ufs = [('k', Uf.from_constant('kd', 32, 'l'))], width_uf_lists=None)
 
-s = tvm.create_schedule([O1.op, O2.op])
+    O2 = te.ragged_compute((M, N), [md, nd], loop_ufs,
+                           lambda ds: O1[ds[md], ds[nd]] + O2i[ds[md], ds[nd]],
+                           name = 'O2', width_uf_lists=None)
+
+    s = tvm.create_schedule([O1.op, O2.op])
+else:
+    def len_ufw(name, pad): return Ufw(name, "l", (pad, M), [md], [], lambda: lambda m: utils.ceilmult(m, pad))
+    luf = len_ufw('s2k', 32).get_uf()
+
+    loop_ufs=[ls[0], ls[1]]
+    O = te.ragged_compute((M, N), [md, nd], loop_ufs,
+                          lambda ds, rds: tvm.sum(tvm.tir.Cast('int32', utils.floormult(ds[md], 32) + rds['k'] < (ds[md] + 1)) *
+                                                  A[ds[md], rds['k']] * B[rds['k'], ds[nd]],
+                                                  axis=rds['k'], dimensions = [kd]),
+                          name = 'O', reduce_axis_ufs = [('k', luf)], width_uf_lists=None)
+
+    s = tvm.create_schedule([O.op])
 
 def schedule_op(O, suffix, rem):
     if rem:
@@ -82,10 +95,7 @@ def schedule_op(O, suffix, rem):
     s[S].unroll(S_l_i)
 
     O_l, O_o = tuple(O.op.axis)
-    if (rem):
-        O_l_o_i, O_l_i = s[O].split(O_l, factor=32)
-    else:
-        O_l_o_i, O_l_i = s[O].split(O_l, factor=32)
+    O_l_o_i, O_l_i = s[O].split(O_l, factor=32)
 
     O_o_o_o_i, O_o_o_i = s[O].split(O_o, factor=64)
     O_o_o_o_o, O_o_o_o_i = s[O].split(O_o_o_o_i, factor=2)
@@ -121,25 +131,35 @@ def schedule_op(O, suffix, rem):
     # s[S].pragma(S_l_o_o_o_o, "auto_unroll_max_step", 512)
     # s[S].pragma(S_l_o_o_o_o, "unroll_explicit", True)
 
-schedule_op(O1, '1', False)
-schedule_op(O2, '2', True)
+if args.op_split:
+    schedule_op(O1, '1', False)
+    schedule_op(O2, '2', True)
+else:
+    schedule_op(O, '', False)
 
 gen_prefix = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0]
 _ = tvm.register_func(utils.get_tvm_callback_cuda_compile(256))
 _ = tvm.register_func(
     utils.get_tvm_callback_cuda_postproc(args, os.path.realpath(__file__), fileprefix=gen_prefix))
 
-inputs = [[], [A, B, O1, O2]]
+if args.op_split: inputs = [[], [A, B, O1, O2]]
+else: inputs = [[], [A, B, O]]
+
+substitutes=None
 if args.load_balance:
     max_by = M//32
     substitutes={'blockIdx.y': Uf('sub', "", (0, max_by), [Dim('dum')], lambda b: max_by - b - 1)}
     # substitutes={'blockIdx.y': Uf('sub', "", (0, max_by), [Dim('dum')], lambda b: tvm.tir.Select(b > max_by//2, b - max_by//2, max_by - b - 1))}
-else:
-    substitutes=None
+
 name = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0]
 out = run_utils.lower_or_build(name, s, inputs, args, run_function=run_utils.run_trmm,
                                prep_code_mode='no_prep_code', substitutes=substitutes)
 
-# A, B, O1, O2  = out
-# for i in range(args.m):
-#     print(i + 1, np.mean(O1[i, 0:(i+1)]), np.mean(O2[i, 0:(i+1)]))
+if args.op_split:
+    A, B, O1, O2  = out
+    for i in range(args.m):
+        print(i + 1, np.mean(O1[i, 0:(i+1)]), np.mean(O2[i, 0:(i+1)]))
+else:
+    A, B, O  = out
+    for i in range(args.m):
+        print(i + 1, np.mean(O[i, 0:(i+1)]))
