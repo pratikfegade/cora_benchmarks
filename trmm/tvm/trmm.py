@@ -67,7 +67,7 @@ if args.op_split:
 
     s = tvm.create_schedule([O1.op, O2.op])
 else:
-    def len_ufw(name, pad): return Ufw(name, "l", (pad, M), [md], [], lambda: lambda m: utils.ceilmult(m, pad))
+    def len_ufw(name, pad): return Ufw(name, "l", (pad, M), [md], [], lambda: lambda m: utils.ceilmult(m + 1, pad))
     luf = len_ufw('s2k', 32).get_uf()
 
     loop_ufs=[ls[0], ls[1]]
@@ -91,7 +91,6 @@ def schedule_op(O, suffix, rem):
 
     S_k_o_o, S_k_o_i = s[S].split(S_k, factor=4)
     s[S].reorder(S_l_o_o_i, S_k_o_o, S_k_o_i, S_l_o_i, S_o, S_l_i)
-    # s[S].peel(S_k_o_o)
     s[S].unroll(S_l_i)
 
     O_l, O_o = tuple(O.op.axis)
