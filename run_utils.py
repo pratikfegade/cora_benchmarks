@@ -154,7 +154,7 @@ def execute(target, built, inputs, ctx, debug = False):
             return -100000000
             evaluator = built.time_evaluator('default_function', ctx, 1, repeat=10)
         else:
-            # evaluator = built.time_evaluator(built.entry_name, ctx, repeat=1, number=10)
+            # evaluator = built.time_evaluator(built.entry_name, ctx, repeat=1, number=50)
             evaluator = built.time_evaluator(built.entry_name, ctx, repeat=5, number=100)
         eval_result = evaluator(*inputs)
         return mean(list(eval_result.results)[1:]) * 1000
@@ -296,16 +296,18 @@ def get_bert_layer_run_fn(bs_var):
             if args.debug: num_batches = 1
 
             batches = get_nlp_batches(batch_size, num_batches, args.dataset)
-            if pad_sum: batches = add_padded_sum(batches, pad_sum)
+            batches = [sorted(batch, reverse=True) for batch in batches]
+            if pad_sum: batches = append_padded_sum(batches, pad_sum)
 
             time = 0
+            print("Executing")
             for batch in batches:
-                batch = sorted(batch, reverse=True)
                 t_inputs = ([batch_size] +
                             [create_tvm_array(i, "float32", ctx, rmap=rmap, lw_args=lw_args([batch]))
                              for i in t_inputs_tensors[1:]])
                 l_inputs = [tvm.nd.array(batch, cpu_ctx)]
                 inputs = t_inputs + l_inputs + host_i_inputs + dev_i_inputs
+                print("  Batch")
                 time += execute(args.target, built, inputs, ctx, args.debug)
 
             print("RESULTS", batch_size, time / len(batches), sep=',')
@@ -406,5 +408,5 @@ def lower_or_build(name, s, inputs, args, prep_code_mode='with_prep_code', binds
             else:
                 assert args.debug_code is None
                 fadd, i_bufs = tvm.build(s, inputs, args.target, binds=binds, substitutes=substitutes)
-                # fadd = tvm.runtime.module.load_module('/home/ppf/benchmarks/bert_layer/tvm/genlibs/attn_v.so')
+                # fadd = tvm.runtime.module.load_module('/home/ppf/benchmarks/bert_layer/tvm/qkt.so')
                 return run_function(fadd, i_bufs, inputs[1], size_fn, args, pad_sum=pad_sum)
