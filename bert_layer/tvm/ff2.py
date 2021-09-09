@@ -282,5 +282,5 @@ out, batches = run_utils.lower_or_build(name, s, inputs, args, size_fn=size_fn, 
 # O = O.flatten()
 # for length in batches[0]:
 #     this_extent = length * OUT_SIZE
-#     print(length, np.mean(O[ctr:ctr + this_extent]))
+#     print(length, run_utils.stats(O[ctr:ctr + this_extent]))
 #     ctr += this_extent

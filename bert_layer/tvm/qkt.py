@@ -15,7 +15,8 @@ parser.add_argument('--nt', dest='nt', default=8, type=int)
 parser.add_argument('--kt', dest='kt', default=4, type=int)
 args = parser.parse_args()
 
-BATCH_SIZE = te.var('bs')
+BS_VAR = te.var('bs')
+BATCH_SIZE = BS_VAR + 1
 NUM_HEADS = 8
 HEAD_SIZE = 64
 TILE=64
@@ -61,7 +62,7 @@ S = te.ragged_compute((BATCH_SIZE, MAX_LEN, NUM_HEADS, MAX_LEN), [bd, s1, md, s2
                       name = 'S', width_uf_lists=width_ufs)
 
 O = te.ragged_compute((BATCH_SIZE, MAX_LEN, NUM_HEADS, MAX_LEN), [bd, s1, md, s2], loop_ufs,
-                      lambda ds: tvm.if_then_else(ds[s1] >= lens[ds[bd]], -float('inf'), S[ds[bd], ds[s1], ds[md], ds[s2]]),
+                      lambda ds: tvm.if_then_else(ds[s2] >= lens[ds[bd]], -float('inf'), S[ds[bd], ds[s1], ds[md], ds[s2]]),
                       name = 'O', width_uf_lists=width_ufs)
 
 s = tvm.create_schedule([O.op])
@@ -152,10 +153,10 @@ def size_fn(l_inputs):
                                                        lufw.get_fn(lens)(b)))
     }
 
-inputs = [[lens], [BATCH_SIZE, Q, K, O]]
+inputs = [[lens], [BS_VAR, Q, K, O]]
 name = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0]
 out, batches = run_utils.lower_or_build(name, s, inputs, args, size_fn=size_fn,
-                                        run_function=run_utils.get_bert_layer_run_fn(BATCH_SIZE))
+                                        run_function=run_utils.get_bert_layer_run_fn(BS_VAR))
 
 _, Q, K, O = out
 O = O.flatten()
@@ -164,5 +165,6 @@ for length in batches[0]:
     rounded = utils.ceilmult(length, TILE)
     this_extent = rounded
     this_storage_extent = rounded * rounded * NUM_HEADS
-    print(rounded, np.mean(O[ctr:ctr+this_storage_extent]))
+    # print(rounded, np.mean(O[ctr:ctr+this_storage_extent]))
+    print(rounded, np.mean(O[ctr:ctr+length]))
     ctr += this_storage_extent

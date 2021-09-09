@@ -97,10 +97,8 @@ if not only_mha:
     ff2_in_b = run_utils.create_tvm_array((MODEL_DIM,), "float32", dev_ctx, lw_args={})
 
 times = []
-ctr = 0
 for batch in batches:
-    ctr += 1
-    batch = np.sort(batch).astype('int32')
+    batch = np.sort(batch)[::-1].astype('int32')
     batch_size_ = BATCH_SIZE + 1
 
     sum1 = run_utils.prefix_sum(batch_size_, lambda i: batch[i])
@@ -126,7 +124,7 @@ for batch in batches:
     attn_v_in_attn = softmax_out
     attn_v_in_v = pre_linear_out
     attn_v_out = run_utils.create_ragged_array((batch_size_, MAX_LEN, NUM_HEADS, HEAD_SIZE),
-                                               NUM_HEADS*HEAD_SIZE*sum1, "float32", dev_ctx)
+                                               NUM_HEADS*HEAD_SIZE*sum64, "float32", dev_ctx)
 
     post_linear_in_a = attn_v_out
     post_linear_out = run_utils.create_ragged_array((batch_size_, MAX_LEN, MODEL_DIM), MODEL_DIM*sum1, "float32", dev_ctx)

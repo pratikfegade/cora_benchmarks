@@ -3,6 +3,9 @@ import argparse
 import os
 import numpy as np
 
+def stats(arr):
+    return np.min(arr), np.mean(arr), np.max(arr)
+
 dataset_files = {
     "wiki_128": "/old_wikipedia/full_lengths_128.txt",
     "wiki_512": "/old_wikipedia/full_lengths_512.txt",
@@ -148,7 +151,7 @@ def execute(target, built, inputs, ctx, debug = False):
             evaluator = built.time_evaluator('default_function', ctx, 1, repeat=10)
         else:
             # evaluator = built.time_evaluator(built.entry_name, ctx, repeat=1, number=10)
-            evaluator = built.time_evaluator(built.entry_name, ctx, repeat=3, number=100)
+            evaluator = built.time_evaluator(built.entry_name, ctx, repeat=5, number=100)
         eval_result = evaluator(*inputs)
         return mean(list(eval_result.results)[1:]) * 1000
         # return mean(list(eval_result.results)) * 1000
@@ -296,6 +299,8 @@ def get_bert_layer_run_fn(bs_var):
                 time += execute(args.target, built, inputs, ctx, args.debug)
 
             print("RESULTS", batch_size, time / len(batches), sep=',')
+            # print(host_i_inputs[0].asnumpy())
+            # print(dev_i_inputs[0].asnumpy())
             for i in range(len(t_inputs[1:])):
                 size_fn = lw_args([batch])
                 target = None
@@ -391,5 +396,5 @@ def lower_or_build(name, s, inputs, args, prep_code_mode='with_prep_code', binds
             else:
                 assert args.debug_code is None
                 fadd, i_bufs = tvm.build(s, inputs, args.target, binds=binds, substitutes=substitutes)
-                # fadd = tvm.runtime.module.load_module('/home/ppf/benchmarks/bert_layer/tvm/genlibs/pre_linear.so')
+                # fadd = tvm.runtime.module.load_module('/home/ppf/benchmarks/bert_layer/tvm/genlibs/attn_v.so')
                 return run_function(fadd, i_bufs, inputs[1], size_fn, args, pad_sum=pad_sum)

@@ -165,10 +165,15 @@ name = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0]
 out, batches = run_utils.lower_or_build(name, s, inputs, args, size_fn=size_fn, binds=binds, pad_sum=64,
                                         run_function=run_utils.get_bert_layer_run_fn(BS_VAR))
 
-# ctr = 0
-# _, QKV, W, B, O  = out
-# O = O.flatten()
-# for i in range(len(batches[0])):
-#     length = batches[0][i]
-#     this_extent = batches[0][i] * NUM_HEADS * OUT_SIZE
-#     print(batches[0][i], np.mean(O[ctr:ctr + this_extent]))
+q_size = 0
+for length in batches[0]:
+    q_size += utils.ceilmult(length, 64) * NUM_HEADS * OUT_SIZE
+
+ctr = 0
+_, QKV, W, B, O  = out
+O = O.flatten()
+for length in batches[0]:
+    this_extent = length * NUM_HEADS * OUT_SIZE
+    print(length, np.mean(O[ctr:ctr + this_extent]), np.mean(O[ctr+q_size:ctr+q_size + this_extent]),
+          np.mean(O[ctr+2*q_size:ctr+2*q_size + this_extent]))
+    ctr += utils.ceilmult(length, 64) * NUM_HEADS * OUT_SIZE

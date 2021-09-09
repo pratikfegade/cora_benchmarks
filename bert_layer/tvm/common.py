@@ -72,8 +72,8 @@ class Op:
         self.batch_size = batch_size
 
     def execute(self, l_inputs):
-        inputs = [self.batch_size] + self.tensor_inputs + l_inputs + self.host_ibufs + self.dev_ibufs
-        # print('Exe', self.name, len(inputs))
+        inputs = [self.batch_size] + self.tensor_inputs + l_inputs + self.host_ibufs[0] + self.dev_ibufs[0]
+        # print('Exe', self.name, self.batch_size)
         # sys.stdout.flush()
         self.modules[0](*inputs)
 

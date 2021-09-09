@@ -42,10 +42,9 @@ ls =  {
     4: Uf.from_constant('od', OUT_SIZE, 'l'),
 }
 
-loop_ufs=[ls[0], ls[1], ls[2], ls[3]]
-# width_ufs=[ls[0], ls[1], lufw64.get_uf(), ls[3]]
-width_ufs=[ls[0], ls[1], lufw1.get_uf(), ls[3]]
-A = te.ragged_placeholder((BATCH_SIZE, NUM_HEADS, MAX_LEN, HEAD_SIZE), [bd, md, s1, hd], loop_ufs,
+loop_ufs=[ls[0], ls[2], ls[1], ls[3]]
+width_ufs=[ls[0], lufw64.get_uf(), ls[1], ls[3]]
+A = te.ragged_placeholder((BATCH_SIZE, MAX_LEN, NUM_HEADS, HEAD_SIZE), [bd, s1, md, hd], loop_ufs,
                           name='A', width_ufs=width_ufs)
 
 W = te.placeholder((NUM_HEADS * HEAD_SIZE, OUT_SIZE), name='W')
@@ -55,7 +54,7 @@ loop_ufs=[ls[0], ls[2], ls[4]]
 width_ufs=None if args.dense_storage else [loop_ufs]
 k = tvm.reduce_axis((0, NUM_HEADS * HEAD_SIZE), name = 'k')
 S = te.ragged_compute((BATCH_SIZE, MAX_LEN, OUT_SIZE), [bd, s1, od], loop_ufs,
-                      lambda ds: tvm.sum(A[ds[bd], tvm.floordiv(k, HEAD_SIZE), ds[s1], tvm.floormod(k, HEAD_SIZE)] *
+                      lambda ds: tvm.sum(A[ds[bd], ds[s1], tvm.floordiv(k, HEAD_SIZE), tvm.floormod(k, HEAD_SIZE)] *
                                          W[k, ds[od]], axis=k, dimensions = [mdhd]),
                       name = 'S', width_uf_lists=width_ufs)
 
@@ -77,7 +76,7 @@ if args.target == 'cuda':
     block_y = lambda: tvm.thread_axis("blockIdx.y")
     vthread = lambda: tvm.thread_axis("vthread")
 
-    As = s.cache_read(A, "shared", [S], loop_layout=[ls[0], ls[1], ls[2], ls[3]], layouts=[ls[0], ls[1], ls[2], ls[3]])
+    As = s.cache_read(A, "shared", [S], loop_layout=[ls[0], ls[2], ls[1], ls[3]], layouts=[ls[0], ls[2], ls[1], ls[3]])
     Ws = s.cache_read(W, "shared", [S], vanilla=True)
     Bs = s.cache_read(B, "shared", [O], vanilla=True)
 
@@ -109,8 +108,8 @@ if args.target == 'cuda':
     s[Al].compute_at(s[S], ki)
     s[Wl].compute_at(s[S], ki)
 
-    b, h, l, i = s[As].leaf_iter_vars
-    s[As].reorder(h, b)
+    b, l, h, i = s[As].leaf_iter_vars
+    s[As].reorder(h, b, l)
     f = s[As].fuse(b, l)
     f = s[As].fuse(f, i)
     fo, fi = s[As].split(f, factor = nt * nt * 4)
@@ -120,8 +119,7 @@ if args.target == 'cuda':
     s[As].bind(fiio, thread_x())
     if not args.debug_functions: s[As].vectorize(fiii)
 
-    s.reorder_tensor_dimensions(As, 0, 1)
-    s.fuse_tensor_dimensions(As, 1, 2)
+    s.fuse_tensor_dimensions(As, 0, 1)
 
     s[S].set_scope('local')
 
