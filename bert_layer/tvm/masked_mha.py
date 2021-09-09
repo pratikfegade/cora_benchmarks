@@ -26,7 +26,7 @@ parser.add_argument('--dataset', nargs='?', default='random_384_512')
 args = parser.parse_args()
 
 BATCH_SIZE = args.batch_size
-MAX_LEN = max(128, utils.ceilmult(run_utils.get_dataset_max_len(args.dataset), 32))
+MAX_LEN = max(64, utils.ceilmult(run_utils.get_dataset_max_len(args.dataset), 32))
 NUM_HEADS = 8
 HEAD_SIZE = 64
 MODEL_DIM = NUM_HEADS * HEAD_SIZE
@@ -84,7 +84,8 @@ if not only_mha:
 
 # l_inputs: Allocate tensors
 batches = run_utils.get_nlp_batches(args.batch_size, args.max_batches, args.dataset)
-batches = run_utils.add_padded_sum(batches, 128)
+batches = run_utils.reverse_sort_batches(batches)
+batches = run_utils.append_padded_sum(batches, 64)
 
 pre_linear_in_w = run_utils.create_tvm_array((3, NUM_HEADS, HEAD_SIZE, MODEL_DIM), "float32", dev_ctx, lw_args={})
 pre_linear_in_b = run_utils.create_tvm_array((3, NUM_HEADS, HEAD_SIZE,), "float32", dev_ctx, lw_args={})
@@ -97,10 +98,8 @@ if not only_mha:
     ff2_in_b = run_utils.create_tvm_array((MODEL_DIM,), "float32", dev_ctx, lw_args={})
 
 times = []
+batch_size_ = BATCH_SIZE + 1
 for batch in batches:
-    batch = np.sort(batch)[::-1].astype('int32')
-    batch_size_ = BATCH_SIZE + 1
-
     sum1 = run_utils.prefix_sum(batch_size_, lambda i: batch[i])
     sum16 = run_utils.prefix_sum(batch_size_, lambda i: utils.ceilmult(batch[i], 16))
     sum32 = run_utils.prefix_sum(batch_size_, lambda i: utils.ceilmult(batch[i], 32))

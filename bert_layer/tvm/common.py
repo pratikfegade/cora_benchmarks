@@ -78,6 +78,8 @@ class Op:
         self.modules[0](*inputs)
 
     def execute_multiple(self, l_inputs, ctx):
+        # print('Exe', self.name, self.batch_size)
+        # sys.stdout.flush()
         means = []
         for i in range(len(self.modules)):
             inputs = [self.batch_size] + self.tensor_inputs + l_inputs + self.host_ibufs[i] + self.dev_ibufs[i]

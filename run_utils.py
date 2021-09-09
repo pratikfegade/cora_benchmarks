@@ -1,3 +1,4 @@
+import sys
 import utils
 import argparse
 import os
@@ -63,6 +64,9 @@ def get_dataset_max_len(dataset):
         return int(max_seq_len)
     else:
         return dataset_max_lens[dataset]
+
+def get_maxlen_padded(dataset):
+    return max(64, utils.ceilmult(get_dataset_max_len(dataset), 64))
 
 def random_lengths(batch_size, avg_seq_len, max_seq_len):
     min_seq_len = 2 * avg_seq_len - max_seq_len
@@ -223,7 +227,13 @@ def run(built, i_inputs_tensors, t_inputs_tensors, batch_size, num_batches, data
     print("RESULTS", time / len(batches), sep=',')
     return [t.asnumpy() for t in t_inputs], batches
 
-def add_padded_sum(batches, factor):
+def reverse_sort_batches(batches):
+    ret = []
+    for batch in batches:
+        ret.append(np.sort(batch)[::-1].astype('int32'))
+    return ret
+
+def append_padded_sum(batches, factor):
     ret = []
     for batch in batches:
         batch_sum = np.sum(batch)
@@ -290,7 +300,7 @@ def get_bert_layer_run_fn(bs_var):
 
             time = 0
             for batch in batches:
-                batchd = sorted(batch, reverse=True)
+                batch = sorted(batch, reverse=True)
                 t_inputs = ([batch_size] +
                             [create_tvm_array(i, "float32", ctx, rmap=rmap, lw_args=lw_args([batch]))
                              for i in t_inputs_tensors[1:]])

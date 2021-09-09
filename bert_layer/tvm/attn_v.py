@@ -17,7 +17,7 @@ args = parser.parse_args()
 
 BS_VAR = te.var('bs')
 BATCH_SIZE = BS_VAR + 1
-MAX_LEN = utils.ceilmult(run_utils.get_dataset_max_len(args.dataset), 64)
+MAX_LEN = run_utils.get_maxlen_padded(args.dataset)
 NUM_HEADS = 8
 HEAD_SIZE = 64
 
