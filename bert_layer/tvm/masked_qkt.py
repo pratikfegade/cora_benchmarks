@@ -18,7 +18,7 @@ HEAD_SIZE = 64
 TILE1=64
 TILE2=64
 RTILE=4
-MAX_LEN = utils.ceilmult(run_utils.get_dataset_max_len(args.dataset), max(TILE1, TILE2))
+MAX_LEN = run_utils.get_maxlen_padded(args.dataset)
 
 lens = te.placeholder((BATCH_SIZE,), name = 'lens', dtype = 'int32')
 

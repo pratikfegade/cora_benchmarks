@@ -86,7 +86,7 @@ batch_sizes = [2, 8, 32, 128]
 targets = [args.target] if args.target else ['cuda']
 datasets = com.cluster_datasets_by_max_len() if args.dataset is None else {com.get_dataset_max_len(args.dataset) : [args.dataset]}
 # datasets = {512:['race', 'wiki_512'],384:['squadv2'],128:['wiki_128','mnli','xnli'],112:['mrpc'],48:['cola']}
-datasets = {128:['wiki_128','mnli','xnli']}
+datasets = {128:['wiki_128','mnli','xnli'],112:['mrpc'],48:['cola']}
 
 if args.prep_overhead:
     framework_funs = {

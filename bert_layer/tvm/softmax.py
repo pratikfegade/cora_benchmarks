@@ -14,7 +14,7 @@ parser = run_utils.get_cmd_parser()
 args = parser.parse_args()
 
 BATCH_SIZE = te.var('bs')
-MAX_LEN = utils.ceilmult(run_utils.get_dataset_max_len(args.dataset), 32)
+MAX_LEN = run_utils.get_maxlen_padded(args.dataset)
 NUM_HEADS = 8
 scale = 1/8
 

@@ -19,7 +19,7 @@ NUM_HEADS = 8
 HEAD_SIZE = 64
 TILE=64
 RTILE=4
-MAX_LEN = utils.ceilmult(run_utils.get_dataset_max_len(args.dataset), TILE)
+MAX_LEN = run_utils.get_maxlen_padded(args.dataset)
 
 assert MAX_LEN > 64
 

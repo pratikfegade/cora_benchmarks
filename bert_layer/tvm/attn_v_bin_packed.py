@@ -15,7 +15,7 @@ parser.add_argument('--hfuse', dest='hfuse', default=False, action='store_true')
 args = parser.parse_args()
 
 BATCH_SIZE = te.var('bs')
-MAX_LEN = utils.ceilmult(run_utils.get_dataset_max_len(args.dataset), 64)
+MAX_LEN = run_utils.get_maxlen_padded(args.dataset)
 assert MAX_LEN > 64
 NUM_HEADS = 8
 HEAD_SIZE = 64

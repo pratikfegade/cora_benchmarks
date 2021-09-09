@@ -20,7 +20,7 @@ NUM_HEADS = 8
 IN_SIZE = 512
 OUT_SIZE = 64
 QKV_NUM = 3
-MAX_LEN = utils.ceilmult(run_utils.get_dataset_max_len(args.dataset), 64)
+MAX_LEN = run_utils.get_maxlen_padded(args.dataset)
 
 lens = te.placeholder((BATCH_SIZE,), name = 'lens', dtype = 'int32')
 
