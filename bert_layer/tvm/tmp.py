@@ -51,6 +51,7 @@ width_ufs=[loop_ufs]
 A = te.ragged_compute((BATCH_SIZE, MAX_LEN, OUT_SIZE), [bd, s1, od], loop_ufs,
                       lambda ds: A1[ds[bd], ds[s1], ds[od]] + A2[ds[bd], ds[s1], ds[od]],
                       name = 'A')
+A = A1
 
 loop_ufs=[ls[0], ls[1]]
 width_ufs=[loop_ufs]
@@ -72,6 +73,7 @@ def compute_body(ds):
     std = tvm.sqrt(mean2 - mean1*mean1 + eps)
     normed = (A[ds[bd], ds[s1], ds[od]] - mean1) / std
     return beta + gamma * normed
+    # return (A[ds[bd], ds[s1], ds[od]] - mean1)
 
 loop_ufs=[ls[0], ls[1], ls[2]]
 width_ufs=None if args.dense_storage else [loop_ufs]
@@ -85,83 +87,51 @@ if args.target == "cuda":
     block_x = tvm.thread_axis("blockIdx.x")
     block_y = tvm.thread_axis("blockIdx.y")
 
+    ko, ki = s[Am1].split(s[Am1].op.reduce_axis[0], factor = 16)
+    Am1_rf = s.rfactor(Am1, ki, 1)
+    ko, ki = s[Am1_rf].split(s[Am1_rf].op.reduce_axis[0], factor = 16)
+    Am1_rf_rf = s.rfactor(Am1_rf, ki, 1)
 
-    ko, ki = s[Am1].split(s[Am1].op.reduce_axis[0], factor = 32)
-    Am1_rf = s.rfactor(Am1, ko, 1)
+    ko, ki = s[Am2].split(s[Am2].op.reduce_axis[0], factor = 16)
+    Am2_rf = s.rfactor(Am2, ki, 1)
+    ko, ki = s[Am2_rf].split(s[Am2_rf].op.reduce_axis[0], factor = 16)
+    Am2_rf_rf = s.rfactor(Am2_rf, ki, 1)
 
-    ko, ki = s[Am2].split(s[Am2].op.reduce_axis[0], factor = 32)
-    Am2_rf = s.rfactor(Am2, ko, 1)
-
-    ntx = 32
+    ntx = 16
     nty = 16
 
     b, l, h = s[O].leaf_iter_vars
     f = s[O].fuse(b, l)
     s[O].bind(f, block_x)
 
+    ho, hi = s[O].split(h, factor = ntx * nty)
+    hio, hii = s[O].split(hi, factor = ntx)
+    s[O].bind(hio, thread_y)
+    s[O].bind(hii, thread_x)
 
-    ho, hi = s[O].split(h, factor = ntx)
-    s[O].bind(ho, thread_y)
-    s[O].bind(hi, thread_x)
+    s[Am1_rf].bind(s[Am1_rf].leaf_iter_vars[1], thread_y)
+    s[Am2_rf].bind(s[Am2_rf].leaf_iter_vars[1], thread_y)
 
-    # s[Am1_rf].compute_at(s[Am1], s[Am1].leaf_iter_vars[2])
-    # s[Am2_rf].compute_at(s[Am2], s[Am2].leaf_iter_vars[2])
-    s[Am1_rf].compute_at(s[O], hi)
-    s[Am2_rf].compute_at(s[O], hi)
-    s[Am1].compute_at(s[O], hi)
-    s[Am2].compute_at(s[O], hi)
-    s[A].compute_at(s[O], hi)
-    # s[A].compute_inline()
+    s[Am1_rf_rf].compute_at(s[Am1_rf], s[Am1_rf].leaf_iter_vars[2])
+    s[Am1_rf].compute_at(s[O], f)
+    s[Am1].compute_at(s[O], f)
+    s[Am2_rf_rf].compute_at(s[Am2_rf], s[Am2_rf].leaf_iter_vars[2])
+    s[Am2_rf].compute_at(s[O], f)
+    s[Am2].compute_at(s[O], f)
 
+    s[Am1_rf_rf].unroll(s[Am1_rf_rf].op.reduce_axis[0])
     s[Am1_rf].bind(s[Am1_rf].op.reduce_axis[0], thread_x)
+    s[Am1].bind(s[Am1].op.reduce_axis[0], thread_x)
+    s[Am2_rf_rf].unroll(s[Am2_rf_rf].op.reduce_axis[0])
     s[Am2_rf].bind(s[Am2_rf].op.reduce_axis[0], thread_x)
+    s[Am2].bind(s[Am2].op.reduce_axis[0], thread_x)
 
-    s[Am1].bind(s[Am1].op.reduce_axis[0], thread_y)
-    s[Am2].bind(s[Am2].op.reduce_axis[0], thread_y)
-
-    s[Am1_rf].set_scope('local')
-    s[Am2_rf].set_scope('local')
+    s[Am1_rf_rf].set_scope('local')
+    s[Am1_rf].set_scope('shared')
     s[Am1].set_scope('shared')
+    s[Am2_rf_rf].set_scope('local')
+    s[Am2_rf].set_scope('shared')
     s[Am2].set_scope('shared')
-    s[A].set_scope('local')
-
-
-
-
-
-
-
-
-    # ko, ki = s[Am1].split(s[Am1].op.reduce_axis[0], factor = 32)
-    # Am1_rf = s.rfactor(Am1, ki, 1)
-
-    # ko, ki = s[Am2].split(s[Am2].op.reduce_axis[0], factor = 32)
-    # Am2_rf = s.rfactor(Am2, ki, 1)
-
-    # ntx = 32
-
-    # b, l, h = s[O].leaf_iter_vars
-    # f = s[O].fuse(b, l)
-    # s[O].bind(f, block_x)
-
-
-    # ho, hi = s[O].split(h, factor = ntx)
-    # s[O].bind(hi, thread_x)
-
-    # s[Am1_rf].compute_at(s[Am1], s[Am1].leaf_iter_vars[2])
-    # s[Am2_rf].compute_at(s[Am2], s[Am2].leaf_iter_vars[2])
-    # s[Am1].compute_at(s[O], f)
-    # s[Am2].compute_at(s[O], f)
-    # s[A].compute_inline()
-
-    # s[Am1].bind(s[Am1].op.reduce_axis[0], thread_x)
-    # s[Am2].bind(s[Am2].op.reduce_axis[0], thread_x)
-
-    # s[Am1_rf].set_scope('local')
-    # s[Am2_rf].set_scope('local')
-    # s[Am1].set_scope('local')
-    # s[Am2].set_scope('local')
-    # s[A].set_scope('local')
 
     gen_prefix = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0]
     _ = tvm.register_func(utils.get_tvm_callback_cuda_compile(256))
