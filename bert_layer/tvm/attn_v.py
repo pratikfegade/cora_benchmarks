@@ -138,7 +138,7 @@ def size_fn(l_inputs):
 
 inputs = [[lens], [BS_VAR, V, A, O]]
 name = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0]
-out, batches = run_utils.lower_or_build(name, s, inputs, args, size_fn=size_fn,
+out, batches = run_utils.lower_or_build(name, s, inputs, args, size_fn=size_fn, pad_sum=64,
                                         run_function=run_utils.get_bert_layer_run_fn(BS_VAR))
 
 _, V, A, O  = out

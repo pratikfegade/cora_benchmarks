@@ -76,12 +76,18 @@ class MaskedMHA(nn.Module):
         self.head_size = head_size
         self.model_size = model_size
         self.max_len = max_len
+        self.attn_mask = np.full((max_len, max_len), 0.0, dtype='float32')
+        for i in range(max_len):
+            for j in range(i + 1, max_len):
+                self.attn_mask[i][j] = -float('inf')
+        self.attn_mask = torch.from_numpy(self.attn_mask).to(device)
 
     def forward(self, inp):
         qkv = torch.matmul(inp, self.pre_linear_w) + self.pre_linear_b
         qkv = qkv.view(3, self.num_heads, self.batch_size, self.max_len, self.head_size)
         q, k, v = torch.split(qkv, 1, 0)
         attn = torch.matmul(q, k.permute(0, 1, 2, 4, 3))
+        attn += self.attn_mask
         attn = f.softmax(attn, dim = 4)
         attn = torch.reshape(torch.matmul(attn, v).permute(0, 2, 3, 1, 4), (self.batch_size, self.max_len, self.model_size))
         sa_out = torch.matmul(attn, self.post_linear_w) + self.post_linear_b

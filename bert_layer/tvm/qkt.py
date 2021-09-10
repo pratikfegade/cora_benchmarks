@@ -13,6 +13,7 @@ import run_utils
 parser = run_utils.get_cmd_parser()
 parser.add_argument('--nt', dest='nt', default=8, type=int)
 parser.add_argument('--kt', dest='kt', default=4, type=int)
+parser.add_argument('--masked-mha', dest='masked_mha', default=False, action='store_true')
 args = parser.parse_args()
 
 BS_VAR = te.var('bs')
@@ -61,8 +62,14 @@ S = te.ragged_compute((BATCH_SIZE, MAX_LEN, NUM_HEADS, MAX_LEN), [bd, s1, md, s2
                                          axis = k, dimensions=[hd]),
                       name = 'S', width_uf_lists=width_ufs)
 
+def get_threshold(ds):
+    if args.masked_mha:
+        return ds[s1] + 1
+    else:
+        return lens[ds[bd]]
+
 O = te.ragged_compute((BATCH_SIZE, MAX_LEN, NUM_HEADS, MAX_LEN), [bd, s1, md, s2], loop_ufs,
-                      lambda ds: tvm.if_then_else(ds[s2] >= lens[ds[bd]], -float('inf'), S[ds[bd], ds[s1], ds[md], ds[s2]]),
+                      lambda ds: tvm.if_then_else(ds[s2] >= get_threshold(ds), -float('inf'), S[ds[bd], ds[s1], ds[md], ds[s2]]),
                       name = 'O', width_uf_lists=width_ufs)
 
 s = tvm.create_schedule([O.op])
@@ -140,8 +147,9 @@ if args.target == "cuda":
     _ = tvm.register_func(utils.get_tvm_callback_cuda_compile(256))
     _ = tvm.register_func(
         utils.get_tvm_callback_cuda_postproc(args, os.path.realpath(__file__), fileprefix=gen_prefix))
+    inputs = [[lens], [BS_VAR, Q, K, O]]
 else:
-    pass
+    inputs = [[lens], [BS_VAR, Q, K, O, S]]
 
 def size_fn(l_inputs):
     lens = l_inputs[0]
@@ -153,12 +161,11 @@ def size_fn(l_inputs):
                                                        lufw.get_fn(lens)(b)))
     }
 
-inputs = [[lens], [BS_VAR, Q, K, O]]
 name = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0]
-out, batches = run_utils.lower_or_build(name, s, inputs, args, size_fn=size_fn,
+out, batches = run_utils.lower_or_build(name, s, inputs, args, size_fn=size_fn, pad_sum=64,
                                         run_function=run_utils.get_bert_layer_run_fn(BS_VAR))
 
-_, Q, K, O = out
+_, Q, K, O = out[0:4]
 O = O.flatten()
 ctr = 0
 for length in batches[0]:
