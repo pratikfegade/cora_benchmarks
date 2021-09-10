@@ -18,6 +18,7 @@ parser.add_argument('--witers', dest='witers', default=50, type=int)
 parser.add_argument('--iters', dest='iters', default=200, type=int)
 parser.add_argument('--batch-size', dest='batch_size', default=32, type=int)
 parser.add_argument('--dense-storage', dest='dense_storage', default=False, action='store_true')
+parser.add_argument('--average', dest='average', default=False, action='store_true')
 parser.add_argument('--bin-packed', dest='bin_packed', default=False, action='store_true')
 parser.add_argument('--masked-mha', dest='masked_mha', default=False, action='store_true')
 parser.add_argument('--plain-mha', dest='plain_mha', default=False, action='store_true')
@@ -85,6 +86,11 @@ if not only_mha:
 # l_inputs: Allocate tensors
 batches = run_utils.get_nlp_batches(args.batch_size, args.max_batches, args.dataset)
 batches = run_utils.reverse_sort_batches(batches)
+if args.average:
+    for i in range(len(batches)):
+        avg = np.mean(batches[i])
+        batches[i].fill(avg)
+        batches[i] = batches[i].astype('int32')
 batches = run_utils.append_padded_sum(batches, 64)
 
 pre_linear_in_w = run_utils.create_tvm_array((3, NUM_HEADS, HEAD_SIZE, MODEL_DIM), "float32", dev_ctx, lw_args={})
