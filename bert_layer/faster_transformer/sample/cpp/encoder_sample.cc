@@ -27,6 +27,7 @@
 using namespace fastertransformer;
 
 std::unordered_map<std::string, float> fastertransformer::TimeMap::times;
+bool fastertransformer::TimeMap::do_profile;
 fastertransformer::MemoryTracker fastertransformer::MemoryTracker::instance;
 
 template <typename T>
@@ -43,6 +44,7 @@ float encoder_sample(std::vector<int> batch,
 		     int size_per_head,
 		     bool is_remove_padding,
 		     int int8_mode,
+		     int ite,
 		     bool allow_gemm_test=false);
 
 int main(int argc, char* argv[])
@@ -83,6 +85,7 @@ int main(int argc, char* argv[])
   std::cout << "RemP " << is_remove_padding << std::endl;
   std::cout << "Int8 " << int8_mode << std::endl;
 
+  int ite = 2;
 
   if(is_fp16 != 0 && is_fp16 != 1) {
     printf("[ERROR] is_fp16 should be 0 (use float) or 1 (use half). \n");
@@ -101,14 +104,23 @@ int main(int argc, char* argv[])
 
     if(is_fp16 == 0)
       total_time += encoder_sample<float>(batch, num_layers, seq_len, head_num, size_per_head,
-					  is_remove_padding, int8_mode, allow_gemm_test);
+					  is_remove_padding, int8_mode, ite, allow_gemm_test);
     else if(is_fp16 == 1)
       total_time += encoder_sample<half>(batch, num_layers, seq_len, head_num, size_per_head,
-					 is_remove_padding, int8_mode, allow_gemm_test);
+					 is_remove_padding, int8_mode, ite, allow_gemm_test);
   }
 
-  total_time /= num_batches;
-  printf("RESULTS,%.5f", total_time);
+  total_time /= (num_batches * num_layers * ite);
+#ifdef OP_TIMES
+  fastertransformer::TimeMap::MeanBy(num_batches * num_layers * ite);
+  fastertransformer::TimeMap::Print();
+#endif
+
+#ifdef MEM_PROF
+  fastertransformer::MemoryTracker::print();
+#endif
+
+  printf("RESULTS,%.5f\n", total_time);
 
   return 0;
 }
@@ -150,13 +162,14 @@ void device_malloc_one(T **ptr, int batchSize, int seqLen, int avg_len)
 
 template <typename T>
 float encoder_sample(std::vector<int> batch,
-                    int num_layers,
-                    int seq_len,
-                    int head_num,
-                    int size_per_head,
-                    bool is_remove_padding,
-                    int int8_mode,
-                    bool allow_gemm_test)
+		     int num_layers,
+		     int seq_len,
+		     int head_num,
+		     int size_per_head,
+		     bool is_remove_padding,
+		     int int8_mode,
+		     int ite,
+		     bool allow_gemm_test)
 {
   int batch_size = batch.size();
   int hidden_dim = head_num * size_per_head;
@@ -240,7 +253,7 @@ float encoder_sample(std::vector<int> batch,
   check_cuda_error(cudaMemGetInfo(&free_bytes, &total_bytes));
   float free = (float)(free_bytes) / 1024.0 / 1024.0 / 1024.0;
   float total = (float)(total_bytes) / 1024.0 / 1024.0 / 1024.0;
-  printf("before allocate free %.2f GB total %.2f GB\n", free, total);
+  // printf("before allocate free %.2f GB total %.2f GB\n", free, total);
 
   cudaMalloc((void**)&d_sequence_length, sizeof(int) * (ceil(batch_size/4.) * 4));
 
@@ -279,7 +292,7 @@ float encoder_sample(std::vector<int> batch,
   check_cuda_error(cudaMemGetInfo(&free_bytes, &total_bytes));
   free = (float)(free_bytes) / 1024.0 / 1024.0 / 1024.0;
   total = (float)(total_bytes) / 1024.0 / 1024.0 / 1024.0;
-  printf("After allocate free %.2f GB used %.2f GB total %.2f GB\n", free, total - free, total);
+  // printf("After allocate free %.2f GB used %.2f GB total %.2f GB\n", free, total - free, total);
 
   cublasHandle_t cublasHandle;
   cublasLtHandle_t cublaslt_handle;
@@ -329,10 +342,13 @@ float encoder_sample(std::vector<int> batch,
 
   encoder_transformer_->allocateBuffer(&allocator, batch_size, from_seq_len, to_seq_len, head_num, size_per_head);
 
+#ifdef OP_TIMES
+  fastertransformer::TimeMap::StopProfiling();
+#endif
+
   //warm up
   cudaDeviceSynchronize();
   check_cuda_error(cudaGetLastError());
-  const int ite = 2;
   for (int i = 0; i < ite; ++i)
   {
     if(is_remove_padding == true)
@@ -374,10 +390,11 @@ float encoder_sample(std::vector<int> batch,
     }
   }
 
-  struct timeval start, end;
-  cudaDeviceSynchronize();
-  cudaProfilerStart();
-  gettimeofday(&start, NULL);
+#ifdef OP_TIMES
+  fastertransformer::TimeMap::StartProfiling();
+#endif
+
+  float total_time = 0.0;
   for (int i = 0; i < ite; ++i)
   {
     if(is_remove_padding == true)
@@ -405,12 +422,23 @@ float encoder_sample(std::vector<int> batch,
       encoder_param.valid_word_num = batch_size * seq_len;
     }
 
+    struct timeval start, end;
+    cudaDeviceSynchronize();
+    cudaProfilerStart();
+    gettimeofday(&start, NULL);
+
     for(int i = 0; i < num_layers; i++){
       if (int8_mode != 0)
         encoder_param.layer_idx = i;
       encoder_transformer_->initialize(encoder_param);
       encoder_transformer_->forward();
     }
+
+    cudaDeviceSynchronize();
+    gettimeofday(&end, NULL);
+    cudaProfilerStop();
+
+    total_time += ((end.tv_sec - start.tv_sec) * 1000 + (end.tv_usec - start.tv_usec) * 0.001);
 
     if(is_remove_padding == true)
     {
@@ -421,21 +449,12 @@ float encoder_sample(std::vector<int> batch,
     }
   }
 
-
-  cudaDeviceSynchronize();
-  gettimeofday(&end, NULL);
-  cudaProfilerStop();
-
 #ifdef OP_TIMES
-  fastertransformer::TimeMap::Print();
-#endif
-
-#ifdef MEM_PROF
-  fastertransformer::MemoryTracker::print();
+  fastertransformer::TimeMap::StopProfiling();
 #endif
 
   // printf("[INFO] batch_size %d seq_len %d layer %d FT-CPP-time %.2f ms ( %d iterations) \n", batch_size, seq_len, num_layers,
   // ((end.tv_sec - start.tv_sec) * 1000 + (end.tv_usec - start.tv_usec) * 0.001) / ite, ite);
   delete encoder_transformer_;
-  return ((end.tv_sec - start.tv_sec) * 1000 + (end.tv_usec - start.tv_usec) * 0.001) / ite;
+  return total_time;
 }

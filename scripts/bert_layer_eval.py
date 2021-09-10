@@ -48,7 +48,7 @@ def get_ftrans_runner(no_pad):
         if err: print(err, file = err_file)
 
         if args.mem: return com.extract_mem(out)
-        else: return com.extract_times(out, 1)[0] / num_layers
+        else: return com.extract_times(out, 1)[0]
     return run_ftrans
 
 def get_cora_runner(balance):

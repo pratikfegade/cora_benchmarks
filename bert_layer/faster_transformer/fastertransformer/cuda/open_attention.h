@@ -1068,9 +1068,9 @@ namespace fastertransformer{
 	      DataType_ scalar = 1 / (sqrtf(size_per_head_ * 1.0f) * q_scaling_);
 
 	      {
-#ifdef OP_TIMES
-		START_OPTIME_MEASUREMENT;
-#endif
+// #ifdef OP_TIMES
+		// START_OPTIME_MEASUREMENT;
+// #endif
 		multiHeadAttr_nofuse_kernelLauncher(param_.stream,
 						    param_.cublas_handle,
 						    param_.cublaslt_handle,
@@ -1088,9 +1088,9 @@ namespace fastertransformer{
 						    size_per_head_,
 						    int8_mode_,
 						    scalar);
-#ifdef OP_TIMES
-		END_OPTIME_MEASUREMENT("AttnMHA");
-#endif
+// #ifdef OP_TIMES
+		// END_OPTIME_MEASUREMENT("AttnMHA");
+// #endif
 	      }
 	    }
 	  }
