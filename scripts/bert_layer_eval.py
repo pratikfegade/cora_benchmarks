@@ -51,21 +51,24 @@ def get_ftrans_runner(no_pad):
         else: return com.extract_times(out, 1)[0] / num_layers
     return run_ftrans
 
-def run_tvm(b_size, dataset, n_batch, err_file, args):
-    log(args, ' Batch size %d' % (b_size))
-    runner = TVM_MEM_RUNNER if args.mem else TVM_EXE_RUNNER
+def get_cora_runner(balance):
+    def run_cora(b_size, dataset, n_batch, err_file, args):
+        log(args, ' Batch size %d' % (b_size))
+        runner = TVM_MEM_RUNNER if args.mem else TVM_EXE_RUNNER
 
-    cmd = [PYTHON, runner, '--target', com.get_tvm_target(target), '--batch-size', str(b_size),
-           '--max-batches', str(n_batch), '--dataset', dataset]
-    if args.bin_packed: cmd += ['--bin-packed']
-    print(' '.join(cmd))
-    out, err = '', ''
-    out, err = run_cmd(cmd)
-    print(out)
-    if err: print(err, file = err_file)
+        cmd = [PYTHON, runner, '--target', com.get_tvm_target(target), '--batch-size', str(b_size),
+               '--max-batches', str(n_batch), '--dataset', dataset]
+        if args.bin_packed: cmd += ['--bin-packed']
+        if balance: cmd += ['--average']
+        print(' '.join(cmd))
+        out, err = '', ''
+        out, err = run_cmd(cmd)
+        print(out)
+        if err: print(err, file = err_file)
 
-    if args.mem: return com.extract_mem(out)
-    else: return com.extract_times(out, 1)[0]
+        if args.mem: return com.extract_mem(out)
+        else: return com.extract_times(out, 1)[0]
+    return run_cora
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--target', nargs='?', default=None)
@@ -93,10 +96,11 @@ if args.prep_overhead:
     }
 else:
     framework_funs = {
-        'pytorch': lambda b_sizes, *args: com.batchify(b_sizes, run_pytorch, *args),
+        # 'pytorch': lambda b_sizes, *args: com.batchify(b_sizes, run_pytorch, *args),
         # 'ftrans_pad': lambda b_sizes, *args: com.batchify(b_sizes, get_ftrans_runner(False), *args),
         # 'ftrans_nopad': lambda b_sizes, *args: com.batchify(b_sizes, get_ftrans_runner(True), *args),
-        'cora': lambda b_sizes, *args: com.batchify(b_sizes, run_tvm, *args),
+        'cora': lambda b_sizes, *args: com.batchify(b_sizes, get_cora_runner(False), *args),
+        'cora_lb': lambda b_sizes, *args: com.batchify(b_sizes, get_cora_runner(True), *args),
     }
 
 out_prefix = 'bert_layer'
