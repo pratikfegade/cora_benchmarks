@@ -800,7 +800,7 @@ public:
 					&beta, (DataType_ *)(param_.transformer_out), CType_, n,
 					param_.stream, cublasAlgoMap_, sm_, cublas_workspace_);
 #ifdef OP_TIMES
-	  END_OPTIME_MEASUREMENT("FF1MM")
+	  END_OPTIME_MEASUREMENT("FF2MM")
 #endif
 	}
 
