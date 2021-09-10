@@ -307,7 +307,6 @@ def get_bert_layer_run_fn(bs_var):
                              for i in t_inputs_tensors[1:]])
                 l_inputs = [tvm.nd.array(batch, cpu_ctx)]
                 inputs = t_inputs + l_inputs + host_i_inputs + dev_i_inputs
-                print("  Batch")
                 time += execute(args.target, built, inputs, ctx, args.debug)
 
             print("RESULTS", batch_size, time / len(batches), sep=',')

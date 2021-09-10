@@ -104,6 +104,10 @@ if not only_mha:
     ff2_in_b = run_utils.create_tvm_array((MODEL_DIM,), "float32", dev_ctx, lw_args={})
 
 times = []
+time_dict = {}
+if args.per_op:
+    for op in ops_order:
+        time_dict[op.name] = []
 batch_size_ = BATCH_SIZE + 1
 for batch in batches:
     sum1 = run_utils.prefix_sum(batch_size_, lambda i: batch[i])
@@ -175,10 +179,6 @@ for batch in batches:
     # times.append(sum(this_times) / args.iters)
 
     this_time = 0
-    time_dict = {}
-    if args.per_op:
-        for op in ops_order:
-            time_dict[op.name] = []
 
     for op in ops_order:
         op_time = op.execute_multiple(l_inputs, dev_ctx)
@@ -186,7 +186,6 @@ for batch in batches:
             time_dict[op.name].append(op_time)
         this_time += op_time
     times.append(this_time)
-
 
 if args.per_op:
     for op in ops_order:
