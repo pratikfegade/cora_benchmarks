@@ -374,10 +374,7 @@ float encoder_sample(std::vector<int> batch,
     }
   }
 
-  struct timeval start, end;
-  cudaDeviceSynchronize();
-  cudaProfilerStart();
-  gettimeofday(&start, NULL);
+  float total_time = 0.0;
   for (int i = 0; i < ite; ++i)
   {
     if(is_remove_padding == true)
@@ -405,12 +402,23 @@ float encoder_sample(std::vector<int> batch,
       encoder_param.valid_word_num = batch_size * seq_len;
     }
 
+    struct timeval start, end;
+    cudaDeviceSynchronize();
+    cudaProfilerStart();
+    gettimeofday(&start, NULL);
+
     for(int i = 0; i < num_layers; i++){
       if (int8_mode != 0)
         encoder_param.layer_idx = i;
       encoder_transformer_->initialize(encoder_param);
       encoder_transformer_->forward();
     }
+
+    cudaDeviceSynchronize();
+    gettimeofday(&end, NULL);
+    cudaProfilerStop();
+
+    total_time += ((end.tv_sec - start.tv_sec) * 1000 + (end.tv_usec - start.tv_usec) * 0.001);
 
     if(is_remove_padding == true)
     {
@@ -421,10 +429,6 @@ float encoder_sample(std::vector<int> batch,
     }
   }
 
-
-  cudaDeviceSynchronize();
-  gettimeofday(&end, NULL);
-  cudaProfilerStop();
 
 #ifdef OP_TIMES
   fastertransformer::TimeMap::Print();
@@ -437,5 +441,5 @@ float encoder_sample(std::vector<int> batch,
   // printf("[INFO] batch_size %d seq_len %d layer %d FT-CPP-time %.2f ms ( %d iterations) \n", batch_size, seq_len, num_layers,
   // ((end.tv_sec - start.tv_sec) * 1000 + (end.tv_usec - start.tv_usec) * 0.001) / ite, ite);
   delete encoder_transformer_;
-  return ((end.tv_sec - start.tv_sec) * 1000 + (end.tv_usec - start.tv_usec) * 0.001) / ite;
+  return total_time / ite;
 }
