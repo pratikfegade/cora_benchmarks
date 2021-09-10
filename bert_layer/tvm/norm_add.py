@@ -46,6 +46,9 @@ width_ufs=loop_ufs
 A2 = te.ragged_placeholder((BATCH_SIZE, MAX_LEN, OUT_SIZE), [bd, s1, od], loop_ufs,
                            name='A2', width_ufs=width_ufs)
 
+B = te.placeholder((OUT_SIZE, ), name='B')
+G = te.placeholder((OUT_SIZE, ), name='G')
+
 loop_ufs=[ls[0], ls[1], ls[2]]
 width_ufs=[loop_ufs]
 A = te.ragged_compute((BATCH_SIZE, MAX_LEN, OUT_SIZE), [bd, s1, od], loop_ufs,
@@ -70,8 +73,8 @@ def compute_body(ds):
     mean1 = Am1[ds[bd], ds[s1]]/OUT_SIZE
     mean2 = Am2[ds[bd], ds[s1]]/OUT_SIZE
     std = tvm.sqrt(mean2 - mean1*mean1 + eps)
-    normed = (A[ds[bd], ds[s1], ds[od]] - mean1) / std
-    return beta + gamma * normed
+    normed = (A[ds[bd], ds[s1], ds[od]] - mean1) / (std + 1e-5)
+    return B[ds[od]] + G[ds[od]] * normed
 
 loop_ufs=[ls[0], ls[1], ls[2]]
 width_ufs=None if args.dense_storage else [loop_ufs]
@@ -85,13 +88,12 @@ if args.target == "cuda":
     block_x = tvm.thread_axis("blockIdx.x")
     block_y = tvm.thread_axis("blockIdx.y")
 
-    ko, ki = s[Am1].split(s[Am1].op.reduce_axis[0], factor = 32)
+    ntx = 32
+    ko, ki = s[Am1].split(s[Am1].op.reduce_axis[0], factor = ntx)
     Am1_rf = s.rfactor(Am1, ki, 1)
 
-    ko, ki = s[Am2].split(s[Am2].op.reduce_axis[0], factor = 32)
+    ko, ki = s[Am2].split(s[Am2].op.reduce_axis[0], factor = ntx)
     Am2_rf = s.rfactor(Am2, ki, 1)
-
-    ntx = 32
 
     b, l, h = s[O].leaf_iter_vars
     f = s[O].fuse(b, l)
@@ -129,7 +131,7 @@ def size_fn(l_inputs):
         # O: OUT_SIZE * run_utils.prefix_sum(len(lens), lambda b: lufw.get_fn(lens)(b)),
     }
 
-inputs = [[lens], [BATCH_SIZE, A1, A2, O]]
+inputs = [[lens], [BATCH_SIZE, A1, A2, B, G, O]]
 name = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0]
 out, batches = run_utils.lower_or_build(name, s, inputs, args, size_fn=size_fn,
                                         run_function=run_utils.get_bert_layer_run_fn(BATCH_SIZE))

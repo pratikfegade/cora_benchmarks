@@ -98,6 +98,10 @@ pre_linear_in_b = run_utils.create_tvm_array((3, NUM_HEADS, HEAD_SIZE,), "float3
 post_linear_in_w = run_utils.create_tvm_array((NUM_HEADS * HEAD_SIZE, MODEL_DIM), "float32", dev_ctx, lw_args={})
 post_linear_in_b = run_utils.create_tvm_array((MODEL_DIM,), "float32", dev_ctx, lw_args={})
 if not only_mha:
+    norm_add1_in_b = run_utils.create_tvm_array((MODEL_DIM,), "float32", dev_ctx, lw_args={})
+    norm_add1_in_g = run_utils.create_tvm_array((MODEL_DIM,), "float32", dev_ctx, lw_args={})
+    norm_add2_in_b = run_utils.create_tvm_array((MODEL_DIM,), "float32", dev_ctx, lw_args={})
+    norm_add2_in_g = run_utils.create_tvm_array((MODEL_DIM,), "float32", dev_ctx, lw_args={})
     ff1_in_w = run_utils.create_tvm_array((MODEL_DIM, FF_DIM), "float32", dev_ctx, lw_args={})
     ff1_in_b = run_utils.create_tvm_array((FF_DIM,), "float32", dev_ctx, lw_args={})
     ff2_in_w = run_utils.create_tvm_array((FF_DIM, MODEL_DIM), "float32", dev_ctx, lw_args={})
@@ -161,10 +165,10 @@ for batch in batches:
     ops['attn_v'].tensor_inputs = [attn_v_in_v, attn_v_in_attn, attn_v_out]
     ops['post_linear'].tensor_inputs = [post_linear_in_a, post_linear_in_w, post_linear_in_b, post_linear_out]
     if not only_mha:
-        ops['norm_add1'].tensor_inputs = [norm_add1_in_a1, norm_add1_in_a2, norm_add1_out]
+        ops['norm_add1'].tensor_inputs = [norm_add1_in_a1, norm_add1_in_a2, norm_add1_in_b, norm_add1_in_g, norm_add1_out]
         ops['ff1'].tensor_inputs = [ff1_in_a, ff1_in_w, ff1_in_b, ff1_out]
         ops['ff2'].tensor_inputs = [ff2_in_a, ff2_in_w, ff2_in_b, ff2_out]
-        ops['norm_add2'].tensor_inputs = [norm_add2_in_a1, norm_add2_in_a2, norm_add2_out]
+        ops['norm_add2'].tensor_inputs = [norm_add2_in_a1, norm_add2_in_a2, norm_add2_in_b, norm_add2_in_g, norm_add2_out]
 
     l_inputs = [tvm.nd.array(batch, cpu_ctx)]
 
