@@ -14,15 +14,15 @@ PYTHON = 'python3'
 
 DIR_PREFIX = SCRIPT_DIR + '/../bert_layer/tvm/'
 ops = {
-    'pre_linear':       (False, '--unused', DIR_PREFIX + 'pre_linear.py'),
-    'add_pad64':        (True,  '--add',    DIR_PREFIX + 'padding_64to1.py'),
-    'qkt':              (False, '--unused', DIR_PREFIX + 'qkt.py'),
-    'change_pad_to_32': (True,  '--remove', DIR_PREFIX + 'padding_32to64.py'),
-    'softmax':          (False, '--unused', DIR_PREFIX + 'softmax.py'),
-    'change_pad_to_64': (True,  '--add',    DIR_PREFIX + 'padding_32to64.py'),
-    'attn_v':           (False, '--unused', DIR_PREFIX + 'attn_v.py'),
-    'rem_pad64':        (True,  '--remove', DIR_PREFIX + 'padding_64to1.py'),
-    'post_linear':      (False, '--unused', DIR_PREFIX + 'post_linear.py'),
+    'pre_linear':       (False, 'unused', DIR_PREFIX + 'pre_linear.py'),
+    'add_pad64':        (True,  'add',    DIR_PREFIX + 'padding_64to1.py'),
+    'qkt':              (False, 'unused', DIR_PREFIX + 'qkt.py'),
+    'change_pad_to_32': (True,  'remove', DIR_PREFIX + 'padding_32to64.py'),
+    'softmax':          (False, 'unused', DIR_PREFIX + 'softmax.py'),
+    'change_pad_to_64': (True,  'add',    DIR_PREFIX + 'padding_32to64.py'),
+    'attn_v':           (False, 'unused', DIR_PREFIX + 'attn_v.py'),
+    'rem_pad64':        (True,  'remove', DIR_PREFIX + 'padding_64to1.py'),
+    'post_linear':      (False, 'unused', DIR_PREFIX + 'post_linear.py'),
 }
 
 def run_cora_op(op_name, b_sizes, dataset, n_batch, err_file, args, pad_fusion):
@@ -36,12 +36,11 @@ def run_cora_op(op_name, b_sizes, dataset, n_batch, err_file, args, pad_fusion):
     if pad_fusion:
         if pad_op: return None
     else:
-        if pad_op: cmd += [op_data[1]]
+        if pad_op: cmd += ['--mode', op_data[1]]
         else: cmd += ['--layout-unfused']
 
     print(' '.join(cmd))
-    out, err = '', ''
-    # out, err = run_cmd(cmd)
+    out, err = run_cmd(cmd)
     if err: print(err, file = err_file)
     return com.extract_time_batches(out)
 
@@ -52,7 +51,9 @@ def run_cora(b_sizes, pad_fusion, dataset, n_batch, err_file, args):
     for op_name in ops:
         this_times = run_cora_op(op_name, b_sizes, dataset, n_batch, err_file, args, pad_fusion)
         if this_times:
-            for b_size in b_sizes: ret[b_size] += this_times[b_size]
+            for b_size in b_sizes:
+                log(args, '  OP: ' + op_name + ' ' + str(this_times[b_size]))
+                ret[b_size] += this_times[b_size]
 
     return ret
 
@@ -79,8 +80,11 @@ print(header, file = results_out)
 target = targets[0]
 for dataset in datasets:
     exe_times = {}
+    log(args, 'Unfused for ' + dataset)
     unfused_times = run_cora(b_sizes, False, dataset, args.max_batches, results_err, args)
+    log(args, 'Fused for ' + dataset)
     fused_times = run_cora(b_sizes, True, dataset, args.max_batches, results_err, args)
+
 
     for b_size in b_sizes:
         out_str = '%s,%s,%d,%g,%g' % (target, dataset, b_size, unfused_times[b_size], fused_times[b_size])

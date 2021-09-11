@@ -42,7 +42,8 @@ ls =  {
     0: Uf.from_constant('bd', BATCH_SIZE, 'l'),
     1: Uf.from_constant('md', NUM_HEADS, 'l'),
     2: lufw1.get_uf(),
-    3: lufw32.get_uf(),
+    # 3: lufw32.get_uf(),
+    3: Uf.from_constant('ml', MAX_LEN, 'l'),
 }
 
 loop_ufs=[ls[0], ls[2], ls[1], ls[3]]
@@ -53,6 +54,7 @@ A = te.ragged_placeholder((BATCH_SIZE, MAX_LEN, NUM_HEADS, MAX_LEN), [bd, s1, md
 width_ufs=[ls[0], o_fnw.get_uf(), ls[1], o_fnw.get_uf()]
 O = te.ragged_compute((BATCH_SIZE, MAX_LEN, NUM_HEADS, MAX_LEN), [bd, s1, md, s2], loop_ufs,
                       lambda ds: A[ds[bd], ds[s1], ds[md], ds[s2]],
+                      fpred = lambda ds: ds[s2] < lens[ds[bd]],
                       name = 'O', width_uf_lists=[width_ufs])
 
 s = tvm.create_schedule([O.op])
@@ -67,8 +69,9 @@ if args.target == 'cuda':
     f = s[O].fuse(b, s1)
     s[O].bind(f, block_x)
 
-    xo, xi = s[O].split(s2, factor = 32)
-    s[O].bind(xi, thread_x)
+    # xo, xi = s[O].split(s2, factor = 32)
+    # s[O].bind(xi, thread_x)
+    s[O].bind(s2, thread_x)
 
     gen_prefix = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0]
     _ = tvm.register_func(utils.get_tvm_callback_cuda_compile(256))

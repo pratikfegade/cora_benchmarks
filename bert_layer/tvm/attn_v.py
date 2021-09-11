@@ -81,8 +81,8 @@ if args.target == "cuda":
 
     s[O].reorder(b, xo, h, xi, y)
     f = s[O].fuse(b, xo)
-    s[O].bind(f, block_x())
-    s[O].bind(h, block_y())
+    s[O].bind(f, block_y())
+    s[O].bind(h, block_x())
 
     nt = args.nt
     xio, xii = s[O].split(xi, factor = nt)
@@ -127,6 +127,7 @@ if args.target == "cuda":
     _ = tvm.register_func(
         utils.get_tvm_callback_cuda_postproc(args, os.path.realpath(__file__), fileprefix=gen_prefix))
 
+
 def size_fn(l_inputs):
     lens = l_inputs[0]
     return {
@@ -141,11 +142,11 @@ name = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0]
 out, batches = run_utils.lower_or_build(name, s, inputs, args, size_fn=size_fn, pad_sum=64,
                                         run_function=run_utils.get_bert_layer_run_fn(BS_VAR))
 
-_, V, A, O  = out
-ctr = 0
-O = O.flatten()
-for length in batches[0]:
-    rounded64 = utils.ceilmult(length, 64)
-    this_extent = rounded64 * NUM_HEADS * HEAD_SIZE
-    print(length, run_utils.stats(O[ctr:ctr + this_extent]))
-    ctr += this_extent
+# _, V, A, O  = out
+# ctr = 0
+# O = O.flatten()
+# for length in batches[0]:
+#     rounded64 = utils.ceilmult(length, 64)
+#     this_extent = rounded64 * NUM_HEADS * HEAD_SIZE
+#     print(length, run_utils.stats(O[ctr:ctr + this_extent]))
+#     ctr += this_extent
