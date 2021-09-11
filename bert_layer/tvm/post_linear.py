@@ -43,7 +43,10 @@ ls =  {
 }
 
 loop_ufs=[ls[0], ls[2], ls[1], ls[3]]
-width_ufs=[ls[0], lufw64.get_uf(), ls[1], ls[3]]
+if args.layout_unfused:
+    width_ufs=[ls[0], lufw1.get_uf(), ls[1], ls[3]]
+else:
+    width_ufs=[ls[0], lufw64.get_uf(), ls[1], ls[3]]
 A = te.ragged_placeholder((BATCH_SIZE, MAX_LEN, NUM_HEADS, HEAD_SIZE), [bd, s1, md, hd], loop_ufs,
                           name='A', width_ufs=width_ufs)
 
@@ -228,8 +231,10 @@ else:
 
 def size_fn(l_inputs):
     lens = l_inputs[0]
+
     return {
-        A: NUM_HEADS * HEAD_SIZE * run_utils.prefix_sum(len(lens), lambda b: lufw64.get_fn(lens)(b)),
+        A: NUM_HEADS * HEAD_SIZE * run_utils.prefix_sum(
+            len(lens), lambda b: (lufw1 if args.layout_unfused else lufw64).get_fn(lens)(b)),
         A2: OUT_SIZE * (BATCH_SIZE * MAX_LEN if args.dense_storage else
                         run_utils.prefix_sum(len(lens), lambda b: lufw1.get_fn(lens)(b))),
         O: OUT_SIZE * (BATCH_SIZE * MAX_LEN if args.dense_storage else

@@ -92,7 +92,7 @@ class MaskedMHA(nn.Module):
         attn = f.softmax(attn, dim = 4)
         attn = torch.reshape(torch.matmul(attn, v).permute(0, 2, 3, 1, 4), (self.batch_size, self.max_len, self.model_size))
         sa_out = torch.matmul(attn, self.post_linear_w) + self.post_linear_b
-        return sa_out
+        return sa_out + inp.view(self.batch_size, self.max_len, self.model_size)
 
 num_heads = 8
 head_size = 64
