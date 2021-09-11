@@ -51,6 +51,11 @@ W = te.placeholder((NUM_HEADS * HEAD_SIZE, OUT_SIZE), name='W')
 B = te.placeholder((OUT_SIZE,), name='B')
 
 loop_ufs=[ls[0], ls[2], ls[4]]
+width_ufs=loop_ufs
+A2 = te.ragged_placeholder((BATCH_SIZE, MAX_LEN, OUT_SIZE), [bd, s1, od], loop_ufs,
+                           name='A2', width_ufs=width_ufs)
+
+loop_ufs=[ls[0], ls[2], ls[4]]
 width_ufs=None if args.dense_storage else [loop_ufs]
 k = tvm.reduce_axis((0, NUM_HEADS * HEAD_SIZE), name = 'k')
 S = te.ragged_compute((BATCH_SIZE, MAX_LEN, OUT_SIZE), [bd, s1, od], loop_ufs,
@@ -59,7 +64,7 @@ S = te.ragged_compute((BATCH_SIZE, MAX_LEN, OUT_SIZE), [bd, s1, od], loop_ufs,
                       name = 'S', width_uf_lists=width_ufs)
 
 O = te.ragged_compute((BATCH_SIZE, MAX_LEN, OUT_SIZE), [bd, s1, od], loop_ufs,
-                      lambda ds: S[ds[bd], ds[s1], ds[od]] + B[ds[od]],
+                      lambda ds: A2[ds[bd], ds[s1], ds[od]] + S[ds[bd], ds[s1], ds[od]] + B[ds[od]],
                       name = 'O', width_uf_lists=width_ufs)
 
 s = tvm.create_schedule([O.op])
@@ -146,7 +151,6 @@ else:
     tile = 64
     rtile = 8
     nt = 8
-    # ks = utils.next_power_of_2((NUM_HEADS * HEAD_SIZE) / (6144 // tile))
     ks = 64
 
     thread_x = lambda: tvm.thread_axis("threadIdx.x")
@@ -195,6 +199,7 @@ else:
     fiio, fiii = s[As].split(fii, factor = 4)
     s[As].bind(fio, thread_y())
     s[As].bind(fiio, thread_x())
+    s[As].mark_no_bounds_check()
     if not args.debug_functions: s[As].vectorize(fiii)
 
     s.fuse_tensor_dimensions(As, 0, 1)
@@ -224,15 +229,17 @@ else:
 def size_fn(l_inputs):
     lens = l_inputs[0]
     return {
-        # A: NUM_HEADS * HEAD_SIZE * run_utils.prefix_sum(len(lens), lambda b: lufw64.get_fn(lens)(b)),
-        # O: OUT_SIZE * (BATCH_SIZE * MAX_LEN if args.dense_storage else
-                       # run_utils.prefix_sum(len(lens), lambda b: lufw1.get_fn(lens)(b)))
+        A: NUM_HEADS * HEAD_SIZE * run_utils.prefix_sum(len(lens), lambda b: lufw64.get_fn(lens)(b)),
+        A2: OUT_SIZE * (BATCH_SIZE * MAX_LEN if args.dense_storage else
+                        run_utils.prefix_sum(len(lens), lambda b: lufw1.get_fn(lens)(b))),
+        O: OUT_SIZE * (BATCH_SIZE * MAX_LEN if args.dense_storage else
+                       run_utils.prefix_sum(len(lens), lambda b: lufw1.get_fn(lens)(b)))
     }
 
 # bO = tvm.decl_buffer([BATCH_SIZE * MAX_LEN, OUT_SIZE], name = "bO")
 # inputs = [[lens], [A, W, bO]]
 # binds = {O: bO}
-inputs = [[lens], [BS_VAR, A, W, B, O]]
+inputs = [[lens], [BS_VAR, A, A2, W, B, O]]
 binds = {}
 
 name = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0]

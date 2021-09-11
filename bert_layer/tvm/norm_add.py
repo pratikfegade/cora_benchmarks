@@ -38,22 +38,11 @@ ls =  {
 
 loop_ufs=[ls[0], ls[1], ls[2]]
 width_ufs=loop_ufs
-A1 = te.ragged_placeholder((BATCH_SIZE, MAX_LEN, OUT_SIZE), [bd, s1, od], loop_ufs,
-                           name='A1', width_ufs=width_ufs)
-
-loop_ufs=[ls[0], ls[1], ls[2]]
-width_ufs=loop_ufs
-A2 = te.ragged_placeholder((BATCH_SIZE, MAX_LEN, OUT_SIZE), [bd, s1, od], loop_ufs,
-                           name='A2', width_ufs=width_ufs)
+A = te.ragged_placeholder((BATCH_SIZE, MAX_LEN, OUT_SIZE), [bd, s1, od], loop_ufs,
+                          name='A', width_ufs=width_ufs)
 
 B = te.placeholder((OUT_SIZE, ), name='B')
 G = te.placeholder((OUT_SIZE, ), name='G')
-
-loop_ufs=[ls[0], ls[1], ls[2]]
-width_ufs=[loop_ufs]
-A = te.ragged_compute((BATCH_SIZE, MAX_LEN, OUT_SIZE), [bd, s1, od], loop_ufs,
-                      lambda ds: A1[ds[bd], ds[s1], ds[od]] + A2[ds[bd], ds[s1], ds[od]],
-                      name = 'A')
 
 loop_ufs=[ls[0], ls[1]]
 width_ufs=[loop_ufs]
@@ -107,7 +96,6 @@ if args.target == "cuda":
     s[Am2_rf].compute_at(s[Am2], s[Am2].leaf_iter_vars[2])
     s[Am1].compute_at(s[O], f)
     s[Am2].compute_at(s[O], f)
-    s[A].compute_inline()
 
     s[Am1].bind(s[Am1].op.reduce_axis[0], thread_x)
     s[Am2].bind(s[Am2].op.reduce_axis[0], thread_x)
@@ -116,7 +104,6 @@ if args.target == "cuda":
     s[Am2_rf].set_scope('local')
     s[Am1].set_scope('local')
     s[Am2].set_scope('local')
-    s[A].set_scope('local')
 
     gen_prefix = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0]
     _ = tvm.register_func(utils.get_tvm_callback_cuda_compile(256))
@@ -126,12 +113,11 @@ if args.target == "cuda":
 def size_fn(l_inputs):
     lens = l_inputs[0]
     return {
-        # A1: OUT_SIZE * run_utils.prefix_sum(len(lens), lambda b: lufw.get_fn(lens)(b)),
-        # A2: OUT_SIZE * run_utils.prefix_sum(len(lens), lambda b: lufw.get_fn(lens)(b)),
+        # A: OUT_SIZE * run_utils.prefix_sum(len(lens), lambda b: lufw.get_fn(lens)(b)),
         # O: OUT_SIZE * run_utils.prefix_sum(len(lens), lambda b: lufw.get_fn(lens)(b)),
     }
 
-inputs = [[lens], [BATCH_SIZE, A1, A2, B, G, O]]
+inputs = [[lens], [BATCH_SIZE, A, B, G, O]]
 name = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0]
 out, batches = run_utils.lower_or_build(name, s, inputs, args, size_fn=size_fn,
                                         run_function=run_utils.get_bert_layer_run_fn(BATCH_SIZE))
