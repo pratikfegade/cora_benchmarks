@@ -47,6 +47,8 @@ class Encoder(nn.Module):
         self.model_size = model_size
         self.ff_size = ff_size
         self.max_len = max_len
+        self.layer_norm1 = torch.nn.LayerNorm((self.model_size,), elementwise_affine=True, device=device)
+        self.layer_norm2 = torch.nn.LayerNorm((self.model_size,), elementwise_affine=True, device=device)
 
     def forward(self, inp):
         qkv = torch.matmul(inp, self.pre_linear_w) + self.pre_linear_b
@@ -56,12 +58,11 @@ class Encoder(nn.Module):
         attn = f.softmax(attn, dim = 4)
         attn = torch.reshape(torch.matmul(attn, v).permute(0, 2, 3, 1, 4), (self.batch_size, self.max_len, self.model_size))
         sa_out = torch.matmul(attn, self.post_linear_w) + self.post_linear_b
-        sa_out = f.layer_norm(sa_out + inp.view(self.batch_size, self.max_len, self.model_size),
-                              normalized_shape = (self.model_size,))
+        sa_out = self.layer_norm1(sa_out + inp.view(self.batch_size, self.max_len, self.model_size))
 
         ff1_out = f.gelu(torch.matmul(sa_out, self.ff1_w) + self.ff1_b)
         ff2_out = torch.matmul(ff1_out, self.ff2_w) + self.ff2_b
-        ff_out = f.layer_norm(ff2_out + sa_out, normalized_shape = (self.model_size,))
+        ff_out = self.layer_norm2(ff2_out + sa_out)
         return ff_out
 
 class MaskedMHA(nn.Module):

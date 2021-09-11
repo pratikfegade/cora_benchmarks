@@ -51,7 +51,7 @@ width_ufs=[loop_ufs]
 A = te.ragged_compute((BATCH_SIZE, MAX_LEN, OUT_SIZE), [bd, s1, od], loop_ufs,
                       lambda ds: A1[ds[bd], ds[s1], ds[od]] + A2[ds[bd], ds[s1], ds[od]],
                       name = 'A')
-A = A1
+# A = A1
 
 loop_ufs=[ls[0], ls[1]]
 width_ufs=[loop_ufs]
@@ -118,6 +118,7 @@ if args.target == "cuda":
     s[Am2_rf_rf].compute_at(s[Am2_rf], s[Am2_rf].leaf_iter_vars[2])
     s[Am2_rf].compute_at(s[O], f)
     s[Am2].compute_at(s[O], f)
+    s[A].compute_at(s[O], f)
 
     s[Am1_rf_rf].unroll(s[Am1_rf_rf].op.reduce_axis[0])
     s[Am1_rf].bind(s[Am1_rf].op.reduce_axis[0], thread_x)
@@ -132,6 +133,13 @@ if args.target == "cuda":
     s[Am2_rf_rf].set_scope('local')
     s[Am2_rf].set_scope('shared')
     s[Am2].set_scope('shared')
+
+    ho, hi = s[A].split(s[A].leaf_iter_vars[2], factor = ntx * nty * 2)
+    hio, hii = s[A].split(hi, factor = ntx * 2)
+    hiio, hiii = s[A].split(hii, factor = 2)
+    s[A].bind(hio, thread_y)
+    s[A].bind(hiio, thread_x)
+    s[A].vectorize(hiii)
 
     gen_prefix = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0]
     _ = tvm.register_func(utils.get_tvm_callback_cuda_compile(256))

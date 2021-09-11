@@ -47,6 +47,11 @@ W = te.placeholder((IN_SIZE, OUT_SIZE), name='W')
 B = te.placeholder((OUT_SIZE,), name='B')
 
 loop_ufs=[ls[0], ls[1], ls[3]]
+width_ufs=loop_ufs
+A2 = te.ragged_placeholder((BATCH_SIZE, MAX_LEN, OUT_SIZE), [bd, s1, od], loop_ufs,
+                           name='A2', width_ufs=width_ufs)
+
+loop_ufs=[ls[0], ls[1], ls[3]]
 width_ufs=None if args.dense_storage else [loop_ufs]
 k = tvm.reduce_axis((0, IN_SIZE), name = 'k')
 S = te.ragged_compute((BATCH_SIZE, MAX_LEN, OUT_SIZE), [bd, s1, od], loop_ufs,
@@ -56,7 +61,7 @@ S = te.ragged_compute((BATCH_SIZE, MAX_LEN, OUT_SIZE), [bd, s1, od], loop_ufs,
 loop_ufs=[ls[0], ls[1], ls[3]]
 width_ufs=None if args.dense_storage else [[ls[0], lufw.get_uf(), ls[3]]]
 O = te.ragged_compute((BATCH_SIZE, MAX_LEN, OUT_SIZE), [bd, s1, od], loop_ufs,
-                      lambda ds: S[ds[bd], ds[s1], ds[od]] + B[ds[od]],
+                      lambda ds: S[ds[bd], ds[s1], ds[od]] + A2[ds[bd], ds[s1], ds[od]] + B[ds[od]],
                       name = 'O', width_uf_lists=width_ufs)
 
 s = tvm.create_schedule([O.op])
@@ -272,7 +277,7 @@ def size_fn(l_inputs):
                        run_utils.prefix_sum(len(lens), lambda b: lufw.get_fn(lens)(b)))
     }
 
-inputs = [[lens], [BS_VAR, A, W, B, O]]
+inputs = [[lens], [BS_VAR, A, A2, W, B, O]]
 name = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0]
 out, batches = run_utils.lower_or_build(name, s, inputs, args, size_fn=size_fn, pad_sum=32,
                                         run_function=run_utils.get_bert_layer_run_fn(BS_VAR))
