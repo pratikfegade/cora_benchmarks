@@ -9,7 +9,8 @@ PYTORCH_RUNNER = SCRIPT_DIR + '/../bert_layer/pytorch/layer.py'
 TVM_EXE_RUNNER = SCRIPT_DIR + '/../bert_layer/tvm/masked_mha.py'
 TVM_MEM_RUNNER = SCRIPT_DIR + '/../bert_layer/tvm/bert_layer_memory.py'
 TVM_LIB_RUNNER = SCRIPT_DIR + '/../bert_layer/tvm/gen_libs.sh'
-FTRANS_RUNNER = SCRIPT_DIR + '/../bert_layer/faster_transformer/run_encoder_sample.sh'
+FTRANS_EXE_RUNNER = SCRIPT_DIR + '/../bert_layer/faster_transformer/run_encoder_sample.sh'
+FTRANS_MEM_RUNNER = SCRIPT_DIR + '/../bert_layer/faster_transformer/mem/memory'
 PYTHON = 'python3'
 
 def generate_tvm_libs(dataset, args):
@@ -38,9 +39,12 @@ def get_ftrans_runner(no_pad):
     def run_ftrans(b_size, dataset, n_batch, err_file, args):
         log(args, ' Batch size %d' % (b_size))
         num_layers = 25
-        runner = FTRANS_RUNNER
-        cmd = [runner, com.get_dataset_file(dataset), str(b_size), str(n_batch),
-               str(com.get_dataset_max_len(dataset)), str(num_layers), '1' if no_pad else '0']
+
+        if args.mem:
+            cmd = [FTRANS_MEM_RUNNER, str(b_size), com.get_dataset_file(dataset)]
+        else:
+            cmd = [FTRANS_EXE_RUNNER, com.get_dataset_file(dataset), str(b_size), str(n_batch),
+                   str(com.get_dataset_max_len(dataset)), str(num_layers), '1' if no_pad else '0']
 
         # print(' '.join(cmd))
         out, err = run_cmd(cmd)
@@ -93,6 +97,12 @@ datasets = com.cluster_datasets_by_max_len() if args.dataset is None else {com.g
 if args.prep_overhead:
     framework_funs = {
         'cora': lambda b_sizes, *args: com.batchify(b_sizes, run_tvm, *args),
+    }
+elif args.mem:
+    framework_funs = {
+        # 'pytorch': lambda b_sizes, *args: com.batchify(b_sizes, run_pytorch, *args),
+        'ftrans': lambda b_sizes, *args: com.batchify(b_sizes, get_ftrans_runner(False), *args),
+        # 'cora': lambda b_sizes, *args: com.batchify(b_sizes, get_cora_runner(False), *args),
     }
 else:
     framework_funs = {

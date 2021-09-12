@@ -86,3 +86,17 @@ class Op:
             evaluator = self.modules[i].time_evaluator(self.modules[i].entry_name, ctx, number=10, repeat=10)
             means.append(evaluator(*inputs).mean)
         return min(means)
+
+
+class OpShell:
+    def __init__(self, name, module_name, batch_size, tensor_inputs, cpu_ctx, dev_ctx, alloc_op=None, variants=None):
+        self.name = name
+        self.module_name = module_name
+        self.tensor_inputs = tensor_inputs
+        self.batch_size = batch_size
+
+    def execute(self, l_inputs):
+         raise NotImplementedError
+
+    def execute_multiple(self, l_inputs, ctx):
+         raise NotImplementedError
