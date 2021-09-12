@@ -149,13 +149,14 @@ def run_for_batches():
         batch_times.append(timer.timeit(iters).mean * 1000.0)
     return batch_times
 
-if not args.profile:
-    batch_times = run_for_batches()
-    print('RESULTS', sum(batch_times) / len(batches), sep=',')
-else:
-    with profile(activities=[ProfilerActivity.CUDA], record_shapes=True) as prof:
-        run_for_batches()
-        print(prof.key_averages(group_by_stack_n=5))
+with torch.no_grad():
+    if not args.profile:
+        batch_times = run_for_batches()
+        print('RESULTS', sum(batch_times) / len(batches), sep=',')
+    else:
+        with profile(activities=[ProfilerActivity.CUDA], record_shapes=True) as prof:
+            run_for_batches()
+            print(prof.key_averages(group_by_stack_n=5))
 
 if args.mem:
     if args.target != "cuda": raise ValueError("Mem measurement only supported for GPUs")
