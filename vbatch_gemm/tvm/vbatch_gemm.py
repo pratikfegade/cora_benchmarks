@@ -26,6 +26,15 @@ parser.add_argument('--gen-lib', dest='gen_lib', default=False, action='store_tr
 parser.add_argument('--only-prep-code', dest='only_prep_code', default=False, action='store_true')
 parser.add_argument('--data-file', nargs='?', default='random')
 
+# parser.add_argument('--m1', dest='m1', default=2, type=int)
+# parser.add_argument('--m2', dest='m2', default=1, type=int)
+# parser.add_argument('--n1', dest='n1', default=32, type=int)
+# parser.add_argument('--n2', dest='n2', default=4, type=int)
+# parser.add_argument('--k1', dest='k1', default=8, type=int)
+# parser.add_argument('--k2', dest='k2', default=8, type=int)
+# parser.add_argument('--fs', dest='fs', default=3, type=int)
+
+
 parser.add_argument('--m1', dest='m1', default=2, type=int)
 parser.add_argument('--m2', dest='m2', default=1, type=int)
 parser.add_argument('--n1', dest='n1', default=32, type=int)
@@ -141,11 +150,12 @@ if args.target == "cuda":
     _ = tvm.register_func(
         utils.get_tvm_callback_cuda_postproc(args, os.path.realpath(__file__), fileprefix=gen_prefix))
 else:
-    vtile = 16
-    # O_local, = s.cache_write([O], "local")
     O_local = S
     Bl = s.cache_read(B, 'local', [O_local], layouts='dense')
     Al = s.cache_read(A, 'local', [O_local], layouts='dense')
+
+    All = s.cache_read(Al, 'local', [O_local], layouts='dense')
+    # Bll = s.cache_read(Bl, 'local', [O_local], layouts='dense')
 
     b, m, n, k = tuple(O_local.op.axis) + tuple(O_local.op.reduce_axis)
 
@@ -169,9 +179,13 @@ else:
     s[Bl].compute_at(s[O_local], ko)
     s[Al].compute_at(s[O_local], ko)
 
+    # s[Bll].compute_at(s[O_local], ni)
+    s[All].compute_at(s[O_local], kii)
+    s[All].unroll(s[All].leaf_iter_vars[1])
+
     # if not args.debug_code:
-    s[O_local].unroll(mii)
     s[O_local].unroll(kii)
+    s[O_local].unroll(mii)
 
     O_b, O_m, O_n = tuple(O.op.axis) + tuple(O.op.reduce_axis)
     O_m_o_o, O_m_i = s[O].split(O_m, factor=128)
@@ -191,7 +205,6 @@ else:
         fused = s[O].fuse(O_b, O_m_o_o)
         fused = s[O].fuse(fused, O_n_o_o)
         s[O].parallel(fused)
-
     s[O_local].compute_at(s[O], O_n_i_o)
 
 def size_fn(l_inputs):
