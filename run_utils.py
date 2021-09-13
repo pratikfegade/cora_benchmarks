@@ -47,6 +47,8 @@ def get_cmd_parser(no_options=False):
         parser.add_argument('--manual-code', dest='manual_code', default=False, action='store_true')
         parser.add_argument('--dense-storage', dest='dense_storage', default=False, action='store_true')
         parser.add_argument('--gen-lib', dest='gen_lib', default=False, action='store_true')
+        parser.add_argument('--skip-residual', dest='skip_residual', default=False, action='store_true')
+        parser.add_argument('--layout-unfused', dest='layout_unfused', default=False, action='store_true')
         parser.add_argument('--dataset', nargs='?', default='random')
         parser.add_argument('--only-prep-code', dest='only_prep_code', default=False, action='store_true')
         parser.add_argument('--gpu', nargs='?', default='v100', choices=['titanx', 'v100'])
@@ -307,7 +309,6 @@ def get_bert_layer_run_fn(bs_var):
                              for i in t_inputs_tensors[1:]])
                 l_inputs = [tvm.nd.array(batch, cpu_ctx)]
                 inputs = t_inputs + l_inputs + host_i_inputs + dev_i_inputs
-                print("  Batch")
                 time += execute(args.target, built, inputs, ctx, args.debug)
 
             print("RESULTS", batch_size, time / len(batches), sep=',')

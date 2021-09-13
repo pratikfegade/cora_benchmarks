@@ -60,7 +60,10 @@ S = te.ragged_compute((QKV_NUM, BATCH_SIZE, MAX_LEN, NUM_HEADS, OUT_SIZE), [qkv,
                                          axis = k, dimensions = [id]),
                       name = 'S', width_uf_lists=width_ufs)
 
-width_ufs=None if args.dense_storage else [[ls[0], ls[1], lufw64.get_uf(), ls[2], ls[5]]]
+if args.layout_unfused:
+    width_ufs=None if args.dense_storage else [[ls[0], ls[1], lufw1.get_uf(), ls[2], ls[5]]]
+else:
+    width_ufs=None if args.dense_storage else [[ls[0], ls[1], lufw64.get_uf(), ls[2], ls[5]]]
 O = te.ragged_compute((QKV_NUM, BATCH_SIZE, MAX_LEN, NUM_HEADS, OUT_SIZE), [qkv, bd, s1, md, od], loop_ufs,
                       lambda ds: S[ds[qkv], ds[bd], ds[s1], ds[md], ds[od]] + B[ds[qkv], ds[md], ds[od]],
                       name = 'O', width_uf_lists=width_ufs)
@@ -151,10 +154,13 @@ else:
 
 def size_fn(l_inputs):
     lens = l_inputs[0]
+    if args.layout_unfused: out_fn = lufw1.get_fn(lens)
+    else: out_fn = lufw64.get_fn(lens)
+
     return {
         QKV: IN_SIZE * run_utils.prefix_sum(len(lens), lambda b: lufw1.get_fn(lens)(b)),
         O: QKV_NUM * NUM_HEADS * OUT_SIZE * (BATCH_SIZE * MAX_LEN if args.dense_storage else
-                                             run_utils.prefix_sum(len(lens), lambda b: lufw64.get_fn(lens)(b)))
+                                             run_utils.prefix_sum(len(lens), lambda b: out_fn(b)))
     }
 
 bQKV = tvm.decl_buffer([BATCH_SIZE*MAX_LEN, IN_SIZE], name = "bQKV")

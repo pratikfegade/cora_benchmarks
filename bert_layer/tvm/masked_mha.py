@@ -18,6 +18,7 @@ parser.add_argument('--witers', dest='witers', default=5, type=int)
 parser.add_argument('--iters', dest='iters', default=20, type=int)
 parser.add_argument('--batch-size', dest='batch_size', default=32, type=int)
 parser.add_argument('--dense-storage', dest='dense_storage', default=False, action='store_true')
+parser.add_argument('--average', dest='average', default=False, action='store_true')
 parser.add_argument('--bin-packed', dest='bin_packed', default=False, action='store_true')
 parser.add_argument('--masked-mha', dest='masked_mha', default=False, action='store_true')
 parser.add_argument('--plain-mha', dest='plain_mha', default=False, action='store_true')
@@ -85,6 +86,11 @@ if not only_mha:
 # l_inputs: Allocate tensors
 batches = run_utils.get_nlp_batches(args.batch_size, args.max_batches, args.dataset)
 batches = run_utils.reverse_sort_batches(batches)
+if args.average:
+    for i in range(len(batches)):
+        avg = np.mean(batches[i])
+        batches[i].fill(avg)
+        batches[i] = batches[i].astype('int32')
 batches = run_utils.append_padded_sum(batches, 64)
 
 pre_linear_in_w = run_utils.create_tvm_array((3, NUM_HEADS, HEAD_SIZE, MODEL_DIM), "float32", dev_ctx, lw_args={})
@@ -92,12 +98,20 @@ pre_linear_in_b = run_utils.create_tvm_array((3, NUM_HEADS, HEAD_SIZE,), "float3
 post_linear_in_w = run_utils.create_tvm_array((NUM_HEADS * HEAD_SIZE, MODEL_DIM), "float32", dev_ctx, lw_args={})
 post_linear_in_b = run_utils.create_tvm_array((MODEL_DIM,), "float32", dev_ctx, lw_args={})
 if not only_mha:
+    norm_add1_in_b = run_utils.create_tvm_array((MODEL_DIM,), "float32", dev_ctx, lw_args={})
+    norm_add1_in_g = run_utils.create_tvm_array((MODEL_DIM,), "float32", dev_ctx, lw_args={})
+    norm_add2_in_b = run_utils.create_tvm_array((MODEL_DIM,), "float32", dev_ctx, lw_args={})
+    norm_add2_in_g = run_utils.create_tvm_array((MODEL_DIM,), "float32", dev_ctx, lw_args={})
     ff1_in_w = run_utils.create_tvm_array((MODEL_DIM, FF_DIM), "float32", dev_ctx, lw_args={})
     ff1_in_b = run_utils.create_tvm_array((FF_DIM,), "float32", dev_ctx, lw_args={})
     ff2_in_w = run_utils.create_tvm_array((FF_DIM, MODEL_DIM), "float32", dev_ctx, lw_args={})
     ff2_in_b = run_utils.create_tvm_array((MODEL_DIM,), "float32", dev_ctx, lw_args={})
 
 times = []
+time_dict = {}
+if args.per_op:
+    for op in ops_order:
+        time_dict[op.name] = []
 batch_size_ = BATCH_SIZE + 1
 for batch in batches:
     sum1 = run_utils.prefix_sum(batch_size_, lambda i: batch[i])
@@ -126,21 +140,21 @@ for batch in batches:
                                                NUM_HEADS*HEAD_SIZE*sum64, "float32", dev_ctx)
 
     post_linear_in_a = attn_v_out
+    post_linear_in_a2 = pre_linear_in_qkv.create_view((batch_size_, MAX_LEN, MODEL_DIM))
     post_linear_out = run_utils.create_ragged_array((batch_size_, MAX_LEN, MODEL_DIM), MODEL_DIM*sum1, "float32", dev_ctx)
 
     if not only_mha:
-        norm_add1_in_a1 = pre_linear_in_qkv.create_view((batch_size_, MAX_LEN, MODEL_DIM))
-        norm_add1_in_a2 = post_linear_out
+        norm_add1_in_a = post_linear_out
         norm_add1_out = run_utils.create_ragged_array((batch_size_, MAX_LEN, MODEL_DIM), MODEL_DIM*sum1, "float32", dev_ctx)
 
         ff1_in_a = norm_add1_out
         ff1_out = run_utils.create_ragged_array((batch_size_, MAX_LEN, FF_DIM), FF_DIM*sum1, "float32", dev_ctx)
 
         ff2_in_a = ff1_out
+        ff2_in_a2 = norm_add1_out
         ff2_out = run_utils.create_ragged_array((batch_size_, MAX_LEN, MODEL_DIM), MODEL_DIM*sum1, "float32", dev_ctx)
 
-        norm_add2_in_a1 = norm_add1_out
-        norm_add2_in_a2 = ff2_out
+        norm_add2_in_a = ff2_out
         norm_add2_out = run_utils.create_ragged_array((batch_size_, MAX_LEN, MODEL_DIM), MODEL_DIM*sum1, "float32", dev_ctx)
 
 
@@ -149,12 +163,12 @@ for batch in batches:
     ops['qkt'].tensor_inputs = [qkt_in_q, qkt_in_k, qkt_out]
     ops['softmax'].tensor_inputs = [softmax_in, softmax_out]
     ops['attn_v'].tensor_inputs = [attn_v_in_v, attn_v_in_attn, attn_v_out]
-    ops['post_linear'].tensor_inputs = [post_linear_in_a, post_linear_in_w, post_linear_in_b, post_linear_out]
+    ops['post_linear'].tensor_inputs = [post_linear_in_a, post_linear_in_a2, post_linear_in_w, post_linear_in_b, post_linear_out]
     if not only_mha:
-        ops['norm_add1'].tensor_inputs = [norm_add1_in_a1, norm_add1_in_a2, norm_add1_out]
+        ops['norm_add1'].tensor_inputs = [norm_add1_in_a, norm_add1_in_b, norm_add1_in_g, norm_add1_out]
         ops['ff1'].tensor_inputs = [ff1_in_a, ff1_in_w, ff1_in_b, ff1_out]
-        ops['ff2'].tensor_inputs = [ff2_in_a, ff2_in_w, ff2_in_b, ff2_out]
-        ops['norm_add2'].tensor_inputs = [norm_add2_in_a1, norm_add2_in_a2, norm_add2_out]
+        ops['ff2'].tensor_inputs = [ff2_in_a, ff2_in_a2, ff2_in_w, ff2_in_b, ff2_out]
+        ops['norm_add2'].tensor_inputs = [norm_add2_in_a, norm_add2_in_b, norm_add2_in_g, norm_add2_out]
 
     l_inputs = [tvm.nd.array(batch, cpu_ctx)]
 
@@ -169,10 +183,6 @@ for batch in batches:
     # times.append(sum(this_times) / args.iters)
 
     this_time = 0
-    time_dict = {}
-    if args.per_op:
-        for op in ops_order:
-            time_dict[op.name] = []
 
     for op in ops_order:
         op_time = op.execute_multiple(l_inputs, dev_ctx)
@@ -180,7 +190,6 @@ for batch in batches:
             time_dict[op.name].append(op_time)
         this_time += op_time
     times.append(this_time)
-
 
 if args.per_op:
     for op in ops_order:

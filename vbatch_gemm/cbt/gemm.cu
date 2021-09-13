@@ -101,15 +101,12 @@ double runBatch(int batch_size, int* M, int* N, int* K, int iters, bool warmup, 
   ErrChk(cudaMalloc((void**)&dev_T, BATCH*sizeof(int)));
   ErrChk(cudaMemcpy(dev_T, t_strategy, BATCH*sizeof(int), cudaMemcpyHostToDevice));
 
-  /*
+
   //print the obtained tiling strategy
-  for (int j=0; j<BATCH; ++j)
-  printf("%d ", t_strategy[j]);
+  for (int j=0; j<BATCH; ++j) {
+    printf("%d ", t_strategy[j]);
+  }
   printf("\n");
-  */
-
-
-
 
   //Batching Strategy
   int *b_strategy;
@@ -131,15 +128,12 @@ double runBatch(int batch_size, int* M, int* N, int* K, int iters, bool warmup, 
   ErrChk(cudaMemcpy(dev_Ba, b_strategy, BATCH*sizeof(int), cudaMemcpyHostToDevice));
 
 
-  /*
+
   //print the obtained batching strategy
-  for (int j=0; j<BATCH; ++j)
-  printf("%d ", b_strategy[j]);
+  for (int j=0; j<BATCH; ++j) {
+    printf("%d ", b_strategy[j]);
+  }
   printf("\n");
-  */
-
-
-
 
 
   //GEMM
@@ -257,7 +251,7 @@ int main(int argc, char** argv) {
       for (int i = 0; i < (batch_size / NUM_HEADS); ++i){
 	int length;
 	fs >> length;
-	for (int j = 0; j < 8; ++j) {
+	for (int j = 0; j < NUM_HEADS; ++j) {
 	  int n = 16;
 	  length = n * ((length + (n - 1)) / n);
 	  // std::cout << "  L " << length << std::endl;

@@ -44,6 +44,8 @@ A = te.ragged_placeholder((M, M), [md, kd], loop_ufs, name='A', width_ufs=None)
 
 B = te.placeholder((M, N), name='B')
 
+alpha = 0.03
+
 if args.op_split:
     def len_ufw(name, pad): return Ufw(name, "l", (pad, M), [md], [], lambda: lambda m: utils.floormult(m, pad))
     luf = len_ufw('s2k', 32).get_uf()
@@ -62,7 +64,7 @@ if args.op_split:
                             name = 'O2i', reduce_axis_ufs = [('k', Uf.from_constant('kd', 32, 'l'))], width_uf_lists=None)
 
     O2 = te.ragged_compute((M, N), [md, nd], loop_ufs,
-                           lambda ds: O1[ds[md], ds[nd]] + O2i[ds[md], ds[nd]],
+                           lambda ds: alpha*(O1[ds[md], ds[nd]] + O2i[ds[md], ds[nd]]),
                            name = 'O2', width_uf_lists=None)
 
     s = tvm.create_schedule([O1.op, O2.op])
@@ -71,17 +73,19 @@ else:
     luf = len_ufw('s2k', 32).get_uf()
 
     loop_ufs=[ls[0], ls[1]]
-    O = te.ragged_compute((M, N), [md, nd], loop_ufs,
+    S = te.ragged_compute((M, N), [md, nd], loop_ufs,
                           lambda ds, rds: tvm.sum(tvm.tir.Cast('int32', rds['k'] < (ds[md] + 1)) *
                                                   A[ds[md], rds['k']] * B[rds['k'], ds[nd]],
                                                   axis=rds['k'], dimensions = [kd]),
-                          name = 'O', reduce_axis_ufs = [('k', luf)], width_uf_lists=None)
+                          name = 'S', reduce_axis_ufs = [('k', luf)], width_uf_lists=None)
+
+    O = te.ragged_compute((M, N), [md, nd], loop_ufs, lambda ds: alpha*S[ds[md], ds[nd]], name = 'O', width_uf_lists=None)
 
     s = tvm.create_schedule([O.op])
 
-def schedule_op(O, suffix, rem):
-    if rem:
-        S = O2i
+def schedule_op(O, suffix, cache_write_tensor=None):
+    if cache_write_tensor is not None:
+        S = cache_write_tensor
     else:
         S, = s.cache_write([O], "local", storage_layout_mode='loop_layout')
 
@@ -131,10 +135,10 @@ def schedule_op(O, suffix, rem):
     # s[S].pragma(S_l_o_o_o_o, "unroll_explicit", True)
 
 if args.op_split:
-    schedule_op(O1, '1', False)
-    schedule_op(O2, '2', True)
+    schedule_op(O1, '1')
+    schedule_op(O2, '2', O2i)
 else:
-    schedule_op(O, '', False)
+    schedule_op(O, '', S)
 
 gen_prefix = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0]
 _ = tvm.register_func(utils.get_tvm_callback_cuda_compile(256))

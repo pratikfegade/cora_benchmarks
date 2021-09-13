@@ -47,21 +47,30 @@ class Encoder(nn.Module):
         self.model_size = model_size
         self.ff_size = ff_size
         self.max_len = max_len
+        self.layer_norm1 = torch.nn.LayerNorm((self.model_size,), elementwise_affine=True, device=device)
+        self.layer_norm2 = torch.nn.LayerNorm((self.model_size,), elementwise_affine=True, device=device)
 
-    def forward(self, inp):
-        qkv = torch.matmul(inp, self.pre_linear_w) + self.pre_linear_b
+    def forward(self, inp, attn_mask):
+        qkv = torch.matmul(inp, self.pre_linear_w)
+        qkv += self.pre_linear_b
         qkv = qkv.view(3, self.num_heads, self.batch_size, self.max_len, self.head_size)
         q, k, v = torch.split(qkv, 1, 0)
         attn = torch.matmul(q, k.permute(0, 1, 2, 4, 3))
+        attn += attn_mask
         attn = f.softmax(attn, dim = 4)
         attn = torch.reshape(torch.matmul(attn, v).permute(0, 2, 3, 1, 4), (self.batch_size, self.max_len, self.model_size))
-        sa_out = torch.matmul(attn, self.post_linear_w) + self.post_linear_b
-        sa_out = f.layer_norm(sa_out + inp.view(self.batch_size, self.max_len, self.model_size),
-                              normalized_shape = (self.model_size,))
+        sa_out = torch.matmul(attn, self.post_linear_w)
+        sa_out += self.post_linear_b
+        sa_out += inp.view(self.batch_size, self.max_len, self.model_size)
+        sa_out = self.layer_norm1(sa_out)
 
-        ff1_out = f.gelu(torch.matmul(sa_out, self.ff1_w) + self.ff1_b)
-        ff2_out = torch.matmul(ff1_out, self.ff2_w) + self.ff2_b
-        ff_out = f.layer_norm(ff2_out + sa_out, normalized_shape = (self.model_size,))
+        ff1_out = torch.matmul(sa_out, self.ff1_w)
+        ff1_out += self.ff1_b
+        ff1_out = f.gelu(ff1_out)
+        ff2_out = torch.matmul(ff1_out, self.ff2_w)
+        ff2_out += self.ff2_b
+        ff2_out += sa_out
+        ff_out = self.layer_norm2(ff2_out)
         return ff_out
 
 class MaskedMHA(nn.Module):
@@ -76,21 +85,18 @@ class MaskedMHA(nn.Module):
         self.head_size = head_size
         self.model_size = model_size
         self.max_len = max_len
-        self.attn_mask = np.full((max_len, max_len), 0.0, dtype='float32')
-        for i in range(max_len):
-            for j in range(i + 1, max_len):
-                self.attn_mask[i][j] = -float('inf')
-        self.attn_mask = torch.from_numpy(self.attn_mask).to(device)
 
-    def forward(self, inp):
-        qkv = torch.matmul(inp, self.pre_linear_w) + self.pre_linear_b
+    def forward(self, inp, attn_mask):
+        qkv = torch.matmul(inp, self.pre_linear_w)
+        qkv += self.pre_linear_b
         qkv = qkv.view(3, self.num_heads, self.batch_size, self.max_len, self.head_size)
         q, k, v = torch.split(qkv, 1, 0)
         attn = torch.matmul(q, k.permute(0, 1, 2, 4, 3))
-        attn += self.attn_mask
+        attn += attn_mask
         attn = f.softmax(attn, dim = 4)
         attn = torch.reshape(torch.matmul(attn, v).permute(0, 2, 3, 1, 4), (self.batch_size, self.max_len, self.model_size))
-        sa_out = torch.matmul(attn, self.post_linear_w) + self.post_linear_b
+        sa_out = torch.matmul(attn, self.post_linear_w)
+        sa_out += self.post_linear_b
         return sa_out
 
 num_heads = 8
@@ -98,8 +104,9 @@ head_size = 64
 ff_size = 2048
 model_size = num_heads * head_size
 device = torch.device('cuda')
+batch_size = args.batch_size
 
-batches = run_utils.get_nlp_batches(args.batch_size, args.max_batches, args.dataset)
+batches = run_utils.get_nlp_batches(batch_size, args.max_batches, args.dataset)
 
 iters = 1 if args.mem else 50
 
@@ -109,27 +116,46 @@ def run_for_batches():
     for batch in batches:
         max_len = int(np.amax(batch))
 
-
+        attn_mask = np.full((batch_size, max_len, max_len), 0.0, dtype='float32')
         if args.masked_mha:
-            encoder = MaskedMHA(device, max_len, args.batch_size, num_heads, head_size, model_size)
+            for i in range(batch_size):
+                for j in range(max_len):
+                    if j >= batch[i]:
+                        for k in range(0, max_len):
+                            attn_mask[i][j][k] = -float('inf')
+                    else:
+                        for k in range(j + 1, max_len):
+                            attn_mask[i][j][k] = -float('inf')
+            attn_mask = torch.from_numpy(attn_mask).to(device)
+            encoder = MaskedMHA(device, max_len, batch_size, num_heads, head_size, model_size)
         else:
-            encoder = Encoder(device, max_len, args.batch_size, num_heads, head_size, model_size, ff_size)
+            for i in range(batch_size):
+                for j in range(max_len):
+                    if j >= batch[i]:
+                        for k in range(0, max_len):
+                            attn_mask[i][j][k] = -float('inf')
+                    else:
+                        for k in range(batch[i], max_len):
+                            attn_mask[i][j][k] = -float('inf')
+            attn_mask = torch.from_numpy(attn_mask).to(device)
+            encoder = Encoder(device, max_len, batch_size, num_heads, head_size, model_size, ff_size)
 
         traced_encoder = torch.jit.script(encoder)
 
         inp = get_np_tensor((args.batch_size * max_len, model_size), device, True)
-        timer = benchmark.Timer(stmt='f(x)',
-                                globals={'x': inp, 'f': traced_encoder})
+        timer = benchmark.Timer(stmt='f(x, y)',
+                                globals={'x': inp, 'y': attn_mask, 'f': traced_encoder})
         batch_times.append(timer.timeit(iters).mean * 1000.0)
     return batch_times
 
-if not args.profile:
-    batch_times = run_for_batches()
-    print('RESULTS', sum(batch_times) / len(batches), sep=',')
-else:
-    with profile(activities=[ProfilerActivity.CUDA], record_shapes=True) as prof:
-        run_for_batches()
-        print(prof.key_averages(group_by_stack_n=5))
+with torch.no_grad():
+    if not args.profile:
+        batch_times = run_for_batches()
+        print('RESULTS', sum(batch_times) / len(batches), sep=',')
+    else:
+        with profile(activities=[ProfilerActivity.CUDA], record_shapes=True) as prof:
+            run_for_batches()
+            print(prof.key_averages(group_by_stack_n=5))
 
 if args.mem:
     if args.target != "cuda": raise ValueError("Mem measurement only supported for GPUs")

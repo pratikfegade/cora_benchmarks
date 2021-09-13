@@ -38,7 +38,10 @@ ls =  {
 }
 
 loop_ufs=[ls[0], ls[2], ls[1], ls[3]]
-width_ufs=[ls[0], lufw64.get_uf(), ls[1], lufw64.get_uf()]
+if args.layout_unfused:
+    width_ufs=[ls[0], lufw32.get_uf(), ls[1], lufw32.get_uf()]
+else:
+    width_ufs=[ls[0], lufw64.get_uf(), ls[1], lufw64.get_uf()]
 A = te.ragged_placeholder((BATCH_SIZE, MAX_LEN, NUM_HEADS, MAX_LEN), [bd, s1, md, s2], loop_ufs,
                           name='A', width_ufs=width_ufs)
 
@@ -110,13 +113,11 @@ else:
 
 def size_fn(l_inputs):
     lens = l_inputs[0]
+    if args.layout_unfused: fn = lufw32.get_fn(lens)
+    else: fn = lufw64.get_fn(lens)
     return {
-        A: NUM_HEADS * run_utils.prefix_sum(len(lens),
-                                            lambda b: (lufw64.get_fn(lens)(b) *
-                                                       lufw64.get_fn(lens)(b))),
-        O: NUM_HEADS * run_utils.prefix_sum(len(lens),
-                                            lambda b: (lufw64.get_fn(lens)(b) *
-                                                       lufw64.get_fn(lens)(b)))
+        A: NUM_HEADS * run_utils.prefix_sum(len(lens), lambda b: (fn(b) * fn(b))),
+        O: NUM_HEADS * run_utils.prefix_sum(len(lens), lambda b: (fn(b) * fn(b)))
     }
 
 name = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0]

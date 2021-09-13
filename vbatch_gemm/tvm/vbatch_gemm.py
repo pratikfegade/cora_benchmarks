@@ -26,6 +26,15 @@ parser.add_argument('--gen-lib', dest='gen_lib', default=False, action='store_tr
 parser.add_argument('--only-prep-code', dest='only_prep_code', default=False, action='store_true')
 parser.add_argument('--data-file', nargs='?', default='random')
 
+# parser.add_argument('--m1', dest='m1', default=2, type=int)
+# parser.add_argument('--m2', dest='m2', default=1, type=int)
+# parser.add_argument('--n1', dest='n1', default=32, type=int)
+# parser.add_argument('--n2', dest='n2', default=4, type=int)
+# parser.add_argument('--k1', dest='k1', default=8, type=int)
+# parser.add_argument('--k2', dest='k2', default=8, type=int)
+# parser.add_argument('--fs', dest='fs', default=3, type=int)
+
+
 parser.add_argument('--m1', dest='m1', default=2, type=int)
 parser.add_argument('--m2', dest='m2', default=1, type=int)
 parser.add_argument('--n1', dest='n1', default=32, type=int)
@@ -67,23 +76,33 @@ loop_ufs=[ls[0], ls[3], ls[2]]
 B = te.ragged_placeholder((BATCH_SIZE, MAX_DIM, MAX_DIM), [bd, kd, nd], loop_ufs, name='B', width_ufs=None, dtype='float32')
 
 loop_ufs=[ls[0], ls[1], ls[2]]
-O = te.ragged_compute((BATCH_SIZE, MAX_DIM, MAX_DIM), [bd, md, nd], loop_ufs,
+Op = te.ragged_placeholder((BATCH_SIZE, MAX_DIM, MAX_DIM), [bd, md, nd], loop_ufs, name='Op', width_ufs=None, dtype='float32')
+
+loop_ufs=[ls[0], ls[1], ls[2]]
+S = te.ragged_compute((BATCH_SIZE, MAX_DIM, MAX_DIM), [bd, md, nd], loop_ufs,
                       lambda ds, rds: tvm.sum(A[ds[bd], ds[md], rds['k']] * B[ds[bd], rds['k'], ds[nd]],
                                               axis=rds['k'], dimensions=[kd]),
-                      name = 'O', reduce_axis_ufs = [('k', kufw.get_uf())], width_uf_lists=None)
+                      name = 'S', reduce_axis_ufs = [('k', kufw.get_uf())], width_uf_lists=None)
+
+alpha = 0.01
+beta = 0.03
+loop_ufs=[ls[0], ls[1], ls[2]]
+O = te.ragged_compute((BATCH_SIZE, MAX_DIM, MAX_DIM), [bd, md, nd], loop_ufs,
+                      lambda ds: alpha*S[ds[bd], ds[md], ds[nd]] + beta*Op[ds[bd], ds[md], ds[nd]],
+                      name = 'O', width_uf_lists=None)
 
 s = tvm.create_schedule([O.op])
 
 prep_code_mode='with_prep_code'
 if args.target == "cuda":
-    O_local, = s.cache_write([O], "local")
+    O_local = S
     O_l_b_c, O_l_m_c, O_l_n_c, O_l_k = tuple(O_local.op.axis) + tuple(O_local.op.reduce_axis)
 
     O_l_k_o_i, O_l_k_i = s[O_local].split(O_l_k, factor=4)
     O_l_k_o_o, O_l_k_o_i = s[O_local].split(O_l_k_o_i, factor=4)
     s[O_local].reorder(O_l_b_c, O_l_k_o_o, O_l_k_o_i, O_l_m_c, O_l_n_c, O_l_k_i)
 
-    O_b, O_m, O_n, O_k = tuple(O.op.axis) + tuple(O.op.reduce_axis)
+    O_b, O_m, O_n = tuple(O.op.axis) + tuple(O.op.reduce_axis)
 
     O_m_o_i, O_m_i = s[O].split(O_m, factor=4)
     O_m_o_o_i, O_m_o_i = s[O].split(O_m_o_i, factor=4)
@@ -133,10 +152,12 @@ if args.target == "cuda":
     _ = tvm.register_func(
         utils.get_tvm_callback_cuda_postproc(args, os.path.realpath(__file__), fileprefix=gen_prefix))
 else:
-    vtile = 16
-    O_local, = s.cache_write([O], "local")
+    O_local = S
     Bl = s.cache_read(B, 'local', [O_local], layouts='dense')
     Al = s.cache_read(A, 'local', [O_local], layouts='dense')
+
+    All = s.cache_read(Al, 'local', [O_local], layouts='dense')
+    # Bll = s.cache_read(Bl, 'local', [O_local], layouts='dense')
 
     b, m, n, k = tuple(O_local.op.axis) + tuple(O_local.op.reduce_axis)
 
@@ -160,11 +181,15 @@ else:
     s[Bl].compute_at(s[O_local], ko)
     s[Al].compute_at(s[O_local], ko)
 
-    # if not args.debug_code:
-    s[O_local].unroll(mii)
-    s[O_local].unroll(kii)
+    # s[Bll].compute_at(s[O_local], ni)
+    s[All].compute_at(s[O_local], kii)
+    s[All].unroll(s[All].leaf_iter_vars[1])
 
-    O_b, O_m, O_n, O_k = tuple(O.op.axis) + tuple(O.op.reduce_axis)
+    # if not args.debug_code:
+    s[O_local].unroll(kii)
+    s[O_local].unroll(mii)
+
+    O_b, O_m, O_n = tuple(O.op.axis) + tuple(O.op.reduce_axis)
     O_m_o_o, O_m_i = s[O].split(O_m, factor=128)
     O_m_i_o, O_m_i_i = s[O].split(O_m_i, factor=128)
     O_n_o_o, O_n_i = s[O].split(O_n, factor=128)
@@ -182,7 +207,6 @@ else:
         fused = s[O].fuse(O_b, O_m_o_o)
         fused = s[O].fuse(fused, O_n_o_o)
         s[O].parallel(fused)
-
     s[O_local].compute_at(s[O], O_n_i_o)
 
 def size_fn(l_inputs):
@@ -193,12 +217,14 @@ def size_fn(l_inputs):
         O: BATCH_SIZE * MAX_DIM * MAX_DIM,
     }
 
+bO = tvm.tir.decl_buffer((BATCH_SIZE, MAX_DIM, MAX_DIM), name="bO")
+binds = {Op: bO, O: bO}
 if args.only_prep_code: prep_code_mode = 'only_prep_code'
-inputs = [[ms, ns, ks], [A, B, O]]
+inputs = [[ms, ns, ks], [A, B, bO]]
 name = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0]
 out = run_utils.lower_or_build(name, s, inputs, args, size_fn=size_fn,
                                run_function=run_utils.run_vbatch_gemm,
-                               prep_code_mode=prep_code_mode)
+                               prep_code_mode=prep_code_mode, binds=binds)
 
 # A, W, O  = out
 # for i in range(BATCH_SIZE):
