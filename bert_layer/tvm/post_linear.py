@@ -246,7 +246,10 @@ def size_fn(l_inputs):
 # bO = tvm.decl_buffer([BATCH_SIZE * MAX_LEN, OUT_SIZE], name = "bO")
 # inputs = [[lens], [A, W, bO]]
 # binds = {O: bO}
-inputs = [[lens], [BS_VAR, A, A2, W, B, O]]
+if args.skip_residual:
+    inputs = [[lens], [BS_VAR, A, W, B, O]]
+else:
+    inputs = [[lens], [BS_VAR, A, A2, W, B, O]]
 binds = {}
 
 name = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0]

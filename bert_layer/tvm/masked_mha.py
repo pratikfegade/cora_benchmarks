@@ -72,7 +72,7 @@ ops_order = [
 if not only_mha:
     ops.update({
         'norm_add1': Op('norm_add1', 'norm_add', BATCH_SIZE, [], cpu_ctx, dev_ctx),
-        'ff1': Op('ff1', 'ff1', BATCH_SIZE, [], cpu_ctx, dev_ctx),
+        'ff1': Op('ff1', 'ff1', BATCH_SIZE, [], cpu_ctx, dev_ctx, variants=[1]),
         'ff2': Op('ff2', 'ff2', BATCH_SIZE, [], cpu_ctx, dev_ctx, variants=[1, 2, 3]),
         'norm_add2': Op('norm_add2', 'norm_add', BATCH_SIZE, [], cpu_ctx, dev_ctx),
     })

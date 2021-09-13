@@ -12,6 +12,7 @@ import utils
 import run_utils
 
 parser = run_utils.get_cmd_parser()
+parser.add_argument('--sched', dest='sched', default=1, type=int)
 args = parser.parse_args()
 
 BS_VAR = te.var('bs')
@@ -59,7 +60,7 @@ O = te.ragged_compute((BATCH_SIZE, MAX_LEN, OUT_SIZE), [bd, s1, od], loop_ufs,
 s = tvm.create_schedule([O.op])
 
 if args.target == "cuda":
-    if False:
+    if args.sched == 1:
         b, l, o, k = tuple(S.op.axis) + tuple(S.op.reduce_axis)
         l = s[S].fuse(b, l, padding = 2)
         loi, li = s[S].split(l, factor=2)
@@ -137,7 +138,7 @@ if args.target == "cuda":
 
         s[O].mark_no_bounds_check()
         s[S].mark_no_bounds_check()
-    elif False:
+    elif args.sched == 2:
         S_b, S_l, S_o, S_k = tuple(S.op.axis) + tuple(S.op.reduce_axis)
         S_l = s[S].fuse(S_b, S_l, padding = 1)
 
@@ -270,6 +271,7 @@ if args.target == "cuda":
 
         s[S].mark_no_bounds_check()
         s[O].mark_no_bounds_check()
+        s[A_shared].mark_no_bounds_check()
 
         s[S].set_scope('local')
 
@@ -293,12 +295,11 @@ name = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0]
 out, batches = run_utils.lower_or_build(name, s, inputs, args, size_fn=size_fn, pad_sum=32,
                                         run_function=run_utils.get_bert_layer_run_fn(BS_VAR))
 
-_, A, W, B, O  = out[0:5]
-ctr = 0
-O = O.flatten()
-S = S.flatten()
-for length in batches[0]:
-    this_extent = length * OUT_SIZE
-    # print(length, run_utils.stats(S[ctr:ctr + this_extent]), run_utils.stats(O[ctr:ctr + this_extent]))
-    print(length, run_utils.stats(O[ctr:ctr + this_extent]))
-    ctr += this_extent
+# _, A, W, B, O  = out[0:5]
+# ctr = 0
+# O = O.flatten()
+# for length in batches[0]:
+#     this_extent = length * OUT_SIZE
+#     # print(length, run_utils.stats(S[ctr:ctr + this_extent]), run_utils.stats(O[ctr:ctr + this_extent]))
+#     print(length, run_utils.stats(O[ctr:ctr + this_extent]))
+#     ctr += this_extent

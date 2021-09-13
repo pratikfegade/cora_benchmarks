@@ -81,12 +81,12 @@ class Op:
         self.modules[0](*inputs)
 
     def execute_multiple(self, l_inputs, ctx):
-        # print('Exe', self.name, self.batch_size)
-        # sys.stdout.flush()
+        sys.stdout.flush()
         means = []
         for i in range(len(self.modules)):
             inputs = [self.batch_size] + self.tensor_inputs + l_inputs + self.host_ibufs[i] + self.dev_ibufs[i]
             # evaluator = self.modules[i].time_evaluator(self.modules[i].entry_name, ctx, number=10, repeat=10)
+            print('Exe', self.name, self.batch_size, len(inputs))
             evaluator = self.modules[i].time_evaluator(self.modules[i].entry_name, ctx, number=2, repeat=10)
             eval_result = evaluator(*inputs)
             means.append(mean(list(eval_result.results)[1:]))
