@@ -14,8 +14,8 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--target', nargs='?', default='llvm')
 parser.add_argument('--dtype', dest='dtype', nargs='?', default='float32')
 parser.add_argument('--max-batches', dest='max_batches', default=200, type=int)
-parser.add_argument('--witers', dest='witers', default=50, type=int)
-parser.add_argument('--iters', dest='iters', default=200, type=int)
+parser.add_argument('--witers', dest='witers', default=5, type=int)
+parser.add_argument('--iters', dest='iters', default=20, type=int)
 parser.add_argument('--batch-size', dest='batch_size', default=32, type=int)
 parser.add_argument('--dense-storage', dest='dense_storage', default=False, action='store_true')
 parser.add_argument('--bin-packed', dest='bin_packed', default=False, action='store_true')
@@ -60,7 +60,7 @@ ops = {
 }
 
 ops_order = [
-    ops['memset'],
+    # ops['memset'],
     ops['pre_linear'],
     ops['qkt'],
     ops['softmax'],
@@ -160,11 +160,11 @@ for batch in batches:
 
     # this_times = []
     # for i in range(args.witers + args.iters):
-    #     start = time.perf_counter()
-    #     for op in ops_order: op.execute(l_inputs)
-    #     dev_ctx.sync()
-    #     end = time.perf_counter()
-    #     this_times.append(end - start)
+        # start = time.perf_counter()
+        # for op in ops_order: op.execute(l_inputs)
+        # dev_ctx.sync()
+        # end = time.perf_counter()
+        # this_times.append(end - start)
     # this_times = this_times[args.witers:]
     # times.append(sum(this_times) / args.iters)
 
@@ -184,8 +184,9 @@ for batch in batches:
 
 if args.per_op:
     for op in ops_order:
-        time = sum(time_dict[op.name])*1000.0
-        print('RESULTS', op.name, time / (len(batches)), sep=',')
+        op_times = time_dict[op.name]
+        time = (sum(op_times)*1000.0) / len(op_times)
+        print('RESULTS', op.name, time, sep=',')
 
 total_time = sum(times)*1000.0
 print('RESULTS', total_time / (len(batches)), sep=',')
