@@ -31,7 +31,7 @@ def run_cora_op(op_name, b_sizes, dataset, n_batch, err_file, args, pad_fusion):
     runner = op_data[2]
     cmd = ([PYTHON, runner, '--target', com.get_tvm_target(target), '--batch-sizes'] +
            [str(i) for i in b_sizes] +
-           ['--max-batches', str(n_batch), '--dataset', dataset])
+           ['--max-batches', str(n_batch), '--dataset', dataset, '--skip-residual'])
 
     if pad_fusion:
         if pad_op: return None

@@ -13,6 +13,10 @@ if [ $OP == $YES ]; then
     EXTRA_ARGS="--only-prep-code"
 fi
 
+if [ $MS == $YES ]; then
+    EXTRA_ARGS=$EXTRA_ARGS" --skip-residual"
+fi
+
 python3 ${SCRIPT_DIR}/norm_add.py --target cuda --dataset $DS --gen-lib $EXTRA_ARGS
 python3 ${SCRIPT_DIR}/pre_linear.py --target cuda --dataset $DS --gen-lib $EXTRA_ARGS
 python3 ${SCRIPT_DIR}/memset.py --target cuda --dataset $DS --gen-lib $EXTRA_ARGS

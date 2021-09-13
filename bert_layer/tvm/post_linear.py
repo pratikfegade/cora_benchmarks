@@ -66,9 +66,11 @@ S = te.ragged_compute((BATCH_SIZE, MAX_LEN, OUT_SIZE), [bd, s1, od], loop_ufs,
                                          W[k, ds[od]], axis=k, dimensions = [mdhd]),
                       name = 'S', width_uf_lists=width_ufs)
 
+def compute_body(ds):
+    if args.skip_residual: return S[ds[bd], ds[s1], ds[od]] + B[ds[od]]
+    else: return A2[ds[bd], ds[s1], ds[od]] + S[ds[bd], ds[s1], ds[od]] + B[ds[od]]
 O = te.ragged_compute((BATCH_SIZE, MAX_LEN, OUT_SIZE), [bd, s1, od], loop_ufs,
-                      lambda ds: A2[ds[bd], ds[s1], ds[od]] + S[ds[bd], ds[s1], ds[od]] + B[ds[od]],
-                      name = 'O', width_uf_lists=width_ufs)
+                      compute_body, name = 'O', width_uf_lists=width_ufs)
 
 s = tvm.create_schedule([O.op])
 
