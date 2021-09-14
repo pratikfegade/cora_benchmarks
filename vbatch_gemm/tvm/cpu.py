@@ -45,7 +45,7 @@ bd = Dim('bd')
 md = Dim('md')
 nd = Dim('nd')
 kd = Dim('kd')
-MIN_DIM, MAX_DIM = 4*args.tile_size, 12*args.tile_size
+MIN_DIM, MAX_DIM = 4*args.tile_size, 11*args.tile_size
 
 def f_mufw(name): return Ufw(name, "l", (MIN_DIM, MAX_DIM), [bd], [ms], lambda b: lambda b: args.tile_size * ms[b])
 def f_nufw(name): return Ufw(name, "l", (MIN_DIM, MAX_DIM), [bd], [ns], lambda b: lambda b: args.tile_size * ns[b])
@@ -59,6 +59,13 @@ ls =  {
     1: mufw.get_uf(),
     2: nufw.get_uf(),
     3: kufw.get_uf(),
+}
+
+lds =  {
+    0: Uf.from_constant('bd', BATCH_SIZE, "l"),
+    1: Uf.from_constant('mdd', MAX_DIM, "l"),
+    2: Uf.from_constant('ndd', MAX_DIM, "l"),
+    3: Uf.from_constant('kdd', MAX_DIM, "l"),
 }
 
 loop_ufs=[ls[0], ls[1], ls[3]]
@@ -85,9 +92,12 @@ s = tvm.create_schedule([O.op])
 prep_code_mode='with_prep_code'
 if True:
     O_local = S
-    lls = [Uf.from_constant('m', MAX_DIM, 'l'), Uf.from_constant('n', MAX_DIM, 'l'), Uf.from_constant('k', MAX_DIM, 'l')]
-    Bl = s.cache_read(B, 'local', [O_local], layouts='dense', loop_layout=[lls[2], lls[1]])
-    Al = s.cache_read(A, 'local', [O_local], layouts='dense', loop_layout=[lls[0], lls[2]])
+    Bl = s.cache_read(B, 'local', [O_local], layouts='dense',
+                      loop_layout=[lds[0], lds[3], lds[2]], axis_mirror_loop_layout=True)
+    Al = s.cache_read(A, 'local', [O_local], layouts='dense',
+                      loop_layout=[lds[0], lds[1], lds[3]], axis_mirror_loop_layout=True)
+    # Bl = s.cache_read(B, 'local', [O_local], layouts='dense', axis_mirror_loop_layout=True)
+    # Al = s.cache_read(A, 'local', [O_local], layouts='dense', axis_mirror_loop_layout=True)
 
     # All = s.cache_read(Al, 'local', [O_local], layouts='dense')
 
@@ -144,8 +154,12 @@ if True:
     s[Bl].mark_no_bounds_check()
     s[S].mark_no_bounds_check()
 
-    s.split_tensor_dimension(Al, 0, m1)
-    s.reorder_tensor_dimensions(Al, 1, 2)
+    s.split_tensor_dimension(Al, 1, m1)
+    s.reorder_tensor_dimensions(Al, 2, 3)
+
+    s.split_tensor_dimension(Bl, 1, k1)
+    s.split_tensor_dimension(Bl, 3, n1)
+    s.reorder_tensor_dimensions(Bl, 2, 3)
 
 def size_fn(l_inputs):
     lens = l_inputs[0]
