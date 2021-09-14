@@ -47,12 +47,14 @@ def f_nufw(name): return Ufw(name, "l", (MIN_DIM, MAX_DIM), [bd], [ns], lambda b
 def f_kufw(name): return Ufw(name, "l", (MIN_DIM, MAX_DIM), [bd], [ks], lambda b: lambda b: args.tile_size * ks.vload(b))
 
 mufw = f_mufw('m')
-nufw = f_nufw('m')
-kufw = f_kufw('m')
+nufw = f_nufw('n')
+kufw = f_kufw('k')
 ls =  {
     0: Uf.from_constant('bd', BATCH_SIZE, "l"),
     1: mufw.get_uf(),
     2: nufw.get_uf(),
+    # 1: Uf.from_constant('md', MAX_DIM, "l"),
+    # 2: Uf.from_constant('nd', MAX_DIM, "l"),
     3: Uf.from_constant('kd', MAX_DIM, "l"),
 }
 
@@ -88,13 +90,13 @@ alpha = 1
 beta = 0.0
 loop_ufs=[ls[0], ls[1], ls[2]]
 O = te.ragged_compute((BATCH_SIZE, MAX_DIM, MAX_DIM), [bd, md, nd], loop_ufs,
-                      lambda ds: alpha*S[ds[bd], ds[md], ds[nd]] + beta*Op[ds[bd], ds[md], ds[nd]],
+                      # lambda ds: alpha*S[ds[bd], ds[md], ds[nd]] + beta*Op[ds[bd], ds[md], ds[nd]],
+                      lambda ds: S[ds[bd], ds[md], ds[nd]],
                       name = 'O', width_uf_lists=None)
 
 s = tvm.create_schedule([O.op])
 
-if args.batch_size <= 2: tile = 128
-else: tile = 128
+tile = args.tile_size
 
 def intrin_gemv(m, n, r):
     a = te.placeholder((m,r), name="a")
@@ -108,7 +110,7 @@ def intrin_gemv(m, n, r):
 
     Ab = tvm.tir.decl_buffer(a.shape, a.dtype, name="A", offset_factor=1, strides=[MAX_DIM, 1])
     Bb = tvm.tir.decl_buffer(b.shape, b.dtype, name="B", offset_factor=1, strides=[MAX_DIM, 1])
-    Cb = tvm.tir.decl_buffer(c.shape, c.dtype, name="C", offset_factor=1, strides=[tile, 1])
+    Cb = tvm.tir.decl_buffer(c.shape, c.dtype, name="C", offset_factor=1, strides=[tile, 1], scope='local')
 
     def intrin_func(ins, outs):
         ib = tvm.tir.ir_builder.create()
@@ -119,9 +121,7 @@ def intrin_gemv(m, n, r):
                                     bb,
                                     cc,
                                     False,
-                                    False,
-                                    alpha,
-                                    beta))
+                                    False))
         return ib.get()
 
     return te.decl_tensor_intrin(c.op, intrin_func, binds={a: Ab, b: Bb, c: Cb})
@@ -130,6 +130,7 @@ gemv = intrin_gemv(tile, tile, MAX_DIM)
 
 
 prep_code_mode='with_prep_code'
+# prep_code_mode='no_prep_code'
 if True:
     O_local = S
     b, m, n, k = tuple(O_local.op.axis) + tuple(O_local.op.reduce_axis)
@@ -142,15 +143,21 @@ if True:
 
     s[O].reorder(O_b, O_m_o_o, O_n_o_o, O_m_i_o, O_n_i_o, O_m_i_i, O_n_i_i)
 
+    # fused = s[O].fuse(O_m_o_o, O_n_o_o)
+    # fused = s[O].fuse(O_b, fused)
+
     fused = s[O].fuse(O_b, O_m_o_o)
     fused = s[O].fuse(fused, O_n_o_o)
     s[O].parallel(fused)
+    # s[O].bind(fused, tvm.thread_axis("cpu_par_thread.x"))
 
 
     s[O_local].compute_at(s[O], O_n_i_o)
     s[O_local].tensorize(s[O_local].leaf_iter_vars[1], gemv)
 
     # s[O].tensorize(O_m_i_i, gemv)
+
+    s[S].set_scope('local')
 
 def size_fn(l_inputs):
     lens = l_inputs[0]
@@ -160,17 +167,20 @@ def size_fn(l_inputs):
         O: BATCH_SIZE * MAX_DIM * MAX_DIM,
     }
 
-bO = tvm.tir.decl_buffer((BATCH_SIZE, MAX_DIM, MAX_DIM), name="bO")
-binds = {Op: bO, O: bO}
+# bO = tvm.tir.decl_buffer((BATCH_SIZE, MAX_DIM, MAX_DIM), name="bO")
+# binds = {Op: bO, O: bO}
+binds={}
 if args.only_prep_code: prep_code_mode = 'only_prep_code'
-inputs = [[ms, ns, ks], [A, B, bO]]
+inputs = [[ms, ns, ks], [A, B, O]]
 name = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0]
 out, ms, ns, ks = run_utils.lower_or_build(name, s, inputs, args, size_fn=size_fn,
                                            run_function=run_utils.run_vbatch_gemm,
                                            prep_code_mode=prep_code_mode, binds=binds)
 
+np.set_printoptions(threshold=sys.maxsize)
 A, B, O = out
 for i in range(BATCH_SIZE):
-    m = int(ms[i])
-    n = int(ns[i])
+    m = int(ms[0][i])
+    n = int(ns[0][i])
     print(m, n, run_utils.stats(A[i,0:m,:]), run_utils.stats(B[i,:,0:n]), run_utils.stats(O[i,0:m,0:n]))
+    # print(m, n, run_utils.stats(A[i,0:m,:]), run_utils.stats(B[i,:,0:n]), O[i,0:m,0:n])
