@@ -25,21 +25,16 @@ parser.add_argument('--dense-storage', dest='dense_storage', default=False, acti
 parser.add_argument('--gen-lib', dest='gen_lib', default=False, action='store_true')
 parser.add_argument('--only-prep-code', dest='only_prep_code', default=False, action='store_true')
 parser.add_argument('--data-file', nargs='?', default='random')
-
-parser.add_argument('--m1', dest='m1', default=2, type=int)
-parser.add_argument('--m2', dest='m2', default=1, type=int)
-parser.add_argument('--n1', dest='n1', default=32, type=int)
-parser.add_argument('--n2', dest='n2', default=4, type=int)
-parser.add_argument('--k1', dest='k1', default=8, type=int)
-parser.add_argument('--k2', dest='k2', default=8, type=int)
-parser.add_argument('--fs', dest='fs', default=3, type=int)
 args = parser.parse_args()
 
 BATCH_SIZE = args.batch_size
 
-ms = te.placeholder((BATCH_SIZE,), name = 'ms', dtype = 'int32')
-ns = te.placeholder((BATCH_SIZE,), name = 'ns', dtype = 'int32')
-ks = te.placeholder((BATCH_SIZE,), name = 'ks', dtype = 'int32')
+# ms = te.placeholder((BATCH_SIZE,), name = 'ms', dtype = 'int32')
+# ns = te.placeholder((BATCH_SIZE,), name = 'ns', dtype = 'int32')
+# ks = te.placeholder((BATCH_SIZE,), name = 'ks', dtype = 'int32')
+ms = tvm.decl_buffer((BATCH_SIZE,), name = 'ms', dtype = 'int32')
+ns = tvm.decl_buffer((BATCH_SIZE,), name = 'ns', dtype = 'int32')
+ks = tvm.decl_buffer((BATCH_SIZE,), name = 'ks', dtype = 'int32')
 
 bd = Dim('bd')
 md = Dim('md')
@@ -47,9 +42,9 @@ nd = Dim('nd')
 kd = Dim('kd')
 MIN_DIM, MAX_DIM = 4*args.tile_size, 11*args.tile_size
 
-def f_mufw(name): return Ufw(name, "l", (MIN_DIM, MAX_DIM), [bd], [ms], lambda b: lambda b: args.tile_size * ms[b])
-def f_nufw(name): return Ufw(name, "l", (MIN_DIM, MAX_DIM), [bd], [ns], lambda b: lambda b: args.tile_size * ns[b])
-def f_kufw(name): return Ufw(name, "l", (MIN_DIM, MAX_DIM), [bd], [ks], lambda b: lambda b: args.tile_size * ks[b])
+def f_mufw(name): return Ufw(name, "l", (MIN_DIM, MAX_DIM), [bd], [ms], lambda b: lambda b: args.tile_size * ms.vload(b))
+def f_nufw(name): return Ufw(name, "l", (MIN_DIM, MAX_DIM), [bd], [ns], lambda b: lambda b: args.tile_size * ns.vload(b))
+def f_kufw(name): return Ufw(name, "l", (MIN_DIM, MAX_DIM), [bd], [ks], lambda b: lambda b: args.tile_size * ks.vload(b))
 
 mufw = f_mufw('m')
 nufw = f_nufw('m')
@@ -58,14 +53,7 @@ ls =  {
     0: Uf.from_constant('bd', BATCH_SIZE, "l"),
     1: mufw.get_uf(),
     2: nufw.get_uf(),
-    3: kufw.get_uf(),
-}
-
-lds =  {
-    0: Uf.from_constant('bd', BATCH_SIZE, "l"),
-    1: Uf.from_constant('mdd', MAX_DIM, "l"),
-    2: Uf.from_constant('ndd', MAX_DIM, "l"),
-    3: Uf.from_constant('kdd', MAX_DIM, "l"),
+    3: Uf.from_constant('kd', MAX_DIM, "l"),
 }
 
 loop_ufs=[ls[0], ls[1], ls[3]]
@@ -74,63 +62,59 @@ loop_ufs=[ls[0], ls[3], ls[2]]
 B = te.ragged_placeholder((BATCH_SIZE, MAX_DIM, MAX_DIM), [bd, kd, nd], loop_ufs, name='B', width_ufs=None, dtype='float32')
 
 loop_ufs=[ls[0], ls[1], ls[2]]
-Op = te.ragged_placeholder((BATCH_SIZE, MAX_DIM, MAX_DIM), [bd, md, nd], loop_ufs, name='Op', width_ufs=None, dtype='float32')
-
-loop_ufs=[ls[0], ls[1], ls[2]]
-S = te.ragged_compute((BATCH_SIZE, MAX_DIM, MAX_DIM), [bd, md, nd], loop_ufs,
-                      lambda ds, rds: tvm.sum(A[ds[bd], ds[md], rds['k']] * B[ds[bd], rds['k'], ds[nd]],
-                                              axis=rds['k'], dimensions=[kd]),
-                      name = 'S', reduce_axis_ufs = [('k', kufw.get_uf())], width_uf_lists=None)
-
-loop_ufs=[ls[0], ls[1], ls[2]]
+# O = te.ragged_compute((BATCH_SIZE, MAX_DIM, MAX_DIM), [bd, md, nd], loop_ufs,
+                      # lambda ds, rds: tvm.sum(A[ds[bd], ds[md], rds['k']] * B[ds[bd], rds['k'], ds[nd]],
+                                              # axis=rds['k'], dimensions=[kd]),
+                      # name = 'O', reduce_axis_ufs = [('k', kufw.get_uf())], width_uf_lists=None)
+k = te.reduce_axis((0, 1408), 'k')
 O = te.ragged_compute((BATCH_SIZE, MAX_DIM, MAX_DIM), [bd, md, nd], loop_ufs,
-                      lambda ds: S[ds[bd], ds[md], ds[nd]] + Op[ds[bd], ds[md], ds[nd]],
+                      lambda ds: tvm.sum(A[ds[bd], ds[md], k] * B[ds[bd], k, ds[nd]],
+                                         axis=k, dimensions=[kd]),
                       name = 'O', width_uf_lists=None)
 
 s = tvm.create_schedule([O.op])
 
+
+
+def intrin_gemv(m, n, r):
+    a = te.placeholder((m,r), name="a")
+    b = te.placeholder((r,n), name="b")
+    k = te.reduce_axis((0,r), name="k")
+    # c = te.compute((m,n), lambda i,j: te.sum(a[i,k] * b[k,j], axis=k), name="c")
+
+    c = te.ragged_compute((m, n), [md, nd], [Uf.from_constant('m', m, 'l'), Uf.from_constant('n', n, 'l')],
+                          lambda ds: tvm.sum(a[ds[md], k] * b[k, ds[nd]], axis=k, dimensions=[kd]),
+                          name = 'O', width_uf_lists=None)
+
+
+    Ab = tvm.tir.decl_buffer(a.shape, a.dtype, name="A", offset_factor=1, strides=[1408, 1])
+    # Bb = tvm.tir.decl_buffer(b.shape, b.dtype, name="B", offset_factor=1, strides=[te.var("s1"), 1])
+    Bb = tvm.tir.decl_buffer(b.shape, b.dtype, name="B", offset_factor=1, strides=[1408, 1])
+    Cb = tvm.tir.decl_buffer(c.shape, c.dtype, name="C", offset_factor=1, strides=[128, 1])
+
+    def intrin_func(ins, outs):
+        ib = tvm.tir.ir_builder.create()
+        aa, bb = ins
+        cc = outs[0]
+        ib.emit(tvm.tir.call_packed("tvm.contrib.cblas.matmul_no_thread",
+                                    aa,
+                                    bb,
+                                    cc,
+                                    False,
+                                    False))
+        return ib.get()
+
+    return te.decl_tensor_intrin(c.op, intrin_func, binds={a: Ab, b: Bb, c: Cb})
+
+gemv = intrin_gemv(128, 128, 1408)
+
+
 prep_code_mode='with_prep_code'
 if True:
-    O_local = S
-    Bl = s.cache_read(B, 'local', [O_local], layouts='dense',
-                      loop_layout=[lds[0], lds[3], lds[2]], axis_mirror_loop_layout=True)
-    Al = s.cache_read(A, 'local', [O_local], layouts='dense',
-                      loop_layout=[lds[0], lds[1], lds[3]], axis_mirror_loop_layout=True)
-    # Bl = s.cache_read(B, 'local', [O_local], layouts='dense', axis_mirror_loop_layout=True)
-    # Al = s.cache_read(A, 'local', [O_local], layouts='dense', axis_mirror_loop_layout=True)
-
-    # All = s.cache_read(Al, 'local', [O_local], layouts='dense')
-
+    O_local = s.cache_write(O, 'global')
     b, m, n, k = tuple(O_local.op.axis) + tuple(O_local.op.reduce_axis)
 
-    m1, m2 = args.m1, args.m2
-    n1, n2 = args.n1, args.n2
-    k1, k2 = args.k1, args.k2
-
-    if not (m1 * m2 <= 128 and n1 * n2 <= 128 and k1 * k2 <= 128):
-        exit(0)
-
-    mo, mii = s[O_local].split(m, factor=m1)
-    mo, mi = s[O_local].split(mo, factor=m2)
-
-    no, nii = s[O_local].split(n, factor=n1)
-    no, ni = s[O_local].split(no, factor=n2)
-
-    ko, kii = s[O_local].split(k, factor=k1)
-    ko, ki = s[O_local].split(ko, factor=k2)
-    s[O_local].reorder(ko, mo, no, ki, mi, ni, kii, mii, nii)
-    s[Bl].compute_at(s[O_local], ko)
-    s[Al].compute_at(s[O_local], ko)
-
-    # s[All].compute_at(s[O_local], kii)
-
-    if not args.debug_code:
-        # s[All].unroll(s[All].leaf_iter_vars[1])
-        s[O_local].vectorize(nii)
-        s[O_local].unroll(kii)
-        s[O_local].unroll(mii)
-
-    O_b, O_m, O_n = tuple(O.op.axis) + tuple(O.op.reduce_axis)
+    O_b, O_m, O_n = tuple(O.op.axis)
     O_m_o_o, O_m_i = s[O].split(O_m, factor=128)
     O_m_i_o, O_m_i_i = s[O].split(O_m_i, factor=128)
     O_n_o_o, O_n_i = s[O].split(O_n, factor=128)
@@ -138,28 +122,12 @@ if True:
 
     s[O].reorder(O_b, O_m_o_o, O_n_o_o, O_m_i_o, O_n_i_o, O_m_i_i, O_n_i_i)
 
-    if args.fs == 1:
-        s[O].parallel(O_b)
-        prep_code_mode='no_prep_code'
-    elif args.fs == 2:
-        fused = s[O].fuse(O_b, O_m_o_o)
-        s[O].parallel(fused)
-    else:
-        fused = s[O].fuse(O_b, O_m_o_o)
-        fused = s[O].fuse(fused, O_n_o_o)
-        s[O].parallel(fused)
+    fused = s[O].fuse(O_b, O_m_o_o)
+    fused = s[O].fuse(fused, O_n_o_o)
+    s[O].parallel(fused)
     s[O_local].compute_at(s[O], O_n_i_o)
 
-    s[Al].mark_no_bounds_check()
-    s[Bl].mark_no_bounds_check()
-    s[S].mark_no_bounds_check()
-
-    s.split_tensor_dimension(Al, 1, m1)
-    s.reorder_tensor_dimensions(Al, 2, 3)
-
-    s.split_tensor_dimension(Bl, 1, k1)
-    s.split_tensor_dimension(Bl, 3, n1)
-    s.reorder_tensor_dimensions(Bl, 2, 3)
+    s[O_local].tensorize(s[O_local].leaf_iter_vars[1], gemv)
 
 def size_fn(l_inputs):
     lens = l_inputs[0]
@@ -170,13 +138,12 @@ def size_fn(l_inputs):
     }
 
 bO = tvm.tir.decl_buffer((BATCH_SIZE, MAX_DIM, MAX_DIM), name="bO")
-binds = {Op: bO, O: bO}
 if args.only_prep_code: prep_code_mode = 'only_prep_code'
-inputs = [[ms, ns, ks], [A, B, bO]]
+inputs = [[ms, ns, ks], [A, B, O]]
 name = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0]
 out = run_utils.lower_or_build(name, s, inputs, args, size_fn=size_fn,
                                run_function=run_utils.run_vbatch_gemm,
-                               prep_code_mode=prep_code_mode, binds=binds)
+                               prep_code_mode=prep_code_mode)
 
 # A, W, O  = out
 # for i in range(BATCH_SIZE):
