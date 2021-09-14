@@ -61,6 +61,9 @@ def create_ibufs(ibuf_infos, batch_size, cpu_ctx, dev_ctx, alloc_op=None):
         ret.append((host_bufs, dev_bufs))
     return ret
 
+def mean(l):
+    return sum(l) / len(l)
+
 class Op:
     def __init__(self, name, module_name, batch_size, tensor_inputs, cpu_ctx, dev_ctx, alloc_op=None, variants=None):
         self.name = name
@@ -78,13 +81,15 @@ class Op:
         self.modules[0](*inputs)
 
     def execute_multiple(self, l_inputs, ctx):
-        # print('Exe', self.name, self.batch_size)
-        # sys.stdout.flush()
+        sys.stdout.flush()
         means = []
         for i in range(len(self.modules)):
             inputs = [self.batch_size] + self.tensor_inputs + l_inputs + self.host_ibufs[i] + self.dev_ibufs[i]
-            evaluator = self.modules[i].time_evaluator(self.modules[i].entry_name, ctx, number=10, repeat=10)
-            means.append(evaluator(*inputs).mean)
+            # evaluator = self.modules[i].time_evaluator(self.modules[i].entry_name, ctx, number=10, repeat=10)
+            print('Exe', self.name, self.batch_size, len(inputs))
+            evaluator = self.modules[i].time_evaluator(self.modules[i].entry_name, ctx, number=2, repeat=10)
+            eval_result = evaluator(*inputs)
+            means.append(mean(list(eval_result.results)[1:]))
         return min(means)
 
 

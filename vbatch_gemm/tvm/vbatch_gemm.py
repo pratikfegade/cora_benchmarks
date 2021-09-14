@@ -84,9 +84,11 @@ S = te.ragged_compute((BATCH_SIZE, MAX_DIM, MAX_DIM), [bd, md, nd], loop_ufs,
                                               axis=rds['k'], dimensions=[kd]),
                       name = 'S', reduce_axis_ufs = [('k', kufw.get_uf())], width_uf_lists=None)
 
+alpha = 0.01
+beta = 0.03
 loop_ufs=[ls[0], ls[1], ls[2]]
 O = te.ragged_compute((BATCH_SIZE, MAX_DIM, MAX_DIM), [bd, md, nd], loop_ufs,
-                      lambda ds: S[ds[bd], ds[md], ds[nd]] + Op[ds[bd], ds[md], ds[nd]],
+                      lambda ds: alpha*S[ds[bd], ds[md], ds[nd]] + beta*Op[ds[bd], ds[md], ds[nd]],
                       name = 'O', width_uf_lists=None)
 
 s = tvm.create_schedule([O.op])

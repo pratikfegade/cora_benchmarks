@@ -47,6 +47,7 @@ def get_cmd_parser(no_options=False):
         parser.add_argument('--manual-code', dest='manual_code', default=False, action='store_true')
         parser.add_argument('--dense-storage', dest='dense_storage', default=False, action='store_true')
         parser.add_argument('--gen-lib', dest='gen_lib', default=False, action='store_true')
+        parser.add_argument('--skip-residual', dest='skip_residual', default=False, action='store_true')
         parser.add_argument('--layout-unfused', dest='layout_unfused', default=False, action='store_true')
         parser.add_argument('--dataset', nargs='?', default='random')
         parser.add_argument('--only-prep-code', dest='only_prep_code', default=False, action='store_true')
