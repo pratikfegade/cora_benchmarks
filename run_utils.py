@@ -5,7 +5,8 @@ import os
 import numpy as np
 
 def stats(arr):
-    return np.min(arr), np.mean(arr), np.max(arr)
+    # return np.min(arr), np.mean(arr), np.max(arr)
+    return np.min(arr), np.max(arr)
 
 dataset_files = {
     "wiki_128": "/old_wikipedia/full_lengths_128.txt",
@@ -52,6 +53,7 @@ def get_cmd_parser(no_options=False):
         parser.add_argument('--dataset', nargs='?', default='random')
         parser.add_argument('--only-prep-code', dest='only_prep_code', default=False, action='store_true')
         parser.add_argument('--gpu', nargs='?', default='v100', choices=['titanx', 'v100'])
+        parser.add_argument('--no-raggedness', dest='no_raggedness', default=False, action='store_true')
     return parser
 
 def prefix_sum(extent, fn):
@@ -156,8 +158,8 @@ def execute(target, built, inputs, ctx, debug = False):
             return -100000000
             evaluator = built.time_evaluator('default_function', ctx, 1, repeat=10)
         else:
-            # evaluator = built.time_evaluator(built.entry_name, ctx, repeat=1, number=50)
-            evaluator = built.time_evaluator(built.entry_name, ctx, repeat=5, number=100)
+            evaluator = built.time_evaluator(built.entry_name, ctx, repeat=2, number=20)
+            # evaluator = built.time_evaluator(built.entry_name, ctx, repeat=5, number=100)
         eval_result = evaluator(*inputs)
         return mean(list(eval_result.results)[1:]) * 1000
         # return mean(list(eval_result.results)) * 1000
@@ -355,7 +357,7 @@ def run_vbatch_gemm(built, i_inputs_tensors, t_inputs_tensors, lw_args, args, pa
         if t_inputs_tensors[i] in size_fn:
             target = np.empty(size_fn[t_inputs_tensors[i]], dtype='float32')
         t_inputs[i] = t_inputs[i].asnumpy(target=target, is_src_ragged=is_ragged(t_inputs_tensors[i]))
-    return t_inputs
+    return t_inputs, ms, ns, ks
 
 def run_trmm(built, i_inputs_tensors, t_inputs_tensors, lw_args, args, pad_sum=None):
     import tvm
