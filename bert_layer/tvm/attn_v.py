@@ -12,7 +12,7 @@ import run_utils
 
 parser = run_utils.get_cmd_parser()
 parser.add_argument('--kt', dest='kt', default=8, type=int)
-parser.add_argument('--nt', dest='nt', default=16, type=int)
+# parser.add_argument('--nt', dest='nt', default=16, type=int)
 args = parser.parse_args()
 
 BS_VAR = te.var('bs')
@@ -64,6 +64,9 @@ O = te.ragged_compute((BATCH_SIZE, MAX_LEN, NUM_HEADS, HEAD_SIZE), [bd, s2, md, 
 s = tvm.create_schedule([O.op])
 
 if args.target == "cuda":
+    if args.dataset in ['mprc', 'cola']: nt = 16
+    else: nt = 8
+
     thread_x = lambda: tvm.thread_axis("threadIdx.x")
     thread_y = lambda: tvm.thread_axis("threadIdx.y")
     block_x = lambda: tvm.thread_axis("blockIdx.x")
@@ -84,7 +87,6 @@ if args.target == "cuda":
     s[O].bind(f, block_y())
     s[O].bind(h, block_x())
 
-    nt = args.nt
     xio, xii = s[O].split(xi, factor = nt)
     yo, yi = s[O].split(y, factor = nt)
     s[O].bind(xii, thread_y())
