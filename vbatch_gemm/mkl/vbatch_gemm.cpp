@@ -35,6 +35,10 @@ float testUBatch(int batch_size, std::vector<int> ms, std::vector<int> ns, std::
   int maxN = find_max(ns);
   int maxK = find_max(ks);
 
+  // int maxM = 1408;
+  // int maxN = 1408;
+  // int maxK = 1408;
+
   long a_size = maxM * maxK;
   long b_size = maxK * maxN;
   long c_size = maxM * maxN;

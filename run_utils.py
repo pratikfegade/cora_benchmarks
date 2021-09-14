@@ -5,7 +5,8 @@ import os
 import numpy as np
 
 def stats(arr):
-    return np.min(arr), np.mean(arr), np.max(arr)
+    # return np.min(arr), np.mean(arr), np.max(arr)
+    return np.min(arr), np.max(arr)
 
 dataset_files = {
     "wiki_128": "/old_wikipedia/full_lengths_128.txt",
@@ -156,8 +157,8 @@ def execute(target, built, inputs, ctx, debug = False):
             return -100000000
             evaluator = built.time_evaluator('default_function', ctx, 1, repeat=10)
         else:
-            # evaluator = built.time_evaluator(built.entry_name, ctx, repeat=1, number=50)
-            evaluator = built.time_evaluator(built.entry_name, ctx, repeat=5, number=100)
+            evaluator = built.time_evaluator(built.entry_name, ctx, repeat=2, number=20)
+            # evaluator = built.time_evaluator(built.entry_name, ctx, repeat=5, number=100)
         eval_result = evaluator(*inputs)
         return mean(list(eval_result.results)[1:]) * 1000
         # return mean(list(eval_result.results)) * 1000
@@ -355,7 +356,7 @@ def run_vbatch_gemm(built, i_inputs_tensors, t_inputs_tensors, lw_args, args, pa
         if t_inputs_tensors[i] in size_fn:
             target = np.empty(size_fn[t_inputs_tensors[i]], dtype='float32')
         t_inputs[i] = t_inputs[i].asnumpy(target=target, is_src_ragged=is_ragged(t_inputs_tensors[i]))
-    return t_inputs
+    return t_inputs, ms, ns, ks
 
 def run_trmm(built, i_inputs_tensors, t_inputs_tensors, lw_args, args, pad_sum=None):
     import tvm
