@@ -30,7 +30,10 @@ s1 = Dim('s1')
 s2 = Dim('s2')
 hd = Dim('hd')
 
-def len_ufw(name, pad): return Ufw(name, "l", (pad, MAX_LEN), [bd], [lens], lambda lens: lambda b: utils.ceilmult(lens[b], pad))
+if args.no_raggedness:
+    def len_ufw(name, pad): return Ufw(name, "l", (pad, MAX_LEN), [], [], lambda : lambda : utils.ceilmult(MAX_LEN, pad))
+else:
+    def len_ufw(name, pad): return Ufw(name, "l", (pad, MAX_LEN), [bd], [lens], lambda lens: lambda b: utils.ceilmult(lens[b], pad))
 lufw1 = len_ufw('s', 1)
 lufw64 = len_ufw('s', 64)
 
