@@ -235,7 +235,7 @@ int main(int argc, char** argv) {
   }
 
   double total_time = 0;
-  for (int i = 0; i < num_batches; ++i) {
+  for (int b = 0; b < num_batches; ++b) {
     std::vector<int> Ms(batch_size, -1);
     std::vector<int> Ns(batch_size, -1);
     std::vector<int> Ks(batch_size, -1);
