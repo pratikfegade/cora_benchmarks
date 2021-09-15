@@ -158,8 +158,8 @@ def execute(target, built, inputs, ctx, debug = False):
             return -100000000
             evaluator = built.time_evaluator('default_function', ctx, 1, repeat=10)
         else:
-            evaluator = built.time_evaluator(built.entry_name, ctx, repeat=2, number=20)
-            # evaluator = built.time_evaluator(built.entry_name, ctx, repeat=5, number=100)
+            # evaluator = built.time_evaluator(built.entry_name, ctx, repeat=2, number=20)
+            evaluator = built.time_evaluator(built.entry_name, ctx, repeat=5, number=100)
         eval_result = evaluator(*inputs)
         return mean(list(eval_result.results)[1:]) * 1000
         # return mean(list(eval_result.results)) * 1000
@@ -309,7 +309,10 @@ def get_bert_layer_run_fn(bs_var):
                 t_inputs = ([batch_size] +
                             [create_tvm_array(i, "float32", ctx, rmap=rmap, lw_args=lw_args([batch]))
                              for i in t_inputs_tensors[1:]])
-                l_inputs = [tvm.nd.array(batch, cpu_ctx)]
+                if args.no_raggedness:
+                    l_inputs = [tvm.nd.array(batch, ctx)]
+                else:
+                    l_inputs = [tvm.nd.array(batch, cpu_ctx)]
                 inputs = t_inputs + l_inputs + host_i_inputs + dev_i_inputs
                 time += execute(args.target, built, inputs, ctx, args.debug)
 
