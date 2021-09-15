@@ -134,18 +134,22 @@ if args.target == "cuda":
 
 
 def size_fn(l_inputs):
-    lens = l_inputs[0]
-    return {
-        V: 3 * NUM_HEADS * HEAD_SIZE * run_utils.prefix_sum(len(lens), lambda b: (lufw64.get_fn(lens)(b))),
-        A: NUM_HEADS * run_utils.prefix_sum(len(lens), lambda b: (lufw64.get_fn(lens)(b) *
-                                                                  lufw64.get_fn(lens)(b))),
-        O: NUM_HEADS * HEAD_SIZE * run_utils.prefix_sum(len(lens), lambda b: lufw64.get_fn(lens)(b))
-    }
+    if args.no_raggedness: return {}
+    else:
+        lens = l_inputs[0]
+        return {
+            V: 3 * NUM_HEADS * HEAD_SIZE * run_utils.prefix_sum(len(lens), lambda b: (lufw64.get_fn(lens)(b))),
+            A: NUM_HEADS * run_utils.prefix_sum(len(lens), lambda b: (lufw64.get_fn(lens)(b) *
+                                                                      lufw64.get_fn(lens)(b))),
+            O: NUM_HEADS * HEAD_SIZE * run_utils.prefix_sum(len(lens), lambda b: lufw64.get_fn(lens)(b))
+        }
 
+prep_code_mode = 'no_prep_code' if args.no_raggedness else 'with_prep_code'
 inputs = [[lens], [BS_VAR, V, A, O]]
 name = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0]
 out, batches = run_utils.lower_or_build(name, s, inputs, args, size_fn=size_fn, pad_sum=64,
-                                        run_function=run_utils.get_bert_layer_run_fn(BS_VAR))
+                                        run_function=run_utils.get_bert_layer_run_fn(BS_VAR),
+                                        prep_code_mode=prep_code_mode)
 
 # _, V, A, O  = out
 # ctr = 0

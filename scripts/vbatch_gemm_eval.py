@@ -55,8 +55,8 @@ parser.add_argument('--stdout', dest='stdout', default=False, action='store_true
 parser.add_argument('--append', dest='append', default=False, action='store_true')
 args = parser.parse_args()
 
-# batch_sizes = [1, 2, 4, 8, 16, 32, 64, 128, 256, 512]
-batch_sizes = [256, 512]
+batch_sizes = [1, 2, 4, 8, 16, 32, 64, 128, 256, 512]
+# batch_sizes = [256, 512]
 targets = [args.target] if args.target else ['cuda']
 
 if args.prep_overhead:
@@ -65,8 +65,8 @@ else:
     if args.target == 'cuda':
         framework_funs = {
             'cbt': run_cbt,
-            'cublas': run_cublas,
-            'cora': run_tvm,
+            # 'cublas': run_cublas,
+            # 'cora': run_tvm,
         }
     else:
         framework_funs = {

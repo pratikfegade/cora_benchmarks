@@ -103,10 +103,10 @@ double runBatch(int batch_size, int* M, int* N, int* K, int iters, bool warmup, 
 
 
   //print the obtained tiling strategy
-  for (int j=0; j<BATCH; ++j) {
-    printf("%d ", t_strategy[j]);
-  }
-  printf("\n");
+  // for (int j=0; j<BATCH; ++j) {
+  //   printf("%d ", t_strategy[j]);
+  // }
+  // printf("\n");
 
   //Batching Strategy
   int *b_strategy;
@@ -130,10 +130,10 @@ double runBatch(int batch_size, int* M, int* N, int* K, int iters, bool warmup, 
 
 
   //print the obtained batching strategy
-  for (int j=0; j<BATCH; ++j) {
-    printf("%d ", b_strategy[j]);
-  }
-  printf("\n");
+  // for (int j=0; j<BATCH; ++j) {
+  //   printf("%d ", b_strategy[j]);
+  // }
+  // printf("\n");
 
 
   //GEMM
@@ -254,15 +254,21 @@ int main(int argc, char** argv) {
 	for (int j = 0; j < NUM_HEADS; ++j) {
 	  int n = 16;
 	  length = n * ((length + (n - 1)) / n);
-	  // std::cout << "  L " << length << std::endl;
 	  if (mode == "qkt") {
 	    Ms[i*8+j] = length;
 	    Ns[i*8+j] = length;
 	    Ks[i*8+j] = HEAD_SIZE;
-	  } else {
+	  } else if (mode == "attn_v") {
 	    Ms[i*8+j] = length;
 	    Ns[i*8+j] = HEAD_SIZE;
 	    Ks[i*8+j] = length;
+	  } else if (mode == "bp_test") {
+	    Ms[i*8+j] = length;
+	    Ns[i*8+j] = 512;
+	    Ks[i*8+j] = 512;
+	  } else {
+	    std::cout << "No such mode" << std::endl;
+	    exit(-1);
 	  }
 	}
       }

@@ -115,24 +115,28 @@ else:
 
 
 def size_fn(l_inputs):
-    lens = l_inputs[0]
-    if args.layout_unfused: fn = lufw32.get_fn(lens)
-    else: fn = lufw64.get_fn(lens)
-    return {
-        A: NUM_HEADS * run_utils.prefix_sum(len(lens), lambda b: (fn(b) * fn(b))),
-        O: NUM_HEADS * run_utils.prefix_sum(len(lens), lambda b: (fn(b) * fn(b)))
-    }
+    if args.no_raggedness: return {}
+    else:
+        lens = l_inputs[0]
+        if args.layout_unfused: fn = lufw32.get_fn(lens)
+        else: fn = lufw64.get_fn(lens)
+        return {
+            A: NUM_HEADS * run_utils.prefix_sum(len(lens), lambda b: (fn(b) * fn(b))),
+            O: NUM_HEADS * run_utils.prefix_sum(len(lens), lambda b: (fn(b) * fn(b)))
+        }
 
+prep_code_mode = 'no_prep_code' if args.no_raggedness else 'with_prep_code'
 name = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0]
 out, batches = run_utils.lower_or_build(name, s, inputs, args, size_fn=size_fn,
-                                        run_function=run_utils.get_bert_layer_run_fn(BATCH_SIZE))
+                                        run_function=run_utils.get_bert_layer_run_fn(BATCH_SIZE),
+                                        prep_code_mode=prep_code_mode)
 
-out = out[2]
-ctr = 0
-out = out.flatten()
-for length in batches[0]:
-    rounded = utils.ceilmult(length, 32)
-    this_extent = utils.ceilmult(length, 32)
-    this_storage_extent = utils.ceilmult(length, 64) * utils.ceilmult(length, 64) * NUM_HEADS
-    print(length, rounded, 1 / rounded, np.mean(out[ctr:ctr + this_extent]))
-    ctr += this_storage_extent
+# out = out[2]
+# ctr = 0
+# out = out.flatten()
+# for length in batches[0]:
+#     rounded = utils.ceilmult(length, 32)
+#     this_extent = utils.ceilmult(length, 32)
+#     this_storage_extent = utils.ceilmult(length, 64) * utils.ceilmult(length, 64) * NUM_HEADS
+#     print(length, rounded, 1 / rounded, np.mean(out[ctr:ctr + this_extent]))
+#     ctr += this_storage_extent
