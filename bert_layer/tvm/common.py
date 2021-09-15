@@ -57,7 +57,7 @@ def create_ibufs(ibuf_infos, batch_size, cpu_ctx, dev_ctx, alloc_op=None):
         dev_bufs = [tvm.nd.array(run_utils.create_numpy_array(get_or_call(i[0]), i[1]), dev_ctx) for i in ibuf_info[1]]
         if alloc_op:
             [alloc_op([get_or_call(i[0])], get_or_call(i[0]), i[1], cpu_ctx) for i in ibuf_info[0]]
-            [alloc_op([get_or_call(i[0])], get_or_call(i[0]), i[1], cpu_ctx) for i in ibuf_info[1]]
+            [alloc_op([get_or_call(i[0])], get_or_call(i[0]), i[1], dev_ctx) for i in ibuf_info[1]]
         ret.append((host_bufs, dev_bufs))
     return ret
 
@@ -99,6 +99,8 @@ class OpShell:
         self.module_name = module_name
         self.tensor_inputs = tensor_inputs
         self.batch_size = batch_size
+        ibuf_info = load_ibuf_info(module_name, variants)
+        self.host_ibufs, self.dev_ibufs = list(zip(*create_ibufs(ibuf_info, batch_size, cpu_ctx, dev_ctx, alloc_op=alloc_op)))
 
     def execute(self, l_inputs):
          raise NotImplementedError
