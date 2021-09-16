@@ -13,9 +13,9 @@ def execute(b_size, op, dataset, n_batch, err_file, args):
     print(' '.join(cmd))
     out, err = run_cmd(cmd)
     print(out)
-    time = com.extract_times(out, 1)[0]
-    mem = com.extract_mem(out)
-    return (mem, time)
+    ftime, ttime = com.extract_times(out, 2)
+    fmem, tmem = com.extract_mem(out, 2)
+    return (fmem, ftime, tmem, ttime)
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--out-dir', dest='out_dir', nargs='?', default='perf_results')
@@ -35,15 +35,15 @@ ops = ['csf', 'cora']
 out_prefix = 'lowering_mem'
 
 results_out, results_err = get_out_files(args, out_prefix, 'a' if args.append else 'w')
-header = 'Dataset,Batch Size,csf_time,csf_mem,cora_time,cora_mem'
+header = 'Dataset,Batch Size,csf_ftime,csf_fmem,csf_ttime,csf_tmem,cora_ftime,cora_fmem,cora_ttime,cora_tmem'
 print(header, file = results_out)
 
 for dataset in datasets:
     for b_size in b_sizes:
         out_str = '%s,%d' % (dataset, b_size)
         for op in ops:
-            mem, time = execute(b_size, op, dataset, args.max_batches, results_err, args)
-            out_str += ',%g,%g' % (time, mem)
+            fmem, ftime, tmem, ttime = execute(b_size, op, dataset, args.max_batches, results_err, args)
+            out_str += ',%g,%g,%g,%g' % (ftime, fmem, ttime, tmem)
         print(out_str, file = results_out)
 
 if not args.stdout:

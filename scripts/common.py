@@ -59,7 +59,7 @@ def extract_time_batches(out):
             times[int(arr[1])] = float(arr[2])
     return times
 
-def extract_mem(out):
+def extract_mem(out, expect=1):
     lines = out.splitlines()
     res_line = None
     for line in lines:
@@ -68,9 +68,14 @@ def extract_mem(out):
             break
     if res_line:
         arr = res_line.split(',')
-        return float(arr[1])
+        if expect == 1: return float(arr[1])
+        else:
+            assert len(arr) == expect + 1
+            return [float(i) for i in arr[1:]]
     else:
-        return INF
+        if expect == 1:
+            return INF
+        else: return [INF]*expect
 
 def batchify(b_sizes, fun, *args):
     result = {}
