@@ -120,7 +120,11 @@ int main(int argc, char* argv[])
   fastertransformer::MemoryTracker::print();
 #endif
 
+#ifdef OP_TIMES
+  printf("RESULTS,Total,%.5f\n", total_time);
+#else
   printf("RESULTS,%.5f\n", total_time);
+#endif
 
   return 0;
 }

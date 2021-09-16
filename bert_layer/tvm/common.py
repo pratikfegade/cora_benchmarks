@@ -87,7 +87,7 @@ class Op:
             inputs = [self.batch_size] + self.tensor_inputs + l_inputs + self.host_ibufs[i] + self.dev_ibufs[i]
             # evaluator = self.modules[i].time_evaluator(self.modules[i].entry_name, ctx, number=10, repeat=10)
             # print('Exe', self.name, self.batch_size, len(inputs))
-            evaluator = self.modules[i].time_evaluator(self.modules[i].entry_name, ctx, number=2, repeat=10)
+            evaluator = self.modules[i].time_evaluator(self.modules[i].entry_name, ctx, number=5, repeat=100)
             eval_result = evaluator(*inputs)
             means.append(mean(list(eval_result.results)[1:]))
         return min(means)

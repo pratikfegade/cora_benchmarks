@@ -61,7 +61,7 @@ if not only_mha:
         'post_linear': Op('post_linear', 'post_linear', BATCH_SIZE, [], cpu_ctx, dev_ctx),
         'norm_add1': Op('norm_add1', 'norm_add', BATCH_SIZE, [], cpu_ctx, dev_ctx),
         'ff1': Op('ff1', 'ff1', BATCH_SIZE, [], cpu_ctx, dev_ctx, variants=[1, 2]),
-        'ff2': Op('ff2', 'ff2', BATCH_SIZE, [], cpu_ctx, dev_ctx, variants=[1, 2, 3]),
+        'ff2': Op('ff2', 'ff2', BATCH_SIZE, [], cpu_ctx, dev_ctx, variants=[1, 2, 3, 4, 5]),
         'norm_add2': Op('norm_add2', 'norm_add', BATCH_SIZE, [], cpu_ctx, dev_ctx),
     }
 
@@ -207,4 +207,7 @@ if args.per_op:
         print('RESULTS', op.name, time, sep=',')
 
 total_time = sum(times)*1000.0
-print('RESULTS', total_time / (len(batches)), sep=',')
+if args.per_op:
+    print('RESULTS,Sum', total_time / (len(batches)), sep=',')
+else:
+    print('RESULTS', total_time / (len(batches)), sep=',')
