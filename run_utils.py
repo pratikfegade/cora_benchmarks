@@ -158,8 +158,8 @@ def execute(target, built, inputs, ctx, debug = False):
             return -100000000
             evaluator = built.time_evaluator('default_function', ctx, 1, repeat=10)
         else:
-            # evaluator = built.time_evaluator(built.entry_name, ctx, repeat=2, number=20)
-            evaluator = built.time_evaluator(built.entry_name, ctx, repeat=5, number=100)
+            evaluator = built.time_evaluator(built.entry_name, ctx, repeat=2, number=20)
+            # evaluator = built.time_evaluator(built.entry_name, ctx, repeat=5, number=100)
         eval_result = evaluator(*inputs)
         return mean(list(eval_result.results)[1:]) * 1000
         # return mean(list(eval_result.results)) * 1000
@@ -328,39 +328,45 @@ def get_bert_layer_run_fn(bs_var):
         return t_inputs, batches
     return bert_layer_run
 
-def run_vbatch_gemm(built, i_inputs_tensors, t_inputs_tensors, lw_args, args, pad_sum=None):
+def get_vbatch_gemm_run_fn(bs_var):
     import tvm
-    ctx = get_ctx(args.target)
-    cpu_ctx = get_ctx("llvm")
-    host_i_inputs, dev_i_inputs = [], []
-    if len(i_inputs_tensors) == 2:
-        host_i_inputs = [tvm.nd.array(create_numpy_array(i, "int32"), cpu_ctx) for i in i_inputs_tensors[0]]
-        dev_i_inputs = [tvm.nd.array(create_numpy_array(i, "int32"), ctx) for i in i_inputs_tensors[1]]
+    print('BS_VAR', bs_var)
+    def run_vbatch_gemm(built, i_inputs_tensors, t_inputs_tensors, lw_args, args, pad_sum=None):
+        ctx = get_ctx(args.target)
+        cpu_ctx = get_ctx("llvm")
 
-    num_batches = args.max_batches
-    if args.debug: num_batches = 1
+        for batch_size in args.batch_sizes:
+            rmap = { bs_var: batch_size }
+            host_i_inputs, dev_i_inputs = [], []
+            if len(i_inputs_tensors) == 2:
+                host_i_inputs = [tvm.nd.array(create_numpy_array(i, "int32", rmap=rmap), cpu_ctx) for i in i_inputs_tensors[0]]
+                dev_i_inputs = [tvm.nd.array(create_numpy_array(i, "int32", rmap=rmap), ctx) for i in i_inputs_tensors[1]]
 
-    ms, ks, ns = read_and_chunk_gemm_dims(args.batch_size, num_batches, args.data_file)
+            num_batches = args.max_batches
+            if args.debug: num_batches = 1
 
-    t_inputs = [create_tvm_array(i, "float32", ctx, lw_args={}) for i in t_inputs_tensors]
-    time = 0
-    for i in range(len(ms)):
-        mb = np.ceil(ms[i] / args.tile_size).astype('int32')
-        nb = np.ceil(ns[i] / args.tile_size).astype('int32')
-        kb = np.ceil(ks[i] / args.tile_size).astype('int32')
+            ms, ks, ns = read_and_chunk_gemm_dims(batch_size, num_batches, args.data_file)
 
-        l_inputs = [tvm.nd.array(mb, cpu_ctx), tvm.nd.array(nb, cpu_ctx), tvm.nd.array(kb, cpu_ctx)]
-        inputs = t_inputs + l_inputs + host_i_inputs + dev_i_inputs
-        time += execute(args.target, built, inputs, ctx, args.debug)
+            t_inputs = [batch_size] + [create_tvm_array(i, "float32", ctx, rmap=rmap, lw_args={}) for i in t_inputs_tensors[1:]]
+            time = 0
+            for i in range(len(ms)):
+                mb = np.ceil(ms[i] / args.tile_size).astype('int32')
+                nb = np.ceil(ns[i] / args.tile_size).astype('int32')
+                kb = np.ceil(ks[i] / args.tile_size).astype('int32')
 
-    print("RESULTS", time / len(ms), sep=',')
-    for i in range(len(t_inputs)):
-        size_fn = {}
-        target = None
-        if t_inputs_tensors[i] in size_fn:
-            target = np.empty(size_fn[t_inputs_tensors[i]], dtype='float32')
-        t_inputs[i] = t_inputs[i].asnumpy(target=target, is_src_ragged=is_ragged(t_inputs_tensors[i]))
-    return t_inputs, ms, ns, ks
+                l_inputs = [tvm.nd.array(mb, cpu_ctx), tvm.nd.array(nb, cpu_ctx), tvm.nd.array(kb, cpu_ctx)]
+                inputs = t_inputs + l_inputs + host_i_inputs + dev_i_inputs
+                time += execute(args.target, built, inputs, ctx, args.debug)
+
+            print("RESULTS", time / len(ms), sep=',')
+            for i in range(len(t_inputs) - 1):
+                size_fn = {}
+                target = None
+                if t_inputs_tensors[i + 1] in size_fn:
+                    target = np.empty(size_fn[t_inputs_tensors[i + 1]], dtype='float32')
+                t_inputs[i + 1] = t_inputs[i + 1].asnumpy(target=target, is_src_ragged=is_ragged(t_inputs_tensors[i + 1]))
+        return t_inputs, ms, ns, ks
+    return run_vbatch_gemm
 
 def run_trmm(built, i_inputs_tensors, t_inputs_tensors, lw_args, args, pad_sum=None):
     import tvm

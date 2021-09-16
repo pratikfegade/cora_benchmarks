@@ -21,34 +21,46 @@ parser.add_argument('--batch-size', dest='batch_size', default=32, type=int)
 parser.add_argument('--profile', dest='profile', default=False, action='store_true')
 parser.add_argument('--mem', dest='mem', default=False, action='store_true')
 parser.add_argument('--masked-mha', dest='masked_mha', default=False, action='store_true')
+parser.add_argument('--debug', dest='debug', default=False, action='store_true')
 parser.add_argument('--dataset', nargs='?', default='random_384_512')
 args = parser.parse_args()
 
+np.random.seed(0)
+VAL=0.1
 def get_np_tensor(size, device, random, fill_value = None):
-    if random: return torch.randn(size, device = device, requires_grad = False, dtype = torch.float32)
+    # if random:
+    #     return torch.randn(size, device = device, requires_grad = False, dtype = torch.float32)
+    # else:
+    #     if fill_value == None: raise ValueError("No fill value provided " + str(fill_value))
+    #     return torch.full(size, fill_value = fill_value, device = device, requires_grad = False, dtype = torch.float32)
+
+    if random:
+        np_array = np.random.normal(size=size).astype('float32')
+        return torch.randn(size, device = device, requires_grad = False, dtype = torch.float32)
     else:
         if fill_value == None: raise ValueError("No fill value provided " + str(fill_value))
-        return torch.full(size, fill_value = fill_value, device = device, requires_grad = False, dtype = torch.float32)
+        np_array = np.full(size, 0.1, 'float32').astype('float32')
+    return torch.from_numpy(np_array).to(device)
 
 class Encoder(nn.Module):
-    def __init__(self, device, max_len, batch_size, num_heads, head_size, model_size, ff_size):
+    def __init__(self, device, max_len, batch_size, num_heads, head_size, model_size, ff_size, debug):
         super(Encoder, self).__init__()
-        self.pre_linear_w = get_np_tensor((3, num_heads, model_size, head_size), device, True)
-        self.pre_linear_b = get_np_tensor((3, num_heads, 1, head_size), device, True)
-        self.post_linear_w = get_np_tensor((model_size, model_size), device, True)
-        self.post_linear_b = get_np_tensor((model_size,), device, True)
-        self.ff1_w = get_np_tensor((model_size, ff_size), device, True)
-        self.ff2_w = get_np_tensor((ff_size, model_size), device, True)
-        self.ff1_b = get_np_tensor((ff_size,), device, True)
-        self.ff2_b = get_np_tensor((model_size,), device, True)
+        self.pre_linear_w = get_np_tensor((3, num_heads, model_size, head_size), device, not debug, VAL)
+        self.pre_linear_b = get_np_tensor((3, num_heads, 1, head_size), device, not debug, VAL)
+        self.post_linear_w = get_np_tensor((model_size, model_size), device, not debug, VAL)
+        self.post_linear_b = get_np_tensor((model_size,), device, not debug, VAL)
+        self.ff1_w = get_np_tensor((model_size, ff_size), device, not debug, VAL)
+        self.ff2_w = get_np_tensor((ff_size, model_size), device, not debug, VAL)
+        self.ff1_b = get_np_tensor((ff_size,), device, not debug, VAL)
+        self.ff2_b = get_np_tensor((model_size,), device, not debug, VAL)
         self.batch_size = batch_size
         self.num_heads = num_heads
         self.head_size = head_size
         self.model_size = model_size
         self.ff_size = ff_size
         self.max_len = max_len
-        self.layer_norm1 = torch.nn.LayerNorm((self.model_size,), elementwise_affine=True, device=device)
-        self.layer_norm2 = torch.nn.LayerNorm((self.model_size,), elementwise_affine=True, device=device)
+        self.layer_norm1 = torch.nn.LayerNorm((self.model_size,), elementwise_affine=not debug, device=device)
+        self.layer_norm2 = torch.nn.LayerNorm((self.model_size,), elementwise_affine=not debug, device=device)
 
     def forward(self, inp, attn_mask):
         qkv = torch.matmul(inp, self.pre_linear_w)
@@ -100,7 +112,7 @@ batch_size = args.batch_size
 
 batches = run_utils.get_nlp_batches(batch_size, args.max_batches, args.dataset)
 
-iters = 1 if args.mem else 50
+iters = 1 if args.mem or args.debug else 50
 
 callable_to_profile = None
 def run_for_batches():
@@ -137,13 +149,19 @@ def run_for_batches():
                         for k in range(batch[i], max_len):
                             attn_mask[i][j][k] = -float('inf')
             attn_mask = torch.from_numpy(attn_mask).to(device)
-            encoder = Encoder(device, max_len, batch_size, num_heads, head_size, model_size, ff_size)
+            encoder = Encoder(device, max_len, batch_size, num_heads, head_size, model_size, ff_size, args.debug)
+
+        if args.debug:
+            inp = get_np_tensor((args.batch_size * max_len, model_size), device, True)
+            ret = encoder.forward(inp, attn_mask)
+            print(np.mean(ret.cpu().numpy()))
+        else:
             traced_encoder = torch.jit.script(encoder)
+
             inp = get_np_tensor((args.batch_size * max_len, model_size), device, True)
             timer = benchmark.Timer(stmt='f(x, y)',
                                     globals={'x': inp, 'y': attn_mask, 'f': traced_encoder})
-
-        batch_times.append(timer.timeit(iters).mean * 1000.0)
+            batch_times.append(timer.timeit(iters).mean * 1000.0)
     return batch_times
 
 with torch.no_grad():
