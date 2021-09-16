@@ -13,6 +13,7 @@ import run_utils
 parser = run_utils.get_cmd_parser()
 parser.add_argument('--nt', dest='nt', default=8, type=int)
 parser.add_argument('--kt', dest='kt', default=4, type=int)
+parser.add_argument('--sched', dest='sched', default=3, type=int)
 parser.add_argument('--masked-mha', dest='masked_mha', default=False, action='store_true')
 args = parser.parse_args()
 
@@ -88,9 +89,12 @@ if args.target == "cuda":
     Ql = s.cache_read(Qs, "local", [S], layouts='dense')
     Kl = s.cache_read(Ks, "local", [S], layouts='dense')
 
+    if args.sched == 1: tile, ktile = 64, 4
+    else: tile, ktile = 32, 2
+
     b, x, h, y = s[O].leaf_iter_vars[0:4]
-    xo, xi = s[O].split(x, factor = 64)
-    yo, yi = s[O].split(y, factor = 64)
+    xo, xi = s[O].split(x, factor = tile)
+    yo, yi = s[O].split(y, factor = tile)
 
     s[O].reorder(b, xo, yo, h, xi, yi)
     f1 = s[O].fuse(xo, yo)
@@ -107,7 +111,6 @@ if args.target == "cuda":
     s[O].reorder(xio, yii, yio, xii)
     s[S].compute_at(s[O], xii)
 
-    ktile = args.kt
     x, h, y, k = s[S].leaf_iter_vars[1:5]
     ko, ki = s[S].split(k, nparts = ktile)
     s[S].reorder(h, ko, ki, x, y)
@@ -165,13 +168,14 @@ name = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0]
 out, batches = run_utils.lower_or_build(name, s, inputs, args, size_fn=size_fn, pad_sum=64,
                                         run_function=run_utils.get_bert_layer_run_fn(BS_VAR))
 
-_, Q, K, O = out[0:4]
-O = O.flatten()
-ctr = 0
-for length in batches[0]:
-    rounded = utils.ceilmult(length, TILE)
-    this_extent = rounded
-    this_storage_extent = rounded * rounded * NUM_HEADS
-    # print(rounded, np.mean(O[ctr:ctr+this_storage_extent]))
-    print(rounded, np.mean(O[ctr:ctr+length]))
-    ctr += this_storage_extent
+
+# _, Q, K, O = out[0:4]
+# O = O.flatten()
+# ctr = 0
+# for length in batches[0]:
+#     rounded = utils.ceilmult(length, TILE)
+#     this_extent = rounded
+#     this_storage_extent = rounded * rounded * NUM_HEADS
+#     # print(rounded, np.mean(O[ctr:ctr+this_storage_extent]))
+#     print(rounded, np.mean(O[ctr:ctr+length]))
+#     ctr += this_storage_extent

@@ -18,7 +18,8 @@ BATCH_SIZE = BS_VAR + 1
 NUM_HEADS = 8
 HEAD_SIZE = 64
 TILE1=64
-TILE2=64
+if args.dataset in ['race', 'wiki_512', 'squadv2']: TILE2=64
+else: TILE2=32
 RTILE=4
 MAX_LEN = run_utils.get_maxlen_padded(args.dataset)
 
@@ -93,8 +94,8 @@ if True:
     Kl = s.cache_read(Ks, "local", [Ol], layouts='dense')
 
     b, x, h, y = s[O].leaf_iter_vars[0:4]
-    yo, yi = s[O].split(y, factor = 64)
-    xo, xi = s[O].split(x, factor = 64)
+    yo, yi = s[O].split(y, factor = TILE1)
+    xo, xi = s[O].split(x, factor = TILE2)
 
     ###############################################################################
     # b, x, h, y = s[O].leaf_iter_vars[0:4]

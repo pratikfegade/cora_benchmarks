@@ -140,6 +140,7 @@ if args.target == "cuda":
     s[B_sh].bind(B_sh_ax0_ax1_f_ax2_f_ax3_f_o_i, te.thread_axis("threadIdx.x"))
 
     s[O_local].set_scope('local')
+    s[O].mark_no_bounds_check()
 
     if not args.debug_code:
         s[O_local].pragma(q_c, "auto_unroll_max_step", 512)

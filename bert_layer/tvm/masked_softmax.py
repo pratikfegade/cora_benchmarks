@@ -30,27 +30,29 @@ TILE1=64
 TILE2=16
 def len1_ufw(name, pad): return Ufw(name, "l", (pad, MAX_LEN), [bd], [lens], lambda lens: lambda b: utils.ceilmult(lens[b], pad))
 def len2_ufw(name, pad): return Ufw(name, "l", (pad, MAX_LEN), [s1], [], lambda: lambda s: utils.ceilmult(s + 1, pad))
-l1ufw = len1_ufw('s1', TILE1)
-l2ufw = len2_ufw('s2', TILE2)
+lufw11 = len1_ufw('s11', 1)
+lufw164 = len1_ufw('s1', TILE1)
+lufw216 = len2_ufw('s2', TILE2)
 
-luf1 = l1ufw.get_uf()
-luf2 = l2ufw.get_uf()
+luf11 = lufw11.get_uf()
+luf164 = lufw164.get_uf()
+luf216 = lufw216.get_uf()
 ls =  {
     0: Uf.from_constant('bd', BATCH_SIZE, 'l'),
     1: Uf.from_constant('md', NUM_HEADS, 'l'),
-    2: luf1,
-    3: luf2,
+    2: luf11,
+    3: luf216,
 }
 
 loop_ufs=[ls[0], ls[2], ls[1], ls[3]]
-width_ufs=[ls[0], ls[2], ls[1], ls[2]]
+width_ufs=[ls[0], luf164, ls[1], luf164]
 A = te.ragged_placeholder((BATCH_SIZE, MAX_LEN, NUM_HEADS, MAX_LEN), [bd, s1, md, s2], loop_ufs,
                           name='A', width_ufs=width_ufs)
 
 loop_ufs=[ls[0], ls[2], ls[1]]
 Amax = te.ragged_compute((BATCH_SIZE, MAX_LEN, NUM_HEADS), [bd, s1, md], loop_ufs,
                          lambda ds, rds: tvm.max(A[ds[bd], ds[s1], ds[md], rds['k']], axis=rds['k'], dimensions=s2),
-                         name = 'Amax', reduce_axis_ufs = [('k', luf2)])
+                         name = 'Amax', reduce_axis_ufs = [('k', luf216)])
 
 loop_ufs=[ls[0], ls[2], ls[1], ls[3]]
 Aexp = te.ragged_compute((BATCH_SIZE, MAX_LEN, NUM_HEADS, MAX_LEN), [bd, s1, md, s2], loop_ufs,
@@ -60,12 +62,13 @@ Aexp = te.ragged_compute((BATCH_SIZE, MAX_LEN, NUM_HEADS, MAX_LEN), [bd, s1, md,
 
 loop_ufs=[ls[0], ls[2], ls[1]]
 Asum = te.ragged_compute((BATCH_SIZE, MAX_LEN, NUM_HEADS), [bd, s1, md], loop_ufs,
-                         lambda ds, rds: tvm.sum(tvm.tir.Cast('int32', rds['k'] < lens[ds[bd]]) *
-                                                 Aexp[ds[bd], ds[s1], ds[md], rds['k']], axis=rds['k'], dimensions=s2),
-                         name = 'Asum', reduce_axis_ufs = [('k', luf2)])
+                         # lambda ds, rds: tvm.sum(tvm.tir.Cast('int32', rds['k'] < lens[ds[bd]]) *
+                                                 # Aexp[ds[bd], ds[s1], ds[md], rds['k']], axis=rds['k'], dimensions=s2),
+                         lambda ds, rds: tvm.sum(Aexp[ds[bd], ds[s1], ds[md], rds['k']], axis=rds['k'], dimensions=s2),
+                         name = 'Asum', reduce_axis_ufs = [('k', luf216)])
 
 loop_ufs=[ls[0], ls[2], ls[1], ls[3]]
-width_ufs=[[ls[0], ls[2], ls[1], ls[2]]]
+width_ufs=[[ls[0], luf164, ls[1], luf164]]
 O = te.ragged_compute((BATCH_SIZE, MAX_LEN, NUM_HEADS, MAX_LEN), [bd, s1, md, s2], loop_ufs,
                       lambda ds: Aexp[ds[bd], ds[s1], ds[md], ds[s2]] / Asum[ds[bd], ds[s1], ds[md]],
                       name = 'O', width_uf_lists=width_ufs)
@@ -88,7 +91,8 @@ if args.target == 'cuda':
     b, s1, h, s2 = s[O].leaf_iter_vars
     f = s[O].fuse(b, s1)
     s[O].bind(f, block_x)
-    s[O].bind(h, thread_y)
+    if args.dataset not in ['race', 'wiki_512', 'squadv2']:
+        s[O].bind(h, thread_y)
 
     xo, xi = s[O].split(s2, factor = ntx)
     s[O].bind(xi, thread_x)
@@ -120,24 +124,24 @@ def size_fn(l_inputs):
     lens = l_inputs[0]
     return {
         A: NUM_HEADS * run_utils.prefix_sum(len(lens),
-                                            lambda b: (l1ufw.get_fn(lens)(b) *
-                                                       l1ufw.get_fn(lens)(b))),
+                                            lambda b: (lufw164.get_fn(lens)(b) *
+                                                       lufw164.get_fn(lens)(b))),
         O: NUM_HEADS * run_utils.prefix_sum(len(lens),
-                                            lambda b: (l1ufw.get_fn(lens)(b) *
-                                                       l1ufw.get_fn(lens)(b)))
+                                            lambda b: (lufw164.get_fn(lens)(b) *
+                                                       lufw164.get_fn(lens)(b)))
     }
 
 name = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0]
 out, batches = run_utils.lower_or_build(name, s, inputs, args, size_fn=size_fn, pad_sum = 64,
                                         run_function=run_utils.get_bert_layer_run_fn(BS_VAR))
 
-O = out[2]
-O = O.flatten()
-ctr = 0
-for length in batches[0]:
-    rounded64 = utils.ceilmult(length, 64)
-    rounded16 = utils.ceilmult(length, 16)
-    this_extent = rounded64
-    this_storage_extent = rounded64 * rounded64 * NUM_HEADS
-    print(1 / rounded16, O[ctr], np.mean(O[ctr+length*rounded64*NUM_HEADS:ctr+length*rounded64*NUM_HEADS+length]))
-    ctr += this_storage_extent
+# O = out[2]
+# O = O.flatten()
+# ctr = 0
+# for length in batches[0]:
+#     rounded64 = utils.ceilmult(length, 64)
+#     rounded16 = utils.ceilmult(length, 16)
+#     this_extent = rounded64
+#     this_storage_extent = rounded64 * rounded64 * NUM_HEADS
+#     print(1 / rounded16, O[ctr], run_utils.stats(O[ctr+(length-1)*rounded64*NUM_HEADS:ctr+(length-1)*rounded64*NUM_HEADS+(length-1)]))
+#     ctr += this_storage_extent
