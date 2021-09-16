@@ -55,7 +55,9 @@ loop_ufs=[ls[0], ls[1]]
 width_ufs=[loop_ufs]
 k = tvm.reduce_axis((0, OUT_SIZE), name = 'k')
 Am2 = te.ragged_compute((BATCH_SIZE, MAX_LEN), [bd, s1], loop_ufs,
-                        lambda ds: tvm.sum(A[ds[bd], ds[s1], k] * A[ds[bd], ds[s1], k], axis=k, dimensions=[od]),
+                        lambda ds: tvm.sum((A[ds[bd], ds[s1], k] - Am1[ds[bd], ds[s1]]) *
+                                           (A[ds[bd], ds[s1], k] - Am1[ds[bd], ds[s1]]),
+                                           axis=k, dimensions=[od]),
                         name = 'Am2')
 
 def compute_body(ds):
