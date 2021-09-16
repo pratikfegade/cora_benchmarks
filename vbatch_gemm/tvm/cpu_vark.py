@@ -15,7 +15,7 @@ parser = run_utils.get_cmd_parser(no_options=True)
 parser.add_argument('--target', nargs='?', default='llvm')
 parser.add_argument('--dtype', dest='dtype', nargs='?', default='float32')
 parser.add_argument('--max-batches', dest='max_batches', default=1, type=int)
-parser.add_argument('--batch-size', dest='batch_size', default=2, type=int)
+parser.add_argument('--batch-sizes', dest='batch_sizes', nargs='+', default=[32], type=int)
 parser.add_argument('--tile-size', dest='tile_size', default=128, type=int)
 parser.add_argument('--debug', dest='debug', default=False, action='store_true')
 parser.add_argument('--debug-code', dest='debug_code', default=None, type=str)
@@ -27,11 +27,8 @@ parser.add_argument('--only-prep-code', dest='only_prep_code', default=False, ac
 parser.add_argument('--data-file', nargs='?', default='random')
 args = parser.parse_args()
 
-BATCH_SIZE = args.batch_size
+BATCH_SIZE = te.var('bs')
 
-# ms = te.placeholder((BATCH_SIZE,), name = 'ms', dtype = 'int32')
-# ns = te.placeholder((BATCH_SIZE,), name = 'ns', dtype = 'int32')
-# ks = te.placeholder((BATCH_SIZE,), name = 'ks', dtype = 'int32')
 ms = tvm.decl_buffer((BATCH_SIZE,), name = 'ms', dtype = 'int32')
 ns = tvm.decl_buffer((BATCH_SIZE,), name = 'ns', dtype = 'int32')
 ks = tvm.decl_buffer((BATCH_SIZE,), name = 'ks', dtype = 'int32')
@@ -40,7 +37,7 @@ bd = Dim('bd')
 md = Dim('md')
 nd = Dim('nd')
 kd = Dim('kd')
-MIN_DIM, MAX_DIM = 4*args.tile_size, 11*args.tile_size
+MIN_DIM, MAX_DIM = 4*128, 11*128
 
 def f_mufw(name): return Ufw(name, "l", (MIN_DIM, MAX_DIM), [bd], [ms], lambda b: lambda b: args.tile_size * ms.vload(b))
 def f_nufw(name): return Ufw(name, "l", (MIN_DIM, MAX_DIM), [bd], [ns], lambda b: lambda b: args.tile_size * ns.vload(b))
@@ -53,9 +50,7 @@ ls =  {
     0: Uf.from_constant('bd', BATCH_SIZE, "l"),
     1: mufw.get_uf(),
     2: nufw.get_uf(),
-    # 1: Uf.from_constant('md', MAX_DIM, "l"),
-    # 2: Uf.from_constant('nd', MAX_DIM, "l"),
-    3: Uf.from_constant('kd', MAX_DIM, "l"),
+    3: kufw.get_uf(),
 }
 
 loop_ufs=[ls[0], ls[1], ls[3]]
@@ -66,32 +61,17 @@ B = te.ragged_placeholder((BATCH_SIZE, MAX_DIM, MAX_DIM), [bd, kd, nd], loop_ufs
 loop_ufs=[ls[0], ls[1], ls[2]]
 Op = te.ragged_placeholder((BATCH_SIZE, MAX_DIM, MAX_DIM), [bd, md, nd], loop_ufs, name='Op', width_ufs=None, dtype='float32')
 
-# loop_ufs=[ls[0], ls[1], ls[2]]
-# O = te.ragged_compute((BATCH_SIZE, MAX_DIM, MAX_DIM), [bd, md, nd], loop_ufs,
-#                       lambda ds, rds: tvm.sum(A[ds[bd], ds[md], rds['k']] * B[ds[bd], rds['k'], ds[nd]],
-#                                               axis=rds['k'], dimensions=[kd]),
-#                       name = 'O', reduce_axis_ufs = [('k', kufw.get_uf())], width_uf_lists=None)
-# # k = te.reduce_axis((0, 1408), 'k')
-# # O = te.ragged_compute((BATCH_SIZE, MAX_DIM, MAX_DIM), [bd, md, nd], loop_ufs,
-#                       # lambda ds: tvm.sum(A[ds[bd], ds[md], k] * B[ds[bd], k, ds[nd]],
-#                                          # axis=k, dimensions=[kd]),
-#                       # name = 'O', width_uf_lists=None)
-
-# s = tvm.create_schedule([O.op])
-
 loop_ufs=[ls[0], ls[1], ls[2]]
 S = te.ragged_compute((BATCH_SIZE, MAX_DIM, MAX_DIM), [bd, md, nd], loop_ufs,
                       lambda ds, rds: tvm.sum(A[ds[bd], ds[md], rds['k']] * B[ds[bd], rds['k'], ds[nd]],
                                               axis=rds['k'], dimensions=[kd]),
                       name = 'S', reduce_axis_ufs = [('k', kufw.get_uf())], width_uf_lists=None)
-                      # name = 'S', reduce_axis_ufs = [('k', ls[3])], width_uf_lists=None)
 
 alpha = 1
 beta = 1
 loop_ufs=[ls[0], ls[1], ls[2]]
 O = te.ragged_compute((BATCH_SIZE, MAX_DIM, MAX_DIM), [bd, md, nd], loop_ufs,
                       lambda ds: alpha*S[ds[bd], ds[md], ds[nd]] + beta*Op[ds[bd], ds[md], ds[nd]],
-                      # lambda ds: S[ds[bd], ds[md], ds[nd]],
                       name = 'O', width_uf_lists=None)
 
 s = tvm.create_schedule([O.op])
@@ -151,16 +131,10 @@ def gemv_impl():
         return 0;
       }
     """
-    # cc_code = """
-      # extern "C" int gemv_reset(float *cc, int m, int n) {
-        # return 0;
-      # }
-    # """
     from tvm.contrib import util, clang
 
     temp = util.tempdir()
     ll_path = temp.relpath("temp.ll")
-    # Create LLVM ir from c source code
     ll_code = clang.create_llvm(cc_code, output=ll_path)
     return ll_code
 
@@ -169,7 +143,6 @@ gemv = intrin_gemv(tile, tile, tile)
 
 
 prep_code_mode='with_prep_code'
-# prep_code_mode='no_prep_code'
 if True:
     O_local = S
     b, m, n, k = tuple(O_local.op.axis) + tuple(O_local.op.reduce_axis)
@@ -182,14 +155,9 @@ if True:
 
     s[O].reorder(O_b, O_m_o_o, O_n_o_o, O_m_i_o, O_n_i_o, O_m_i_i, O_n_i_i)
 
-    # fused = s[O].fuse(O_m_o_o, O_n_o_o)
-    # fused = s[O].fuse(O_b, fused)
-
     fused = s[O].fuse(O_b, O_m_o_o)
-    fused = s[O].fuse(fused, O_n_o_o)
+    fused = s[O].fuse(O_n_o_o, fused)
     s[O].parallel(fused)
-    # s[O].bind(fused, tvm.thread_axis("cpu_par_thread.x"))
-
 
     s[O_local].compute_at(s[O], O_n_i_o)
     ko, ki = s[O_local].split(s[O_local].op.reduce_axis[0], factor=tile)
@@ -197,8 +165,6 @@ if True:
                        s[O_local].leaf_iter_vars[2], ki)
     s[O_local].pragma(s[O_local].leaf_iter_vars[0], "import_llvm", gemv_impl())
     s[O_local].tensorize(s[O_local].leaf_iter_vars[2], gemv)
-
-    # s[O].tensorize(O_m_i_i, gemv)
 
     s[S].set_scope('local')
 
@@ -212,19 +178,17 @@ def size_fn(l_inputs):
 
 bO = tvm.tir.decl_buffer((BATCH_SIZE, MAX_DIM, MAX_DIM), name="bO")
 binds = {Op: bO, O: bO}
-# binds={}
 if args.only_prep_code: prep_code_mode = 'only_prep_code'
-inputs = [[ms, ns, ks], [A, B, bO]]
+inputs = [[ms, ns, ks], [BATCH_SIZE, A, B, bO]]
 name = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0]
 out, ms, ns, ks = run_utils.lower_or_build(name, s, inputs, args, size_fn=size_fn,
-                                           run_function=run_utils.run_vbatch_gemm,
+                                           run_function=run_utils.get_vbatch_gemm_run_fn(BATCH_SIZE),
                                            prep_code_mode=prep_code_mode, binds=binds)
 
-np.set_printoptions(threshold=sys.maxsize)
-A, B, O = out
-for i in range(BATCH_SIZE):
-    m = int(ms[0][i])
-    n = int(ns[0][i])
-    k = int(ks[0][i])
-    print(m, n, k, run_utils.stats(A[i,0:m,:]), run_utils.stats(B[i,:,0:n]), run_utils.stats(O[i,0:m,0:n]))
-    # print(m, n, run_utils.stats(A[i,0:m,:]), run_utils.stats(B[i,:,0:n]), O[i,0:m,0:n])
+# np.set_printoptions(threshold=sys.maxsize)
+# _, A, B, O = out
+# for i in range(len(ms)):
+#     m = int(ms[0][i])
+#     n = int(ns[0][i])
+#     k = int(ks[0][i])
+#     print(m, n, k, run_utils.stats(A[i,0:m,:]), run_utils.stats(B[i,:,0:n]), run_utils.stats(O[i,0:m,0:n]))
