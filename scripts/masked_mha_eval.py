@@ -65,10 +65,12 @@ args = parser.parse_args()
 
 batch_sizes = [2, 8, 32, 128]
 target = 'cuda'
-datasets = com.cluster_datasets_by_max_len() if args.dataset is None else {com.get_dataset_max_len(args.dataset) : [args.dataset]}
+# datasets = com.cluster_datasets_by_max_len() if args.dataset is None else {com.get_dataset_max_len(args.dataset) : [args.dataset]}
+# datasets = {512:['race', 'wiki_512'],384:['squadv2'],128:['wiki_128','mnli','xnli'],112:['mrpc'],48:['cola']}
+datasets = {512:['race'],128:['mnli']}
 
 framework_funs = {
-    'pytorch': lambda b_sizes, *args: com.batchify(b_sizes, run_pytorch, *args),
+    # 'pytorch': lambda b_sizes, *args: com.batchify(b_sizes, run_pytorch, *args),
     'cora_plain': lambda b_sizes, *args: com.batchify(b_sizes, get_tvm_runner(False), *args),
     'cora_masked': lambda b_sizes, *args: com.batchify(b_sizes, get_tvm_runner(True), *args),
 }
