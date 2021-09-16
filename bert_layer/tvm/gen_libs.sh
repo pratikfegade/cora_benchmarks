@@ -27,6 +27,8 @@ else
     python3 ${SCRIPT_DIR}/ff2.py --target cuda --dataset $DS --gen-lib $EXTRA_ARGS --sched 1
     python3 ${SCRIPT_DIR}/ff2.py --target cuda --dataset $DS --gen-lib $EXTRA_ARGS --sched 2
     python3 ${SCRIPT_DIR}/ff2.py --target cuda --dataset $DS --gen-lib $EXTRA_ARGS --sched 3
+    python3 ${SCRIPT_DIR}/ff2.py --target cuda --dataset $DS --gen-lib $EXTRA_ARGS --sched 4
+    python3 ${SCRIPT_DIR}/ff2.py --target cuda --dataset $DS --gen-lib $EXTRA_ARGS --sched 5
     python3 ${SCRIPT_DIR}/ff1.py --target cuda --dataset $DS --gen-lib $EXTRA_ARGS --sched 1
     python3 ${SCRIPT_DIR}/ff1.py --target cuda --dataset $DS --gen-lib $EXTRA_ARGS --sched 2
 fi
