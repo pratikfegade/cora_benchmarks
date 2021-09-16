@@ -56,8 +56,8 @@ def create_ibufs(ibuf_infos, batch_size, cpu_ctx, dev_ctx, alloc_op=None):
         host_bufs = [tvm.nd.array(run_utils.create_numpy_array(get_or_call(i[0]), i[1]), cpu_ctx) for i in ibuf_info[0]]
         dev_bufs = [tvm.nd.array(run_utils.create_numpy_array(get_or_call(i[0]), i[1]), dev_ctx) for i in ibuf_info[1]]
         if alloc_op:
-            [alloc_op([get_or_call(i[0])], get_or_call(i[0]), i[1], cpu_ctx) for i in ibuf_info[0]]
-            [alloc_op([get_or_call(i[0])], get_or_call(i[0]), i[1], dev_ctx) for i in ibuf_info[1]]
+            [alloc_op([get_or_call(i[0])], max(get_or_call(i[0])), i[1], cpu_ctx) for i in ibuf_info[0]]
+            [alloc_op([get_or_call(i[0])], max(get_or_call(i[0])), i[1], dev_ctx) for i in ibuf_info[1]]
         ret.append((host_bufs, dev_bufs))
     return ret
 
