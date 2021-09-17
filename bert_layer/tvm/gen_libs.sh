@@ -17,17 +17,20 @@ if [ $MS == $YES ]; then
     EXTRA_ARGS=$EXTRA_ARGS" --skip-residual"
 fi
 
-python3 ${SCRIPT_DIR}/norm_add.py --target cuda --dataset $DS --gen-lib $EXTRA_ARGS
-python3 ${SCRIPT_DIR}/pre_linear.py --target cuda --dataset $DS --gen-lib $EXTRA_ARGS
-python3 ${SCRIPT_DIR}/memset.py --target cuda --dataset $DS --gen-lib $EXTRA_ARGS
-python3 ${SCRIPT_DIR}/post_linear.py --target cuda --dataset $DS --gen-lib $EXTRA_ARGS
 if [ $MS == $YES ]; then
     echo -ne ""
 else
+    python3 ${SCRIPT_DIR}/norm_add.py --target cuda --dataset $DS --gen-lib $EXTRA_ARGS
+    python3 ${SCRIPT_DIR}/pre_linear.py --target cuda --dataset $DS --gen-lib $EXTRA_ARGS
+    python3 ${SCRIPT_DIR}/memset.py --target cuda --dataset $DS --gen-lib $EXTRA_ARGS
+    python3 ${SCRIPT_DIR}/post_linear.py --target cuda --dataset $DS --gen-lib $EXTRA_ARGS
     python3 ${SCRIPT_DIR}/ff2.py --target cuda --dataset $DS --gen-lib $EXTRA_ARGS --sched 1
     python3 ${SCRIPT_DIR}/ff2.py --target cuda --dataset $DS --gen-lib $EXTRA_ARGS --sched 2
     python3 ${SCRIPT_DIR}/ff2.py --target cuda --dataset $DS --gen-lib $EXTRA_ARGS --sched 3
-    python3 ${SCRIPT_DIR}/ff1.py --target cuda --dataset $DS --gen-lib $EXTRA_ARGS
+    python3 ${SCRIPT_DIR}/ff2.py --target cuda --dataset $DS --gen-lib $EXTRA_ARGS --sched 4
+    python3 ${SCRIPT_DIR}/ff2.py --target cuda --dataset $DS --gen-lib $EXTRA_ARGS --sched 5
+    python3 ${SCRIPT_DIR}/ff1.py --target cuda --dataset $DS --gen-lib $EXTRA_ARGS --sched 1
+    python3 ${SCRIPT_DIR}/ff1.py --target cuda --dataset $DS --gen-lib $EXTRA_ARGS --sched 2
 fi
 
 if [ $MS == $YES ]; then
@@ -49,7 +52,8 @@ else
 	python3 ${SCRIPT_DIR}/attn_v_bin_packed.py --hfuse --target cuda --dataset $DS --gen-lib $EXTRA_ARGS
     else
 	echo "2.2"
-	python3 ${SCRIPT_DIR}/qkt.py --target cuda --dataset $DS --gen-lib $EXTRA_ARGS
+	python3 ${SCRIPT_DIR}/qkt.py --target cuda --dataset $DS --gen-lib $EXTRA_ARGS --sched 1
+	python3 ${SCRIPT_DIR}/qkt.py --target cuda --dataset $DS --gen-lib $EXTRA_ARGS --sched 2
 	python3 ${SCRIPT_DIR}/attn_v.py --target cuda --dataset $DS --gen-lib $EXTRA_ARGS
     fi
 fi

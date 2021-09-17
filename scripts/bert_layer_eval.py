@@ -7,7 +7,7 @@ import argparse
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 PYTORCH_RUNNER = SCRIPT_DIR + '/../bert_layer/pytorch/layer.py'
 TVM_EXE_RUNNER = SCRIPT_DIR + '/../bert_layer/tvm/masked_mha.py'
-TVM_MEM_RUNNER = SCRIPT_DIR + '/../bert_layer/tvm/bert_layer_memory.py'
+TVM_MEM_RUNNER = SCRIPT_DIR + '/../bert_layer/tvm/bert_layer_memory_inplace.py'
 TVM_LIB_RUNNER = SCRIPT_DIR + '/../bert_layer/tvm/gen_libs.sh'
 FTRANS_EXE_RUNNER = SCRIPT_DIR + '/../bert_layer/faster_transformer/run_encoder_sample.sh'
 FTRANS_MEM_RUNNER = SCRIPT_DIR + '/../bert_layer/faster_transformer/mem/memory'
@@ -93,7 +93,7 @@ batch_sizes = [2, 8, 32, 128]
 targets = [args.target] if args.target else ['cuda']
 datasets = com.cluster_datasets_by_max_len() if args.dataset is None else {com.get_dataset_max_len(args.dataset) : [args.dataset]}
 # datasets = {512:['race', 'wiki_512'],384:['squadv2'],128:['wiki_128','mnli','xnli'],112:['mrpc'],48:['cola']}
-datasets = {384:['squadv2'],128:['wiki_128','mnli','xnli'],112:['mrpc'],48:['cola']}
+# datasets = {384:['squadv2'],128:['wiki_128','mnli','xnli'],112:['mrpc'],48:['cola']}
 
 if args.prep_overhead:
     framework_funs = {
@@ -103,7 +103,7 @@ elif args.mem:
     framework_funs = {
         # 'pytorch': lambda b_sizes, *args: com.batchify(b_sizes, run_pytorch, *args),
         'ftrans': lambda b_sizes, *args: com.batchify(b_sizes, get_ftrans_runner(False), *args),
-        # 'cora': lambda b_sizes, *args: com.batchify(b_sizes, get_cora_runner(False), *args),
+        'cora': lambda b_sizes, *args: com.batchify(b_sizes, get_cora_runner(False), *args),
     }
 else:
     framework_funs = {

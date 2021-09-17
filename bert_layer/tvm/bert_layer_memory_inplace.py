@@ -1,3 +1,4 @@
+import math
 import os
 import sys
 import numpy as np
@@ -42,7 +43,7 @@ class Tensor():
         self.ctx = ctx
         self.freed = False
         if 'gpu' in ctx.__repr__():
-            # print('Alloc', self.name, size)
+            print('  Alloc', self.name, size)
             global allocated_memory
             global max_allocated_memory
             allocated_memory += size
@@ -51,7 +52,7 @@ class Tensor():
     def free(self):
         assert not self.freed
         if 'gpu' in self.ctx.__repr__():
-            # print('Free', self.name, self.size)
+            print('  Free', self.name, self.size)
             global allocated_memory
             allocated_memory -= self.size
             self.freed = True
@@ -65,7 +66,10 @@ def getnbytes(dt):
 def create_tensor(shape, size, dtype, ctx):
     return Tensor(size * getnbytes(dtype), ctx)
 
+def create_dense_tensor(shape, dtype, ctx):
+    return Tensor(math.prod(shape) * getnbytes(dtype), ctx)
 
+print('Allocating Ops')
 ops = {
     'pre_linear': Op('pre_linear', 'pre_linear', BATCH_SIZE, [], cpu_ctx, dev_ctx, alloc_op=create_tensor),
     'qkt': Op('qkt', 'qkt_bin_packed' if args.bin_packed else 'qkt', BATCH_SIZE, [], cpu_ctx, dev_ctx, alloc_op=create_tensor),
@@ -73,40 +77,30 @@ ops = {
     'attn_v': Op('attn_v', 'attn_v_bin_packed' if args.bin_packed else 'attn_v', BATCH_SIZE, [], cpu_ctx, dev_ctx, alloc_op=create_tensor),
     'post_linear': Op('post_linear', 'post_linear', BATCH_SIZE, [], cpu_ctx, dev_ctx, alloc_op=create_tensor),
     'norm_add1': Op('norm_add1', 'norm_add', BATCH_SIZE, [], cpu_ctx, dev_ctx, alloc_op=create_tensor),
-    'ff1': Op('ff1', 'ff1', BATCH_SIZE, [], cpu_ctx, dev_ctx, alloc_op=create_tensor),
-    'ff2': Op('ff2', 'ff2', BATCH_SIZE, [], cpu_ctx, dev_ctx, alloc_op=create_tensor),
+    'ff1': Op('ff1', 'ff1', BATCH_SIZE, [], cpu_ctx, dev_ctx, alloc_op=create_tensor, variants=[1]),
+    'ff2': Op('ff2', 'ff2', BATCH_SIZE, [], cpu_ctx, dev_ctx, alloc_op=create_tensor, variants=[1, 2, 3]),
     'norm_add2': Op('norm_add2', 'norm_add', BATCH_SIZE, [], cpu_ctx, dev_ctx, alloc_op=create_tensor),
 }
 
-# ops_order = [
-#     ops['pre_linear'],
-#     ops['qkt'],
-#     ops['softmax'],
-#     ops['attn_v'],
-#     ops['post_linear'],
-#     ops['norm_add1'],
-#     ops['ff1'],
-#     ops['ff2'],
-#     ops['norm_add2'],
-# ]
-
+print('Allocating Weights')
 # l_inputs: Allocate tensors
 batches = run_utils.get_nlp_batches(args.batch_size, args.max_batches, args.dataset)
-batches = run_utils.append_padded_sum(batches, 128)
+batches = run_utils.append_padded_sum(batches, 64)
 
-pre_linear_in_w = run_utils.create_tvm_array((3, NUM_HEADS, HEAD_SIZE, MODEL_DIM), "float32", dev_ctx, lw_args={})
-pre_linear_in_b = run_utils.create_tvm_array((3, NUM_HEADS, HEAD_SIZE,), "float32", dev_ctx, lw_args={})
-post_linear_in_w = run_utils.create_tvm_array((NUM_HEADS * HEAD_SIZE, MODEL_DIM), "float32", dev_ctx, lw_args={})
-post_linear_in_b = run_utils.create_tvm_array((MODEL_DIM,), "float32", dev_ctx, lw_args={})
-ff1_in_w = run_utils.create_tvm_array((MODEL_DIM, FF_DIM), "float32", dev_ctx, lw_args={})
-ff1_in_b = run_utils.create_tvm_array((FF_DIM,), "float32", dev_ctx, lw_args={})
-ff2_in_w = run_utils.create_tvm_array((FF_DIM, MODEL_DIM), "float32", dev_ctx, lw_args={})
-ff2_in_b = run_utils.create_tvm_array((MODEL_DIM,), "float32", dev_ctx, lw_args={})
-norm_add1_in_b = run_utils.create_tvm_array((MODEL_DIM,), "float32", dev_ctx, lw_args={})
-norm_add1_in_g = run_utils.create_tvm_array((MODEL_DIM,), "float32", dev_ctx, lw_args={})
-norm_add2_in_b = run_utils.create_tvm_array((MODEL_DIM,), "float32", dev_ctx, lw_args={})
-norm_add2_in_g = run_utils.create_tvm_array((MODEL_DIM,), "float32", dev_ctx, lw_args={})
+pre_linear_in_w = create_dense_tensor((3, NUM_HEADS, HEAD_SIZE, MODEL_DIM), "float32", dev_ctx)
+pre_linear_in_b = create_dense_tensor((3, NUM_HEADS, HEAD_SIZE,), "float32", dev_ctx)
+post_linear_in_w = create_dense_tensor((NUM_HEADS * HEAD_SIZE, MODEL_DIM), "float32", dev_ctx)
+post_linear_in_b = create_dense_tensor((MODEL_DIM,), "float32", dev_ctx)
+ff1_in_w = create_dense_tensor((MODEL_DIM, FF_DIM), "float32", dev_ctx)
+ff1_in_b = create_dense_tensor((FF_DIM,), "float32", dev_ctx)
+ff2_in_w = create_dense_tensor((FF_DIM, MODEL_DIM), "float32", dev_ctx)
+ff2_in_b = create_dense_tensor((MODEL_DIM,), "float32", dev_ctx)
+norm_add1_in_b = create_dense_tensor((MODEL_DIM,), "float32", dev_ctx)
+norm_add1_in_g = create_dense_tensor((MODEL_DIM,), "float32", dev_ctx)
+norm_add2_in_b = create_dense_tensor((MODEL_DIM,), "float32", dev_ctx)
+norm_add2_in_g = create_dense_tensor((MODEL_DIM,), "float32", dev_ctx)
 
+print('Running Layer')
 times = []
 ctr = 0
 for batch in batches:
@@ -152,19 +146,20 @@ for batch in batches:
     qkt_out.free()
 
     post_linear_in_a = attn_v_out
-    post_linear_out = create_tensor((batch_size_, MAX_LEN, MODEL_DIM), MODEL_DIM*sum1, "float32", dev_ctx)
-    ops['post_linear'].tensor_inputs = [post_linear_in_a, post_linear_in_w, post_linear_in_b, post_linear_out]
+    post_linear_in_a2 = pre_linear_in_qkv
+    # post_linear_out = create_tensor((batch_size_, MAX_LEN, MODEL_DIM), MODEL_DIM*sum1, "float32", dev_ctx)
+    post_linear_out = pre_linear_in_qkv
+    ops['post_linear'].tensor_inputs = [post_linear_in_a, post_linear_in_a2, post_linear_in_w, post_linear_in_b, post_linear_out]
     # ops['post_linear'].execute(l_inputs)
     attn_v_out.free()
 
     # norm_add1_in_a1 = pre_linear_in_qkv.create_view((batch_size_, MAX_LEN, MODEL_DIM))
-    norm_add1_in_a1 = pre_linear_in_qkv
-    norm_add1_in_a2 = post_linear_out
+    norm_add1_in_a = post_linear_out
+    norm_add1_out = post_linear_out
     # norm_add1_out = create_tensor((batch_size_, MAX_LEN, MODEL_DIM), MODEL_DIM*sum1, "float32", dev_ctx)
-    norm_add1_out = pre_linear_in_qkv
-    ops['norm_add1'].tensor_inputs = [norm_add1_in_a1, norm_add1_in_a2, norm_add1_in_b, norm_add1_in_g, norm_add1_out]
+    ops['norm_add1'].tensor_inputs = [norm_add1_in_a, norm_add1_in_b, norm_add1_in_g, norm_add1_out]
     # ops['norm_add1'].execute(l_inputs)
-    post_linear_out.free()
+    # post_linear_out.free()
 
     ff1_in_a = norm_add1_out
     ff1_out = create_tensor((batch_size_, MAX_LEN, FF_DIM), FF_DIM*sum1, "float32", dev_ctx)
@@ -172,20 +167,20 @@ for batch in batches:
     # ops['ff1'].execute(l_inputs)
 
     ff2_in_a = ff1_out
-    ff2_out = create_tensor((batch_size_, MAX_LEN, MODEL_DIM), MODEL_DIM*sum1, "float32", dev_ctx)
-    ops['ff2'].tensor_inputs = [ff2_in_a, ff2_in_w, ff2_in_b, ff2_out]
+    ff2_in_a2 = norm_add1_out
+    ff2_out = norm_add1_out
+    ops['ff2'].tensor_inputs = [ff2_in_a, ff2_in_a2, ff2_in_w, ff2_in_b, ff2_out]
     # ops['ff2'].execute(l_inputs)
     ff1_out.free()
 
-    norm_add2_in_a1 = norm_add1_out
-    norm_add2_in_a2 = ff2_out
+    norm_add2_in_a = ff2_out
     # norm_add2_out = create_tensor((batch_size_, MAX_LEN, MODEL_DIM), MODEL_DIM*sum1, "float32", dev_ctx)
-    norm_add2_out = norm_add1_out
-    ops['norm_add2'].tensor_inputs = [norm_add2_in_a1, norm_add2_in_a2, norm_add2_in_b, norm_add2_in_g, norm_add2_out]
+    norm_add2_out = ff2_out
+    ops['norm_add2'].tensor_inputs = [norm_add2_in_a, norm_add2_in_b, norm_add2_in_g, norm_add2_out]
     # ops['norm_add2'].execute(l_inputs)
     # norm_add1_out.free()
     pre_linear_in_qkv.free()
-    ff2_out.free()
+    # ff2_out.free()
     # norm_add2_out.free()
 
 print('MEM,%g' % (max_allocated_memory / (1024.0 * 1024.0)))

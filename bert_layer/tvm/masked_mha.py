@@ -51,37 +51,45 @@ elif args.masked_mha:
     attn_v_module = 'masked_attn_v'
     softmax_module = 'masked_softmax'
 
-ops = {
-    'memset': Op('memset', 'memset', BATCH_SIZE, [], cpu_ctx, dev_ctx),
-    'pre_linear': Op('pre_linear', 'pre_linear', BATCH_SIZE, [], cpu_ctx, dev_ctx),
-    'qkt': Op('qkt', qkt_module, BATCH_SIZE, [], cpu_ctx, dev_ctx),
-    'softmax': Op('softmax', softmax_module, BATCH_SIZE, [], cpu_ctx, dev_ctx),
-    'attn_v': Op('attn_v', attn_v_module, BATCH_SIZE, [], cpu_ctx, dev_ctx),
-    'post_linear': Op('post_linear', 'post_linear', BATCH_SIZE, [], cpu_ctx, dev_ctx),
-}
-
-ops_order = [
-    # ops['memset'],
-    ops['pre_linear'],
-    ops['qkt'],
-    ops['softmax'],
-    ops['attn_v'],
-    ops['post_linear'],
-]
-
 if not only_mha:
-    ops.update({
+    ops = {
+        # 'memset': Op('memset', 'memset', BATCH_SIZE, [], cpu_ctx, dev_ctx),
+        'pre_linear': Op('pre_linear', 'pre_linear', BATCH_SIZE, [], cpu_ctx, dev_ctx),
+        'qkt': Op('qkt', qkt_module, BATCH_SIZE, [], cpu_ctx, dev_ctx, variants=[1, 2]),
+        'softmax': Op('softmax', softmax_module, BATCH_SIZE, [], cpu_ctx, dev_ctx),
+        'attn_v': Op('attn_v', attn_v_module, BATCH_SIZE, [], cpu_ctx, dev_ctx),
+        'post_linear': Op('post_linear', 'post_linear', BATCH_SIZE, [], cpu_ctx, dev_ctx),
         'norm_add1': Op('norm_add1', 'norm_add', BATCH_SIZE, [], cpu_ctx, dev_ctx),
-        'ff1': Op('ff1', 'ff1', BATCH_SIZE, [], cpu_ctx, dev_ctx, variants=[1]),
-        'ff2': Op('ff2', 'ff2', BATCH_SIZE, [], cpu_ctx, dev_ctx, variants=[1, 2, 3]),
+        'ff1': Op('ff1', 'ff1', BATCH_SIZE, [], cpu_ctx, dev_ctx, variants=[1, 2]),
+        'ff2': Op('ff2', 'ff2', BATCH_SIZE, [], cpu_ctx, dev_ctx, variants=[1, 2, 3, 4, 5]),
         'norm_add2': Op('norm_add2', 'norm_add', BATCH_SIZE, [], cpu_ctx, dev_ctx),
-    })
-    ops_order += [
+    }
+
+    ops_order = [
+        # ops['memset'],
+        ops['pre_linear'],
+        ops['qkt'],
+        ops['softmax'],
+        ops['attn_v'],
+        ops['post_linear'],
         ops['norm_add1'],
         ops['ff1'],
         ops['ff2'],
         ops['norm_add2'],
     ]
+else:
+    ops = {
+        'qkt': Op('qkt', qkt_module, BATCH_SIZE, [], cpu_ctx, dev_ctx),
+        'softmax': Op('softmax', softmax_module, BATCH_SIZE, [], cpu_ctx, dev_ctx),
+        'attn_v': Op('attn_v', attn_v_module, BATCH_SIZE, [], cpu_ctx, dev_ctx),
+    }
+
+    ops_order = [
+        ops['qkt'],
+        ops['softmax'],
+        ops['attn_v'],
+    ]
+
 
 # l_inputs: Allocate tensors
 batches = run_utils.get_nlp_batches(args.batch_size, args.max_batches, args.dataset)
@@ -120,7 +128,7 @@ for batch in batches:
     sum64 = run_utils.prefix_sum(batch_size_, lambda i: utils.ceilmult(batch[i], 64))
     sum264 = run_utils.prefix_sum(batch_size_, lambda i: utils.ceilmult(batch[i], 64) * utils.ceilmult(batch[i], 64))
 
-    # t_inputs: Allocate tensors
+        # t_inputs: Allocate tensors
     memset_out_qkv = run_utils.create_ragged_array((3, batch_size_, MAX_LEN, NUM_HEADS, HEAD_SIZE),
                                                    3*sum64*NUM_HEADS*HEAD_SIZE, "float32", dev_ctx)
 
@@ -139,11 +147,11 @@ for batch in batches:
     attn_v_out = run_utils.create_ragged_array((batch_size_, MAX_LEN, NUM_HEADS, HEAD_SIZE),
                                                NUM_HEADS*HEAD_SIZE*sum64, "float32", dev_ctx)
 
-    post_linear_in_a = attn_v_out
-    post_linear_in_a2 = pre_linear_in_qkv.create_view((batch_size_, MAX_LEN, MODEL_DIM))
-    post_linear_out = run_utils.create_ragged_array((batch_size_, MAX_LEN, MODEL_DIM), MODEL_DIM*sum1, "float32", dev_ctx)
-
     if not only_mha:
+        post_linear_in_a = attn_v_out
+        post_linear_in_a2 = pre_linear_in_qkv.create_view((batch_size_, MAX_LEN, MODEL_DIM))
+        post_linear_out = run_utils.create_ragged_array((batch_size_, MAX_LEN, MODEL_DIM), MODEL_DIM*sum1, "float32", dev_ctx)
+
         norm_add1_in_a = post_linear_out
         norm_add1_out = run_utils.create_ragged_array((batch_size_, MAX_LEN, MODEL_DIM), MODEL_DIM*sum1, "float32", dev_ctx)
 
@@ -158,13 +166,14 @@ for batch in batches:
         norm_add2_out = run_utils.create_ragged_array((batch_size_, MAX_LEN, MODEL_DIM), MODEL_DIM*sum1, "float32", dev_ctx)
 
 
-    ops['memset'].tensor_inputs = [memset_out_qkv]
-    ops['pre_linear'].tensor_inputs = [pre_linear_in_qkv, pre_linear_in_w, pre_linear_in_b, pre_linear_out]
+    if not only_mha:
+        # ops['memset'].tensor_inputs = [memset_out_qkv]
+        ops['pre_linear'].tensor_inputs = [pre_linear_in_qkv, pre_linear_in_w, pre_linear_in_b, pre_linear_out]
     ops['qkt'].tensor_inputs = [qkt_in_q, qkt_in_k, qkt_out]
     ops['softmax'].tensor_inputs = [softmax_in, softmax_out]
     ops['attn_v'].tensor_inputs = [attn_v_in_v, attn_v_in_attn, attn_v_out]
-    ops['post_linear'].tensor_inputs = [post_linear_in_a, post_linear_in_a2, post_linear_in_w, post_linear_in_b, post_linear_out]
     if not only_mha:
+        ops['post_linear'].tensor_inputs = [post_linear_in_a, post_linear_in_a2, post_linear_in_w, post_linear_in_b, post_linear_out]
         ops['norm_add1'].tensor_inputs = [norm_add1_in_a, norm_add1_in_b, norm_add1_in_g, norm_add1_out]
         ops['ff1'].tensor_inputs = [ff1_in_a, ff1_in_w, ff1_in_b, ff1_out]
         ops['ff2'].tensor_inputs = [ff2_in_a, ff2_in_a2, ff2_in_w, ff2_in_b, ff2_out]
@@ -198,4 +207,7 @@ if args.per_op:
         print('RESULTS', op.name, time, sep=',')
 
 total_time = sum(times)*1000.0
-print('RESULTS', total_time / (len(batches)), sep=',')
+if args.per_op:
+    print('RESULTS,Sum', total_time / (len(batches)), sep=',')
+else:
+    print('RESULTS', total_time / (len(batches)), sep=',')

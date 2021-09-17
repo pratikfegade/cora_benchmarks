@@ -204,7 +204,7 @@ if args.target == "cuda":
         s[O].mark_no_bounds_check()
 
         s[S].set_scope('local')
-    else:
+    elif args.sched == 3:
         S_b, S_l, S_o, S_k = tuple(S.op.axis) + tuple(S.op.reduce_axis)
         S_l = s[S].fuse(S_b, S_l)
 
@@ -261,6 +261,138 @@ if args.target == "cuda":
         s[S].set_scope('local')
         # s[S].pragma(S_l_o_o_o_o, "auto_unroll_max_step", 512)
         # s[S].pragma(S_l_o_o_o_o, "unroll_explicit", True)
+    elif args.sched == 4:
+        S_b, S_l, S_o, S_k = tuple(S.op.axis) + tuple(S.op.reduce_axis)
+        S_l = s[S].fuse(S_b, S_l, padding = 2)
+
+        S_k_o_i, S_k_i = s[S].split(S_k, factor=2)
+        S_k_o_o, S_k_o_i = s[S].split(S_k_o_i, factor=16)
+        s[S].reorder(S_k_o_o, S_k_o_i, S_o, S_k_i, S_l)
+
+        if not args.debug_code:
+            s[S].unroll(S_o)
+            s[S].unroll(S_l)
+            s[S].unroll(S_k_i)
+
+        O_b, O_l, O_o = tuple(O.op.axis) + tuple(O.op.reduce_axis)
+        O_l = s[O].fuse(O_b, O_l, padding = 32)
+
+        O_l_o_i, O_l_i = s[O].split(O_l, factor=4)
+        O_l_o_o_i, O_l_o_i = s[O].split(O_l_o_i, factor=4)
+        O_l_o_o_o, O_l_o_o_i = s[O].split(O_l_o_o_i, factor=2)
+
+        O_o_o_i, O_o_i = s[O].split(O_o, factor=2)
+        O_o_o_o_i, O_o_o_i = s[O].split(O_o_o_i, factor=16)
+        s[O].reorder(O_l_o_o_o, O_o_o_o_i, O_l_o_o_i, O_l_o_i, O_o_o_i, O_l_i, O_o_i)
+
+        A_shared = s.cache_read(A, "shared", [S])
+        A_shared_axm1, A_shared_ax0, A_shared_ax1 = tuple(A_shared.op.axis)
+        A_shared_ax0 = s[A_shared].fuse(A_shared_axm1, A_shared_ax0)
+        s[A_shared].compute_at(s[S], S_k_o_o)
+
+        W_shared = s.cache_read(W, "shared", [S], vanilla=True)
+        W_shared_ax0, W_shared_ax1 = tuple(W_shared.op.axis)
+        s[W_shared].compute_at(s[S], S_k_o_o)
+
+        # B_shared = s.cache_read(B, "shared", [O], vanilla=True)
+        # B_shared_ax0, = tuple(B_shared.op.axis)
+
+        # O_l_o_o_o_o_i_o_o_fused = s[O].fuse(O_l_o_o_o, O_o_o_o_i)
+        s[O].bind(O_l_o_o_o, te.thread_axis("blockIdx.y"))
+        s[O].bind(O_o_o_o_i, te.thread_axis("blockIdx.x"))
+        O_l_o_o_i_o_o_o_i_fused = O_l_o_o_i
+        s[O].bind(O_l_o_o_i_o_o_o_i_fused, te.thread_axis("vthread"))
+        O_l_o_i_o_o_i_fused = s[O].fuse(O_l_o_i, O_o_o_i)
+        s[O].bind(O_l_o_i_o_o_i_fused, te.thread_axis("threadIdx.x"))
+        s[S].compute_at(s[O], O_l_o_i_o_o_i_fused)
+
+        # s[B_shared].compute_at(s[O], O_l_o_i_o_o_i_fused)
+        # B_shared_ax0, = tuple(B_shared.op.axis)
+        # B_shared_ax0_o, B_shared_ax0_i = s[B_shared].split(B_shared_ax0, factor=64)
+        # s[B_shared].bind(B_shared_ax0_i, te.thread_axis("threadIdx.x"))
+
+        A_shared_ax0_ax1_fused = s[A_shared].fuse(A_shared_ax0, A_shared_ax1)
+        A_shared_ax0_ax1_fused_o, A_shared_ax0_ax1_fused_i = s[A_shared].split(A_shared_ax0_ax1_fused, factor=4)
+        s[A_shared].vectorize(A_shared_ax0_ax1_fused_i)
+        A_shared_ax0_ax1_fused_o_o, A_shared_ax0_ax1_fused_o_i = s[A_shared].split(A_shared_ax0_ax1_fused_o, factor=64)
+        s[A_shared].bind(A_shared_ax0_ax1_fused_o_i, te.thread_axis("threadIdx.x"))
+
+        W_shared_ax0_ax1_fused = s[W_shared].fuse(W_shared_ax0, W_shared_ax1)
+        W_shared_ax0_ax1_fused_o, W_shared_ax0_ax1_fused_i = s[W_shared].split(W_shared_ax0_ax1_fused, factor=2)
+        s[W_shared].vectorize(W_shared_ax0_ax1_fused_i)
+        W_shared_ax0_ax1_fused_o_o, W_shared_ax0_ax1_fused_o_i = s[W_shared].split(W_shared_ax0_ax1_fused_o, factor=64)
+        s[W_shared].bind(W_shared_ax0_ax1_fused_o_i, te.thread_axis("threadIdx.x"))
+
+        # s[S].pragma(S_l_o_o_o_o, "auto_unroll_max_step", 512)
+        # s[S].pragma(S_l_o_o_o_o, "unroll_explicit", True)
+
+        s[S].set_scope('local')
+        s.fuse_tensor_dimensions(S, 0, 1)
+        s.fuse_tensor_dimensions(A_shared, 0, 1)
+        s[S].mark_no_bounds_check()
+        s[O].mark_no_bounds_check()
+        s[A_shared].mark_no_bounds_check()
+    else:
+        S_b, S_l, S_o, S_k = tuple(S.op.axis) + tuple(S.op.reduce_axis)
+        S_l = s[S].fuse(S_b, S_l)
+
+        S_k_o_i, S_k_i = s[S].split(S_k, factor=16)
+        s[S].reorder(S_k_o_i, S_l, S_k_i, S_o)
+
+        if not args.debug_code:
+            s[S].unroll(S_k_i)
+            s[S].unroll(S_o)
+
+        O_b, O_l, O_o = tuple(O.op.axis) + tuple(O.op.reduce_axis)
+        O_l = s[O].fuse(O_b, O_l, padding = 32)
+
+        O_l_o_i, O_l_i = s[O].split(O_l, factor=4)
+        O_l_o_o_i, O_l_o_i = s[O].split(O_l_o_i, factor=8)
+
+        O_o_o_i, O_o_i = s[O].split(O_o, factor=2)
+        O_o_o_o_i, O_o_o_i = s[O].split(O_o_o_i, factor=16)
+        O_o_o_o_o, O_o_o_o_i = s[O].split(O_o_o_o_i, factor=2)
+        s[O].reorder(O_l_o_o_i, O_o_o_o_o, O_o_o_o_i, O_l_o_i, O_o_o_i, O_l_i, O_o_i)
+
+        A_shared = s.cache_read(A, "shared", [S])
+        A_shared_axm1, A_shared_ax0, A_shared_ax1 = tuple(A_shared.op.axis)
+        A_shared_ax0 = s[A_shared].fuse(A_shared_axm1, A_shared_ax0)
+        s[A_shared].compute_at(s[S], S_k_o_i)
+
+        W_shared = s.cache_read(W, "shared", [S], vanilla=True)
+        W_shared_ax0, W_shared_ax1 = tuple(W_shared.op.axis)
+        s[W_shared].compute_at(s[S], S_k_o_i)
+
+        O_l_o_o_o_o_o_o_o_fused = s[O].fuse(O_l_o_o_i, O_o_o_o_o)
+        s[O].bind(O_l_o_o_o_o_o_o_o_fused, te.thread_axis("blockIdx.x"))
+        O_l_o_o_i_o_o_o_i_fused = O_o_o_o_i
+        s[O].bind(O_l_o_o_i_o_o_o_i_fused, te.thread_axis("vthread"))
+        O_l_o_i_o_o_i_fused = s[O].fuse(O_l_o_i, O_o_o_i)
+        s[O].bind(O_l_o_i_o_o_i_fused, te.thread_axis("threadIdx.x"))
+        s[S].compute_at(s[O], O_l_o_i_o_o_i_fused)
+
+        A_shared_ax0_ax1_fused = s[A_shared].fuse(A_shared_ax0, A_shared_ax1)
+        A_shared_ax0_ax1_fused_o, A_shared_ax0_ax1_fused_i = s[A_shared].split(A_shared_ax0_ax1_fused, factor=2)
+        s[A_shared].vectorize(A_shared_ax0_ax1_fused_i)
+        A_shared_ax0_ax1_fused_o_o, A_shared_ax0_ax1_fused_o_i = s[A_shared].split(A_shared_ax0_ax1_fused_o, factor=128)
+        s[A_shared].bind(A_shared_ax0_ax1_fused_o_i, te.thread_axis("threadIdx.x"))
+
+        W_shared_ax0_ax1_fused = s[W_shared].fuse(W_shared_ax0, W_shared_ax1)
+        W_shared_ax0_ax1_fused_o, W_shared_ax0_ax1_fused_i = s[W_shared].split(W_shared_ax0_ax1_fused, factor=2)
+        s[W_shared].vectorize(W_shared_ax0_ax1_fused_i)
+        W_shared_ax0_ax1_fused_o_o, W_shared_ax0_ax1_fused_o_i = s[W_shared].split(W_shared_ax0_ax1_fused_o, factor=128)
+        s[W_shared].bind(W_shared_ax0_ax1_fused_o_i, te.thread_axis("threadIdx.x"))
+
+        # s[S].pragma(S_l_o_o_o_o, "auto_unroll_max_step", 1024)
+        # s[S].pragma(S_l_o_o_o_o, "unroll_explicit", True)
+
+        s[S].set_scope('local')
+        s.fuse_tensor_dimensions(S, 0, 1)
+        s.fuse_tensor_dimensions(A_shared, 0, 1)
+        s[S].mark_no_bounds_check()
+        s[O].mark_no_bounds_check()
+        s[A_shared].mark_no_bounds_check()
+
 
     gen_prefix = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0]
     _ = tvm.register_func(utils.get_tvm_callback_cuda_compile(256))
