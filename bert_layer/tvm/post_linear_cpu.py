@@ -60,7 +60,7 @@ width_ufs=loop_ufs
 A2 = te.ragged_placeholder((BATCH_SIZE, MAX_LEN, OUT_SIZE), [bd, s1, od], loop_ufs,
                            name='A2', width_ufs=width_ufs)
 
-loop_ufs=[ls[0], Uf.from_constant('bd', MAX_LEN, 'l'), ls[4]]
+loop_ufs=[ls[0], ls[2], ls[4]]
 width_ufs=None if args.dense_storage else [loop_ufs]
 k = tvm.reduce_axis((0, NUM_HEADS * HEAD_SIZE), name = 'k')
 S = te.ragged_compute((BATCH_SIZE, MAX_LEN, OUT_SIZE), [bd, s1, od], loop_ufs,
@@ -81,15 +81,16 @@ s = tvm.create_schedule([O.op])
 if True:
     O_local = S
 
+    As = s.cache_read(A, "shared", [S], loop_layout=[ls[0], ls[2], ls[1], ls[3]], layouts=[ls[0], ls[2], ls[1], ls[3]])
     # As = s.cache_read(A, "shared", [O_local], layouts='dense')
-    # Ws = s.cache_read(W, "shared", [O_local], vanilla=True)
+    Ws = s.cache_read(W, "shared", [O_local], vanilla=True)
 
     O_local_b_c, O_local_m_c, O_local_n_c, O_local_k = tuple(O_local.op.axis) + tuple(O_local.op.reduce_axis)
-    O_local_m_c = s[O_local].fuse(O_local_b_c, O_local_m_c)
-    # O_local_m_c_o_i, O_local_m_c_i = s[O_local].split(O_local_m_c, factor=4)
-    # O_local_n_c_o_i, O_local_n_c_i = s[O_local].split(O_local_n_c, factor=64)
-    # O_local_k_o, O_local_k_i = s[O_local].split(O_local_k, factor=16)
-    # s[O_local].reorder(O_local_m_c_o_i, O_local_n_c_o_i, O_local_k_o, O_local_k_i, O_local_m_c_i, O_local_n_c_i)
+    O_local_m_c = s[O_local].fuse(O_local_b_c, O_local_m_c, padding=4)
+    O_local_m_c_o_i, O_local_m_c_i = s[O_local].split(O_local_m_c, factor=4)
+    O_local_n_c_o_i, O_local_n_c_i = s[O_local].split(O_local_n_c, factor=64)
+    O_local_k_o, O_local_k_i = s[O_local].split(O_local_k, factor=16)
+    s[O_local].reorder(O_local_m_c_o_i, O_local_n_c_o_i, O_local_k_o, O_local_k_i, O_local_m_c_i, O_local_n_c_i)
 
     b, x, y = s[O].leaf_iter_vars[0:3]
     x = s[O].fuse(b, x, padding=64)
@@ -106,15 +107,23 @@ if True:
     O_n_o_o, O_n_o_i = s[O].split(O_n_o_i, factor=1)
     s[O].reorder(O_m_o_i, O_n_o_o, O_n_o_i, O_m_i, O_n_i)
     s[O_local].compute_at(s[O], O_n_o_i)
-    # s[As].compute_at(s[O], O_n_o_i)
-    # s[Ws].compute_at(s[O_local], O_local_k_o)
+    s[As].compute_at(s[O], O_n_o_i)
+    s[Ws].compute_at(s[O_local], O_local_k_o)
 
-    # s[O_local].vectorize(O_local_n_c_i)
-    # s[O].vectorize(O_n_i)
+    s[O_local].vectorize(O_local_n_c_i)
+    s[O].vectorize(O_n_i)
 
     inputs = [[lens], [BS_VAR, A, W, O]]
 
     s.fuse_tensor_dimensions(O_local, 0, 1)
+    s.fuse_tensor_dimensions(As, 0, 1)
+
+    b, l, h, i = s[As].leaf_iter_vars
+    s[As].fuse(b, l)
+
+    s[S].set_scope('local')
+    s[S].mark_no_bounds_check()
+    s[As].mark_no_bounds_check()
 
 def size_fn(l_inputs):
     lens = l_inputs[0]
