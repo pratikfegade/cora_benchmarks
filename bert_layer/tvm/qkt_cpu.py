@@ -17,6 +17,8 @@ parser.add_argument('--sched', dest='sched', default=1, type=int)
 parser.add_argument('--masked-mha', dest='masked_mha', default=False, action='store_true')
 args = parser.parse_args()
 
+args.target = "llvm -mcpu=cortex-a76 -mattr=neon"
+
 BS_VAR = te.var('bs')
 BATCH_SIZE = BS_VAR + 1
 NUM_HEADS = 8
@@ -88,12 +90,6 @@ if True:
     O_local_n_c_o_i, O_local_n_c_i = s[O_local].split(O_local_n_c, factor=64)
     O_local_k_o, O_local_k_i = s[O_local].split(O_local_k, factor=32)
     s[O_local].reorder(O_local_b_c, O_local_h_c, O_local_m_c_o_i, O_local_n_c_o_i, O_local_k_o, O_local_k_i, O_local_m_c_i, O_local_n_c_i)
-
-    # O_b, O_m, O_n, O_k = tuple(O.op.axis) + tuple(O.op.reduce_axis)
-
-    # s[O].parallel(O_b)
-    # s[O_local].pragma(O_local_b_c_o_o_o, "auto_unroll_max_step", 64)
-    # s[O_local].pragma(O_local_b_c_o_o_o, "unroll_explicit", True)
 
     b, x, h, y = s[O].leaf_iter_vars[0:4]
     xo, xi = s[O].split(x, factor = 64)

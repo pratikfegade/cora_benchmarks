@@ -4,7 +4,7 @@ import numpy as np
 import time
 import torch
 import torch.nn.functional as f
-from torch.profiler import profile, record_function, ProfilerActivity
+# from torch.profiler import profile, record_function, ProfilerActivity
 from torch import Tensor
 from torch import nn
 import torch.utils.benchmark as benchmark
@@ -41,6 +41,8 @@ def get_np_tensor(size, device, random, fill_value = None):
         if fill_value == None: raise ValueError("No fill value provided " + str(fill_value))
         np_array = np.full(size, 0.1, 'float32').astype('float32')
     return torch.from_numpy(np_array).to(device)
+
+def mean(l): return sum(l) / len(l)
 
 class Encoder(nn.Module):
     def __init__(self, device, max_len, batch_size, num_heads, head_size, model_size, ff_size, debug):
@@ -105,8 +107,8 @@ class MaskedMHA(nn.Module):
         qkv += self.pre_linear_b
         qkv = qkv.view(3, self.num_heads, self.batch_size, self.max_len, self.head_size)
         q, k, v = torch.split(qkv, 1, 0)
-        # attn = torch.matmul(q, k.permute(0, 1, 2, 4, 3))
-        attn = self.qkt
+        attn = torch.matmul(q, k.permute(0, 1, 2, 4, 3))
+        # attn = self.qkt
         attn += attn_mask
         attn = f.softmax(attn, dim = 4)
         attn = torch.reshape(torch.matmul(attn, v).permute(0, 2, 3, 1, 4), (self.batch_size, self.max_len, self.model_size))
@@ -123,7 +125,7 @@ batch_size = args.batch_size
 
 batches = run_utils.get_nlp_batches(batch_size, args.max_batches, args.dataset)
 
-iters = 1 if args.mem or args.debug else 50
+iters = 1 if args.mem or args.debug else 20
 
 callable_to_profile = None
 torch.set_num_threads(8)
@@ -146,9 +148,6 @@ def run_for_batches():
             encoder = MaskedMHA(device, max_len, batch_size, num_heads, head_size, model_size)
             traced_encoder = torch.jit.script(encoder)
             inp = get_np_tensor((args.batch_size * max_len, model_size), device, True)
-            timer = benchmark.Timer(stmt='f(x, y)',
-                                    globals={'x': inp,
-                                             'y': attn_mask, 'f': traced_encoder})
         else:
             # for i in range(batch_size):
                 # for j in range(max_len):
@@ -167,12 +166,12 @@ def run_for_batches():
             print(np.mean(ret.cpu().numpy()))
         else:
             traced_encoder = torch.jit.script(encoder)
-
             inp = get_np_tensor((args.batch_size * max_len, model_size), device, True)
             timer = benchmark.Timer(stmt='f(x, y)',
                                     globals={'x': inp, 'y': attn_mask, 'f': traced_encoder},
                                     num_threads=8)
             batch_times.append(timer.timeit(iters).mean * 1000.0)
+
     return batch_times
 
 with torch.no_grad():
