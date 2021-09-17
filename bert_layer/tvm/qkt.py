@@ -13,7 +13,7 @@ import run_utils
 parser = run_utils.get_cmd_parser()
 parser.add_argument('--nt', dest='nt', default=8, type=int)
 parser.add_argument('--kt', dest='kt', default=4, type=int)
-parser.add_argument('--sched', dest='sched', default=3, type=int)
+parser.add_argument('--sched', dest='sched', default=1, type=int)
 parser.add_argument('--masked-mha', dest='masked_mha', default=False, action='store_true')
 args = parser.parse_args()
 
@@ -84,70 +84,126 @@ if args.target == "cuda":
     block_x = lambda: tvm.thread_axis("blockIdx.x")
     block_y = lambda: tvm.thread_axis("blockIdx.y")
 
-    nt = 8
+    if args.sched == 1:
+        S_b, S_l, S_h, S_o, S_k = tuple(S.op.axis) + tuple(S.op.reduce_axis)
 
-    Qs = s.cache_read(Q, "shared", [S], layouts='dense')
-    Ks = s.cache_read(K, "shared", [S], layouts='dense')
+        S_l_o_i, S_l_i = s[S].split(S_l, factor=2)
 
-    Ql = s.cache_read(Qs, "local", [S], layouts='dense')
-    Kl = s.cache_read(Ks, "local", [S], layouts='dense')
+        S_k_o_o, S_k_o_i = s[S].split(S_k, factor=16)
+        s[S].reorder(S_b, S_o, S_k_o_o, S_k_o_i, S_l_o_i, S_l_i)
 
-    if args.sched == 1: tile, ktile = 64, 4
-    else: tile, ktile = 32, 2
+        O_b, O_l, O_h, O_o = tuple(O.op.axis) + tuple(O.op.reduce_axis)
 
-    b, x, h, y = s[O].leaf_iter_vars[0:4]
-    xo, xi = s[O].split(x, factor = tile)
-    yo, yi = s[O].split(y, factor = tile)
+        xo, xi = s[O].split(O_l, factor = 64)
+        yo, yi = s[O].split(O_o, factor = 64)
+        s[O].reorder(O_h, O_b, xo, yo, xi, yi)
+        f1 = s[O].fuse(xo, yo)
+        O_b = s[O].fuse(O_b, f1)
+        O_l = xi
+        O_o = yi
 
-    s[O].reorder(b, xo, yo, h, xi, yi)
-    f1 = s[O].fuse(xo, yo)
-    f2 = s[O].fuse(b, f1)
-    s[O].bind(f2, block_x())
-    s[O].bind(h, block_y())
+        O_l_o_i, O_l_i = s[O].split(O_l, factor=8)
+        O_l_o_o_i, O_l_o_i = s[O].split(O_l_o_i, factor=4)
+        O_l_o_o_o, O_l_o_o_i = s[O].split(O_l_o_o_i, factor=2)
 
-    xio, xii = s[O].split(xi, factor = nt)
-    yio, yii = s[O].split(yi, factor = nt)
-    s[O].bind(xii, thread_y())
-    s[O].bind(yii, thread_x())
-    s[O].bind(yio, tvm.thread_axis("vthread", name="vth1"))
-    s[O].bind(xio, tvm.thread_axis("vthread", name="vth2"))
-    s[O].reorder(xio, yii, yio, xii)
-    s[S].compute_at(s[O], xii)
+        O_o_o_o_i, O_o_o_i = s[O].split(O_o, factor=32)
+        O_o_o_o_o, O_o_o_o_i = s[O].split(O_o_o_o_i, factor=2)
+        s[O].reorder(O_b, O_l_o_o_o, O_o_o_o_o, O_l_o_o_i, O_o_o_o_i, O_l_o_i, O_o_o_i, O_l_i)
 
-    x, h, y, k = s[S].leaf_iter_vars[1:5]
-    ko, ki = s[S].split(k, nparts = ktile)
-    s[S].reorder(h, ko, ki, x, y)
-    s[Qs].compute_at(s[S], ko)
-    s[Ks].compute_at(s[S], ko)
-    s[Ql].compute_at(s[S], ki)
-    s[Kl].compute_at(s[S], ki)
+        Q_shared = s.cache_read(Q, "shared", [S])
+        Q_shared_axm2, Q_shared_axm1, Q_shared_ax0, Q_shared_ax1, Q_shared_ax2 = tuple(Q_shared.op.axis)
+        s[Q_shared].compute_at(s[S], S_k_o_o)
 
-    x, h, y = s[Ks].leaf_iter_vars[2], s[Ks].leaf_iter_vars[3], s[Ks].leaf_iter_vars[4]
-    s[Ks].reorder(h, y, x)
-    f = s[Ks].fuse(x, y)
-    fo, fi = s[Ks].split(f, factor = nt * nt * 4)
-    fio, fii = s[Ks].split(fi, factor = nt * 4)
-    fiio, fiii = s[Ks].split(fii, factor = 4)
-    s[Ks].bind(fio, thread_y())
-    s[Ks].bind(fiio, thread_x())
-    s[Ks].vectorize(fiii)
+        K_shared = s.cache_read(K, "shared", [S])
+        K_shared_axm2, K_shared_axm1, K_shared_ax0, K_shared_ax1, K_shared_ax2 = tuple(K_shared.op.axis)
+        s[K_shared].compute_at(s[S], S_k_o_o)
 
-    x, h, y = s[Qs].leaf_iter_vars[2], s[Qs].leaf_iter_vars[3], s[Qs].leaf_iter_vars[4]
-    s[Qs].reorder(h, y, x)
-    f = s[Qs].fuse(x, y)
-    fo, fi = s[Qs].split(f, factor = nt * nt * 4)
-    fio, fii = s[Qs].split(fi, factor = nt * 4)
-    fiio, fiii = s[Qs].split(fii, factor = 4)
-    s[Qs].bind(fio, thread_y())
-    s[Qs].bind(fiio, thread_x())
-    s[Qs].vectorize(fiii)
+        O_b_l_o_o_o_fused_o_o_o_o_fused = s[O].fuse(O_b, O_l_o_o_o, O_o_o_o_o)
+        s[O].bind(O_b_l_o_o_o_fused_o_o_o_o_fused, te.thread_axis("blockIdx.x"))
+        s[O].bind(O_h, te.thread_axis("blockIdx.y"))
+        O_l_o_o_i_fused_o_o_o_i_fused = s[O].fuse(O_l_o_o_i, O_o_o_o_i)
+        s[O].bind(O_l_o_o_i_fused_o_o_o_i_fused, te.thread_axis("vthread"), no_unroll_vthread=True)
+        O_l_o_i_fused_o_o_i_fused = s[O].fuse(O_l_o_i, O_o_o_i)
+        s[O].bind(O_l_o_i_fused_o_o_i_fused, te.thread_axis("threadIdx.x"))
+        s[S].compute_at(s[O], O_l_o_i_fused_o_o_i_fused)
 
-    s.reorder_tensor_dimensions(Ks, 2, 3)
-    s.reorder_tensor_dimensions(Ks, 3, 4)
-    s.reorder_tensor_dimensions(Qs, 2, 3)
-    s.reorder_tensor_dimensions(Qs, 3, 4)
+        Q_shared_ax0_ax1_f_ax2_f = s[Q_shared].fuse(Q_shared_ax0, Q_shared_ax1, Q_shared_ax2)
+        Q_shared_ax0_ax1_f_ax2_f_o, Q_shared_ax0_ax1_f_ax2_f_i = s[Q_shared].split(Q_shared_ax0_ax1_f_ax2_f, factor=4)
+        s[Q_shared].vectorize(Q_shared_ax0_ax1_f_ax2_f_i)
+        Q_shared_ax0_ax1_f_ax2_f_o_o, Q_shared_ax0_ax1_f_ax2_f_o_i = s[Q_shared].split(Q_shared_ax0_ax1_f_ax2_f_o, factor=128)
+        s[Q_shared].bind(Q_shared_ax0_ax1_f_ax2_f_o_i, te.thread_axis("threadIdx.x"))
 
-    s[S].set_scope('local')
+        K_shared_ax0_ax1_f_ax2_f = s[K_shared].fuse(K_shared_ax0, K_shared_ax1, K_shared_ax2)
+        K_shared_ax0_ax1_f_ax2_f_o, K_shared_ax0_ax1_f_ax2_f_i = s[K_shared].split(K_shared_ax0_ax1_f_ax2_f, factor=4)
+        s[K_shared].vectorize(K_shared_ax0_ax1_f_ax2_f_i)
+        K_shared_ax0_ax1_f_ax2_f_o_o, K_shared_ax0_ax1_f_ax2_f_o_i = s[K_shared].split(K_shared_ax0_ax1_f_ax2_f_o, factor=128)
+        s[K_shared].bind(K_shared_ax0_ax1_f_ax2_f_o_i, te.thread_axis("threadIdx.x"))
+
+        s[S].set_scope('local')
+    else:
+        nt = 8
+
+        Qs = s.cache_read(Q, "shared", [S], layouts='dense')
+        Ks = s.cache_read(K, "shared", [S], layouts='dense')
+
+        Ql = s.cache_read(Qs, "local", [S], layouts='dense')
+        Kl = s.cache_read(Ks, "local", [S], layouts='dense')
+
+        tile, ktile = 64, 8
+
+        b, x, h, y = s[O].leaf_iter_vars[0:4]
+        xo, xi = s[O].split(x, factor = tile)
+        yo, yi = s[O].split(y, factor = tile)
+
+        s[O].reorder(b, xo, yo, h, xi, yi)
+        f1 = s[O].fuse(xo, yo)
+        f2 = s[O].fuse(b, f1)
+        s[O].bind(f2, block_x())
+        s[O].bind(h, block_y())
+
+        xio, xii = s[O].split(xi, factor = nt)
+        yio, yii = s[O].split(yi, factor = nt)
+        s[O].bind(xii, thread_y())
+        s[O].bind(yii, thread_x())
+        s[O].bind(yio, tvm.thread_axis("vthread", name="vth1"))
+        s[O].bind(xio, tvm.thread_axis("vthread", name="vth2"))
+        s[O].reorder(xio, yii, yio, xii)
+        s[S].compute_at(s[O], xii)
+
+        x, h, y, k = s[S].leaf_iter_vars[1:5]
+        ko, ki = s[S].split(k, nparts = ktile)
+        s[S].reorder(h, ko, ki, x, y)
+        s[Qs].compute_at(s[S], ko)
+        s[Ks].compute_at(s[S], ko)
+        s[Ql].compute_at(s[S], ki)
+        s[Kl].compute_at(s[S], ki)
+
+        x, h, y = s[Ks].leaf_iter_vars[2], s[Ks].leaf_iter_vars[3], s[Ks].leaf_iter_vars[4]
+        s[Ks].reorder(h, y, x)
+        f = s[Ks].fuse(x, y)
+        fo, fi = s[Ks].split(f, factor = nt * nt * 4)
+        fio, fii = s[Ks].split(fi, factor = nt * 4)
+        fiio, fiii = s[Ks].split(fii, factor = 4)
+        s[Ks].bind(fio, thread_y())
+        s[Ks].bind(fiio, thread_x())
+        s[Ks].vectorize(fiii)
+
+        x, h, y = s[Qs].leaf_iter_vars[2], s[Qs].leaf_iter_vars[3], s[Qs].leaf_iter_vars[4]
+        s[Qs].reorder(h, y, x)
+        f = s[Qs].fuse(x, y)
+        fo, fi = s[Qs].split(f, factor = nt * nt * 4)
+        fio, fii = s[Qs].split(fi, factor = nt * 4)
+        fiio, fiii = s[Qs].split(fii, factor = 4)
+        s[Qs].bind(fio, thread_y())
+        s[Qs].bind(fiio, thread_x())
+        s[Qs].vectorize(fiii)
+
+        s.reorder_tensor_dimensions(Ks, 2, 3)
+        s.reorder_tensor_dimensions(Ks, 3, 4)
+        s.reorder_tensor_dimensions(Qs, 2, 3)
+        s.reorder_tensor_dimensions(Qs, 3, 4)
+
+        s[S].set_scope('local')
 
     gen_prefix = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0]
     _ = tvm.register_func(utils.get_tvm_callback_cuda_compile(256))
