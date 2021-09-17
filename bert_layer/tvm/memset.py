@@ -15,17 +15,17 @@ args = parser.parse_args()
 
 BATCH_SIZE = te.var('bs')
 NUM_HEADS = 8
-OUT_SIZE = 64
+HEAD_SIZE = 64
 TILE=64
 MAX_LEN = utils.ceilmult(run_utils.get_dataset_max_len(args.dataset), TILE)
 
 lens = te.placeholder((BATCH_SIZE,), name = 'lens', dtype = 'int32')
 
 bd = Dim('bd')
-qkv = Dim('qkv')
 md = Dim('md')
 s1 = Dim('s1')
-od = Dim('od')
+s2 = Dim('s2')
+hd = Dim('hd')
 
 def len_ufw(name, pad): return Ufw(name, "l", (pad, MAX_LEN), [bd], [lens], lambda lens: lambda b: utils.ceilmult(lens[b], pad))
 lufw1 = len_ufw('s1', 1)
@@ -35,17 +35,18 @@ def lb(name): return Uf(name, "l", (0, MAX_LEN), [bd], lambda b: utils.floormult
 def ub(name): return Uf(name, "l", (TILE, MAX_LEN), [bd], lambda b: utils.ceilmult(lens[b], TILE))
 
 ls =  {
-    0: Uf.from_constant('qkv', 3, "l"),
-    1: Uf.from_constant('bd', BATCH_SIZE, "l"),
-    2: Uf.from_constant('md', NUM_HEADS, "l"),
-    3: lufw1.get_uf(),
-    4: Uf.from_constant('od', OUT_SIZE, "l"),
+    0: Uf.from_constant('bd', BATCH_SIZE, "l"),
+    1: Uf.from_constant('md', NUM_HEADS, "l"),
+    2: lufw64.get_uf(),
+    3: lufw64.get_uf(),
+    4: Uf.from_constant('hd', HEAD_SIZE, "l"),
+    5: Uf.from_constant('qk', 3, "l"),
 }
 
-loop_ufs=[ls[0], ls[1], (lb('lb'), ub('ub')), ls[2], ls[4]]
-width_ufs=None if args.dense_storage else [[ls[0], ls[1], lufw64.get_uf(), ls[2], ls[4]]]
-O = te.ragged_compute((3, BATCH_SIZE, MAX_LEN, NUM_HEADS, OUT_SIZE), [qkv, bd, s1, md, od], loop_ufs,
-                      lambda ds: 0.0, name = 'O', width_uf_lists=width_ufs)
+loop_ufs=[ls[0], ls[2], ls[1], (lb('lb'), ub('ub'))]
+width_ufs = None if args.dense_storage else [[ls[0], ls[2], ls[1], ls[3]]]
+O = te.ragged_compute((BATCH_SIZE, MAX_LEN, NUM_HEADS, MAX_LEN), [bd, s1, md, s2], loop_ufs,
+                      lambda ds: -float('inf'), name = 'O', width_uf_lists=width_ufs)
 
 s = tvm.create_schedule([O.op])
 
@@ -55,13 +56,12 @@ if args.target == "cuda":
     block_x = lambda: tvm.thread_axis("blockIdx.x")
     block_y = lambda: tvm.thread_axis("blockIdx.y")
 
-    q, b, l, m, h = s[O].op.axis
-    s[O].bind(q, block_y())
-    s[O].bind(b, block_x())
+    b, l, m, h = s[O].op.axis
+    l = s[O].fuse(b, l)
+    s[O].bind(l, block_x())
     s[O].bind(m, thread_y())
-    ho, hi = s[O].split(h, factor = 4)
+    ho, hi = s[O].split(h, nparts=64)
     s[O].bind(ho, thread_x())
-    s[O].vectorize(hi)
 
     gen_prefix = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0]
     _ = tvm.register_func(utils.get_tvm_callback_cuda_compile(256))
