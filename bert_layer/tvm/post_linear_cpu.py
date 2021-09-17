@@ -78,7 +78,7 @@ O = te.ragged_compute((BATCH_SIZE, MAX_LEN, OUT_SIZE), [bd, s1, od], loop_ufs,
 
 s = tvm.create_schedule([O.op])
 
-if True:
+if False:
     O_local = S
 
     As = s.cache_read(A, "shared", [S], loop_layout=[ls[0], ls[2], ls[1], ls[3]], layouts=[ls[0], ls[2], ls[1], ls[3]])
@@ -124,6 +124,48 @@ if True:
     s[S].set_scope('local')
     s[S].mark_no_bounds_check()
     s[As].mark_no_bounds_check()
+else:
+    O_local = S
+
+    O_local_b_c, O_local_m_c, O_local_n_c, O_local_k = tuple(O_local.op.axis) + tuple(O_local.op.reduce_axis)
+    O_local_m_c = s[O_local].fuse(O_local_b_c, O_local_m_c)
+
+    O_local_m_c_o_i, O_local_m_c_i = s[O_local].split(O_local_m_c, factor=4)
+    O_local_m_c_o_o_i, O_local_m_c_o_i = s[O_local].split(O_local_m_c_o_i, factor=16)
+
+    O_local_n_c_o_i, O_local_n_c_i = s[O_local].split(O_local_n_c, factor=4)
+    O_local_k_o, O_local_k_i = s[O_local].split(O_local_k, factor=64)
+
+    s[O_local].reorder(O_local_m_c_o_o_i, O_local_k_o, O_local_m_c_o_i, O_local_n_c_o_i, O_local_k_i, O_local_m_c_i, O_local_n_c_i)
+
+    s[O_local].unroll(O_local_n_c_i)
+    s[O_local].unroll(O_local_m_c_i)
+
+    b, x, y = s[O].leaf_iter_vars[0:3]
+    x = s[O].fuse(b, x, padding=64)
+    xo, xi = s[O].split(x, factor = 64)
+    yo, yi = s[O].split(y, factor = 64)
+    s[O].reorder(xo, yo, xi, yi)
+    f = s[O].fuse(xo, yo)
+    s[O].parallel(f)
+
+
+    O_m, O_n = xi, yi
+    O_m_o_i, O_m_i = s[O].split(O_m, factor=64)
+    O_m_o_o, O_m_o_i = s[O].split(O_m_o_i, factor=1)
+    O_n_o_i, O_n_i = s[O].split(O_n, factor=16)
+    O_n_o_o, O_n_o_i = s[O].split(O_n_o_i, factor=4)
+    s[O].reorder(O_m_o_o, O_n_o_o, O_m_o_i, O_n_o_i, O_m_i, O_n_i)
+    s[O_local].compute_at(s[O], O_n_o_i)
+
+    s[O_local].vectorize(O_local_n_c_i)
+    s[O].vectorize(O_n_i)
+
+    s[O_local].set_scope('local')
+
+    s.fuse_tensor_dimensions(O_local, 0, 1)
+    s[S].mark_no_bounds_check()
+
 
 def size_fn(l_inputs):
     lens = l_inputs[0]
@@ -137,9 +179,6 @@ def size_fn(l_inputs):
                        run_utils.prefix_sum(len(lens), lambda b: lufw1.get_fn(lens)(b)))
     }
 
-# bO = tvm.decl_buffer([BATCH_SIZE * MAX_LEN, OUT_SIZE], name = "bO")
-# inputs = [[lens], [A, W, bO]]
-# binds = {O: bO}
 if args.skip_residual:
     inputs = [[lens], [BS_VAR, A, W, B, O]]
 else:

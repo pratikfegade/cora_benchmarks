@@ -80,7 +80,7 @@ O = te.ragged_compute((BATCH_SIZE, MAX_LEN, NUM_HEADS, MAX_LEN), [bd, s1, md, s2
 
 s = tvm.create_schedule([O.op])
 
-if True:
+if False:
     Qs = s.cache_read(Q, "shared", [S], layouts='dense')
     Ks = s.cache_read(K, "shared", [S], layouts='dense')
 
@@ -111,10 +111,44 @@ if True:
 
     s[O_local].vectorize(O_local_n_c_i)
     s[O].vectorize(O_n_i)
-
-    inputs = [[lens], [BS_VAR, Q, K, O]]
 else:
-    inputs = [[lens], [BS_VAR, Q, K, O, S]]
+    O_local = S
+    O_local_b_c, O_local_m_c, O_local_h_c, O_local_n_c, O_local_k = tuple(O_local.op.axis) + tuple(O_local.op.reduce_axis)
+
+    O_local_m_c_o_i, O_local_m_c_i = s[O_local].split(O_local_m_c, factor=2)
+    O_local_m_c_o_o_i, O_local_m_c_o_i = s[O_local].split(O_local_m_c_o_i, factor=1)
+    O_local_m_c_o_o_o, O_local_m_c_o_o_i = s[O_local].split(O_local_m_c_o_o_i, factor=8)
+
+    O_local_n_c_o_i, O_local_n_c_i = s[O_local].split(O_local_n_c, factor=8)
+    O_local_n_c_o_o_i, O_local_n_c_o_i = s[O_local].split(O_local_n_c_o_i, factor=1)
+
+    O_local_k_o, O_local_k_i = s[O_local].split(O_local_k, factor=64)
+    s[O_local].reorder(O_local_b_c, O_local_m_c_o_o_o, O_local_n_c_o_o_i, O_local_m_c_o_o_i, O_local_k_o, O_local_m_c_o_i, O_local_n_c_o_i, O_local_k_i, O_local_m_c_i, O_local_n_c_i)
+
+    s[O_local].unroll(O_local_n_c_i)
+    s[O_local].unroll(O_local_m_c_i)
+
+    b, x, h, y = s[O].leaf_iter_vars[0:4]
+    xo, xi = s[O].split(x, factor = 64)
+    yo, yi = s[O].split(y, factor = 64)
+    s[O].reorder(b, xo, yo, h, xi, yi)
+    f1 = s[O].fuse(xo, yo)
+    f2 = s[O].fuse(b, f1)
+    s[O].parallel(f2)
+
+    O_m, O_n = xi, yi
+
+    O_m_o_i, O_m_i = s[O].split(O_m, factor=2)
+    O_m_o_o, O_m_o_i = s[O].split(O_m_o_i, factor=8)
+
+    O_n_o_i, O_n_i = s[O].split(O_n, factor=8)
+    s[O].reorder(O_m_o_o, O_n_o_i, O_m_o_i, O_m_i, O_n_i)
+    s[S].compute_at(s[O], O_n_o_i)
+
+    s[O_local].vectorize(O_local_n_c_i)
+    s[O].vectorize(O_n_i)
+
+inputs = [[lens], [BS_VAR, Q, K, O]]
 
 def size_fn(l_inputs):
     lens = l_inputs[0]
