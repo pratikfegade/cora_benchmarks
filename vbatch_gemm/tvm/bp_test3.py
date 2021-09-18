@@ -107,7 +107,7 @@ block_y = lambda: tvm.thread_axis("blockIdx.y")
 ntx = 8
 nty = 8
 
-def schedule_op(O, tile_x, tile_y, suffix):
+def schedule_op(S, O, tile_x, tile_y, suffix):
     if False:
         # S = s.cache_write(O, 'local')
         s[S].set_scope('local')
@@ -184,12 +184,14 @@ def schedule_op(O, tile_x, tile_y, suffix):
         O_l = xi
         O_o = yi
 
-        O_l_o_i, O_l_i = s[O].split(O_l, factor=8)
+        if tile_x == 64: O_l_o_i, O_l_i = s[O].split(O_l, factor=8)
+        else: O_l_o_i, O_l_i = s[O].split(O_l, factor=4)
         O_l_o_o_i, O_l_o_i = s[O].split(O_l_o_i, factor=4)
         O_l_o_o_o, O_l_o_o_i = s[O].split(O_l_o_o_i, factor=2)
 
         O_o_o_o_i, O_o_o_i = s[O].split(O_o, factor=32)
-        O_o_o_o_o, O_o_o_o_i = s[O].split(O_o_o_o_i, factor=2)
+        if tile_y == 64: O_o_o_o_o, O_o_o_o_i = s[O].split(O_o_o_o_i, factor=2)
+        else: O_o_o_o_o, O_o_o_o_i = s[O].split(O_o_o_o_i, factor=1)
         s[O].reorder(O_b, O_l_o_o_o, O_o_o_o_o, O_l_o_o_i, O_o_o_o_i, O_l_o_i, O_o_o_i, O_l_i)
 
         Q_shared = s.cache_read(Q, "shared", [S])
@@ -208,30 +210,30 @@ def schedule_op(O, tile_x, tile_y, suffix):
         s[O].bind(O_l_o_i_fused_o_o_i_fused, te.thread_axis("threadIdx.x"))
         s[S].compute_at(s[O], O_l_o_i_fused_o_o_i_fused)
 
-        Q_shared_ax0_ax1_f_ax2_f = s[Q_shared].fuse(Q_shared_ax0, Q_shared_ax1, Q_shared_ax2)
-        Q_shared_ax0_ax1_f_ax2_f_o, Q_shared_ax0_ax1_f_ax2_f_i = s[Q_shared].split(Q_shared_ax0_ax1_f_ax2_f, factor=4)
-        # s[Q_shared].vectorize(Q_shared_ax0_ax1_f_ax2_f_i)
-        Q_shared_ax0_ax1_f_ax2_f_o_o, Q_shared_ax0_ax1_f_ax2_f_o_i = s[Q_shared].split(Q_shared_ax0_ax1_f_ax2_f_o, factor=128)
-        s[Q_shared].bind(Q_shared_ax0_ax1_f_ax2_f_o_i, te.thread_axis("threadIdx.x"))
+        Q_shared_ax1_f_ax2_f = s[Q_shared].fuse(Q_shared_ax1, Q_shared_ax2)
+        Q_shared_ax1_f_ax2_f_o, Q_shared_ax1_f_ax2_f_i = s[Q_shared].split(Q_shared_ax1_f_ax2_f, factor=4)
+        s[Q_shared].vectorize(Q_shared_ax1_f_ax2_f_i)
+        Q_shared_ax1_f_ax2_f_o_o, Q_shared_ax1_f_ax2_f_o_i = s[Q_shared].split(Q_shared_ax1_f_ax2_f_o, factor=128)
+        s[Q_shared].bind(Q_shared_ax1_f_ax2_f_o_i, te.thread_axis("threadIdx.x"))
 
-        K_shared_ax0_ax1_f_ax2_f = s[K_shared].fuse(K_shared_ax0, K_shared_ax1, K_shared_ax2)
-        K_shared_ax0_ax1_f_ax2_f_o, K_shared_ax0_ax1_f_ax2_f_i = s[K_shared].split(K_shared_ax0_ax1_f_ax2_f, factor=4)
-        # s[K_shared].vectorize(K_shared_ax0_ax1_f_ax2_f_i)
-        K_shared_ax0_ax1_f_ax2_f_o_o, K_shared_ax0_ax1_f_ax2_f_o_i = s[K_shared].split(K_shared_ax0_ax1_f_ax2_f_o, factor=128)
-        s[K_shared].bind(K_shared_ax0_ax1_f_ax2_f_o_i, te.thread_axis("threadIdx.x"))
+        K_shared_ax1_f_ax2_f = s[K_shared].fuse(K_shared_ax1, K_shared_ax2)
+        K_shared_ax1_f_ax2_f_o, K_shared_ax1_f_ax2_f_i = s[K_shared].split(K_shared_ax1_f_ax2_f, factor=4)
+        s[K_shared].vectorize(K_shared_ax1_f_ax2_f_i)
+        K_shared_ax1_f_ax2_f_o_o, K_shared_ax1_f_ax2_f_o_i = s[K_shared].split(K_shared_ax1_f_ax2_f_o, factor=128)
+        s[K_shared].bind(K_shared_ax1_f_ax2_f_o_i, te.thread_axis("threadIdx.x"))
 
         s[S].set_scope('local')
 
 if args.split:
-    G1, G2, G3, G4 = s.split_for_bin_packing([O], O, {O.op.axis[1]: mlb_uf, O.op.axis[2]: nlb_uf}, include_inputs=True)
-    O1, = G1
-    O2, = G2
-    O3, = G3
-    O4, = G4
-    schedule_op(O1, 64, 64, '1')
-    schedule_op(O2, 32, 64, '2')
-    schedule_op(O3, 64, 32, '3')
-    schedule_op(O4, 32, 32, '4')
+    G1, G2, G3, G4 = s.split_for_bin_packing([S], O, {O.op.axis[1]: mlb_uf, O.op.axis[2]: nlb_uf}, include_inputs=True)
+    S1, O1, = G1
+    S2, O2, = G2
+    S3, O3, = G3
+    S4, O4, = G4
+    schedule_op(S1, O1, 64, 64, '1')
+    schedule_op(S2, O2, 32, 64, '2')
+    schedule_op(S3, O3, 64, 32, '3')
+    schedule_op(S4, O4, 32, 32, '4')
 
     if args.hfuse:
         s.hfuse([(s[O1].op, s[O1].leaf_iter_vars[0]), (s[O2].op, s[O2].leaf_iter_vars[0]),
