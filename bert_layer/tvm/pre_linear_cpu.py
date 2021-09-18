@@ -51,7 +51,12 @@ width_ufs=[ls[1], ls[3], ls[4]]
 QKV = te.ragged_placeholder((BATCH_SIZE, MAX_LEN, IN_SIZE), [bd, s1, id], loop_ufs,
                             name='QKV', width_ufs=width_ufs)
 
-W = te.placeholder((QKV_NUM, NUM_HEADS, OUT_SIZE, IN_SIZE), name='W')
+loop_ufs=[ls[0], ls[2], ls[5], ls[4]]
+width_ufs=[ls[0], ls[2], ls[5], ls[4]]
+W = te.ragged_placeholder((QKV_NUM, NUM_HEADS, OUT_SIZE, IN_SIZE), [qkv, md, od, id], loop_ufs,
+                          name='W', width_ufs=width_ufs)
+
+# W = te.placeholder((QKV_NUM, NUM_HEADS, OUT_SIZE, IN_SIZE), name='W')
 B = te.placeholder((QKV_NUM, NUM_HEADS, OUT_SIZE), name='B')
 
 loop_ufs=[ls[0], ls[1], ls[3], ls[2], ls[5]]
@@ -75,6 +80,11 @@ s = tvm.create_schedule([O.op])
 if True:
     O_local = S
 
+    # Wl = s.cache_read(W, 'local', [O_local], vanilla=True, layouts='dense')
+    Wl = s.cache_read(W, 'local', [O_local], layouts='dense')
+    QKVl = s.cache_read(QKV, 'local', [O_local], layouts='dense')
+    s[QKVl].fuse(s[QKVl].leaf_iter_vars[0], s[QKVl].leaf_iter_vars[1])
+
     O_local_q_c, O_local_b_c, O_local_m_c, O_local_h_c, O_local_n_c, O_local_k = (tuple(O_local.op.axis) +
                                                                                   tuple(O_local.op.reduce_axis))
     O_local_m_c = s[O_local].fuse(O_local_b_c, O_local_m_c)
@@ -86,25 +96,25 @@ if True:
     O_local_k_o, O_local_k_i = s[O_local].split(O_local_k, factor=64)
 
     s[O_local].reorder(O_local_m_c_o_o_i, O_local_k_o, O_local_m_c_o_i, O_local_n_c_o_i, O_local_k_i, O_local_m_c_i, O_local_n_c_i)
+    s[Wl].compute_at(s[O_local], O_local_k_o)
+    s[QKVl].compute_at(s[O_local], O_local_k_o)
 
-    s[O_local].unroll(O_local_n_c_i)
     s[O_local].unroll(O_local_m_c_i)
 
     q, b, x, h, y = s[O].leaf_iter_vars
     x = s[O].fuse(b, x, padding=64)
     xo, xi = s[O].split(x, factor = 64)
     yo, yi = s[O].split(y, factor = 64)
-    s[O].reorder(xo, yo, h, xi, yi)
+    s[O].reorder(xo, yo, q, h, xi, yi)
     f = s[O].fuse(xo, yo)
     s[O].parallel(f)
-
 
     O_m, O_n = xi, yi
     O_m_o_i, O_m_i = s[O].split(O_m, factor=64)
     O_m_o_o, O_m_o_i = s[O].split(O_m_o_i, factor=1)
     O_n_o_i, O_n_i = s[O].split(O_n, factor=16)
     O_n_o_o, O_n_o_i = s[O].split(O_n_o_i, factor=4)
-    s[O].reorder(O_m_o_o, O_n_o_o, O_m_o_i, O_n_o_i, O_m_i, O_n_i)
+    s[O].reorder(O_m_o_o, h, O_n_o_o, O_m_o_i, O_n_o_i, O_m_i, O_n_i)
     s[O_local].compute_at(s[O], O_n_o_i)
 
     s[O_local].vectorize(O_local_n_c_i)
@@ -114,6 +124,12 @@ if True:
 
     s.fuse_tensor_dimensions(O_local, 1, 2)
     s[S].mark_no_bounds_check()
+
+    s.fuse_tensor_dimensions(QKVl, 0, 1)
+
+    s.split_tensor_dimension(Wl, 2, 4)
+    s.reorder_tensor_dimensions(Wl, 3, 4)
+
 else:
     pass
 

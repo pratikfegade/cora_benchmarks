@@ -158,8 +158,8 @@ def execute(target, built, inputs, ctx, debug = False):
             return -100000000
             evaluator = built.time_evaluator('default_function', ctx, 1, repeat=10)
         else:
-            # evaluator = built.time_evaluator(built.entry_name, ctx, repeat=2, number=20)
-            evaluator = built.time_evaluator(built.entry_name, ctx, repeat=5, number=100)
+            evaluator = built.time_evaluator(built.entry_name, ctx, repeat=5, number=20)
+            # evaluator = built.time_evaluator(built.entry_name, ctx, repeat=5, number=100)
         eval_result = evaluator(*inputs)
         return mean(list(eval_result.results)[1:]) * 1000
         # return mean(list(eval_result.results)) * 1000
@@ -300,7 +300,7 @@ def get_bert_layer_run_fn(bs_var):
             if args.debug: num_batches = 1
 
             batches = get_nlp_batches(batch_size, num_batches, args.dataset)
-            batches = [sorted(batch, reverse=True) for batch in batches]
+            # batches = [sorted(batch, reverse=True) for batch in batches]
             if pad_sum: batches = append_padded_sum(batches, pad_sum)
 
             time = 0

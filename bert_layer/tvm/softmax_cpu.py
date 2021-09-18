@@ -33,7 +33,8 @@ if args.no_raggedness:
 else:
     def len_ufw(name, pad): return Ufw(name, "l", (pad, MAX_LEN), [bd], [lens], lambda lens: lambda b: utils.ceilmult(lens[b], pad))
 lufw1 = len_ufw('s1_1', 1)
-lufw32 = len_ufw('s2_32', 32)
+# lufw32 = len_ufw('s2_32', 32)
+lufw32 = len_ufw('s2_32', 8)
 lufw64 = len_ufw('s64', 64)
 
 ls =  {
@@ -80,20 +81,20 @@ if True:
     fo, fi = s[O].split(f, factor=16)
     s[O].parallel(fi)
 
-    vo, vi = s[O].split(l2, factor=32)
+    vo, vi = s[O].split(l2, factor=8)
     s[O].vectorize(vi)
 
     Al = s.cache_read(A, 'local', [Amax, Aexp])
-    vo, vi = s[Al].split(s[Al].leaf_iter_vars[3], factor=32)
+    vo, vi = s[Al].split(s[Al].leaf_iter_vars[3], factor=8)
     s[Al].vectorize(vi)
 
-    vo, vi = s[Aexp].split(s[Aexp].leaf_iter_vars[3], factor=32)
+    vo, vi = s[Aexp].split(s[Aexp].leaf_iter_vars[3], factor=8)
     s[Aexp].vectorize(vi)
 
-    vo, vi = s[Amax].split(s[Amax].leaf_iter_vars[3], factor=32)
+    vo, vi = s[Amax].split(s[Amax].leaf_iter_vars[3], factor=8)
     s[Amax].unroll(vi)
 
-    vo, vi = s[Asum].split(s[Asum].leaf_iter_vars[3], factor=32)
+    vo, vi = s[Asum].split(s[Asum].leaf_iter_vars[3], factor=8)
     s[Asum].unroll(vi)
 
     s[Al].compute_at(s[O], fi)
