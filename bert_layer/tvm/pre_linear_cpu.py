@@ -80,10 +80,9 @@ s = tvm.create_schedule([O.op])
 if True:
     O_local = S
 
-    # Wl = s.cache_read(W, 'local', [O_local], vanilla=True, layouts='dense')
     Wl = s.cache_read(W, 'local', [O_local], layouts='dense')
-    QKVl = s.cache_read(QKV, 'local', [O_local], layouts='dense')
-    s[QKVl].fuse(s[QKVl].leaf_iter_vars[0], s[QKVl].leaf_iter_vars[1])
+    # QKVl = s.cache_read(QKV, 'local', [O_local], loop_layout=[ls[1], ls[3], ls[4]])
+    # s[QKVl].fuse(s[QKVl].leaf_iter_vars[0], s[QKVl].leaf_iter_vars[1])
 
     O_local_q_c, O_local_b_c, O_local_m_c, O_local_h_c, O_local_n_c, O_local_k = (tuple(O_local.op.axis) +
                                                                                   tuple(O_local.op.reduce_axis))
@@ -97,7 +96,7 @@ if True:
 
     s[O_local].reorder(O_local_m_c_o_o_i, O_local_k_o, O_local_m_c_o_i, O_local_n_c_o_i, O_local_k_i, O_local_m_c_i, O_local_n_c_i)
     s[Wl].compute_at(s[O_local], O_local_k_o)
-    s[QKVl].compute_at(s[O_local], O_local_k_o)
+    # s[QKVl].compute_at(s[O_local], O_local_m_c_o_i)
 
     s[O_local].unroll(O_local_m_c_i)
 
@@ -125,7 +124,7 @@ if True:
     s.fuse_tensor_dimensions(O_local, 1, 2)
     s[S].mark_no_bounds_check()
 
-    s.fuse_tensor_dimensions(QKVl, 0, 1)
+    # s.fuse_tensor_dimensions(QKVl, 0, 1)
 
     s.split_tensor_dimension(Wl, 2, 4)
     s.reorder_tensor_dimensions(Wl, 3, 4)
