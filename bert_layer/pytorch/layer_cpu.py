@@ -108,7 +108,6 @@ class MaskedMHA(nn.Module):
         qkv = qkv.view(3, self.num_heads, self.batch_size, self.max_len, self.head_size)
         q, k, v = torch.split(qkv, 1, 0)
         attn = torch.matmul(q, k.permute(0, 1, 2, 4, 3))
-        # attn = self.qkt
         attn += attn_mask
         attn = f.softmax(attn, dim = 4)
         attn = torch.reshape(torch.matmul(attn, v).permute(0, 2, 3, 1, 4), (self.batch_size, self.max_len, self.model_size))
