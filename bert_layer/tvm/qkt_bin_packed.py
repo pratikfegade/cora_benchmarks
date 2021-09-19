@@ -86,8 +86,8 @@ def schedule_op(S, O, tile_x, tile_y, suffix):
 
     O_b, O_l, O_h, O_o = tuple(O.op.axis) + tuple(O.op.reduce_axis)
 
-    xo, xi = s[O].split(O_l, factor = 64)
-    yo, yi = s[O].split(O_o, factor = 64)
+    xo, xi = s[O].split(O_l, factor = tile_x)
+    yo, yi = s[O].split(O_o, factor = tile_y)
     s[O].reorder(O_h, O_b, xo, yo, xi, yi)
     f1 = s[O].fuse(xo, yo)
     O_b = s[O].fuse(O_b, f1)
