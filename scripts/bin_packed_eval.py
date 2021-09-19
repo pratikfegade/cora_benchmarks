@@ -51,9 +51,9 @@ def prepare_and_execute(op, target, dataset, b_sizes, n_batch, split_op, hfuse):
             cmd = ([PYTHON, runner, '--target', target, '--batch-size', str(b_size),
                     '--max-batches', str(n_batch), '--dataset', dataset])
             cmd += extra_args
-            print(' '.join(cmd))
             out, err = '', ''
             out, err = com.run_cmd(cmd)
+            print(out, err)
             if err: print(err, file = results_err)
             times[b_size] = com.extract_times(out, 1)[0]
         return times
@@ -62,7 +62,9 @@ def prepare_and_execute(op, target, dataset, b_sizes, n_batch, split_op, hfuse):
         cmd = ([PYTHON, runner, '--target', target, '--batch-sizes'] + [str(i) for i in b_sizes] +
                ['--max-batches', str(n_batch), '--dataset', dataset])
         cmd += extra_args
+        print(' '.join(cmd))
         out, err = com.run_cmd(cmd)
+        print(out, err)
         if err: print(err, file = results_err)
         return com.extract_time_batches(out)
 
@@ -76,8 +78,9 @@ parser.add_argument('--append', dest='append', default=False, action='store_true
 args = parser.parse_args()
 
 # ops = ['qkt', 'attn_v', 'bp_test']
-ops = ['attn_v', 'bp_test']
-b_sizes = [2, 8, 32, 128, 256]
+ops = ['attn_v', 'qkt']
+# b_sizes = [2, 8, 32, 128, 256]
+b_sizes = [32, 64, 128]
 # datasets = (com.get_all_datasets() if args.dataset is None else [args.dataset]).remove('cola')
 # datasets = ['mnli', 'random_80_96', 'random_144_160']
 datasets = ['mnli']
@@ -88,23 +91,30 @@ print(header, file = results_out)
 
 for op in ops:
     for dataset in datasets:
-        # log(args, 'Running vanilla %s %s' % (op, dataset))
-        # vanilla_times = prepare_and_execute(op, args.target, dataset, b_sizes, args.max_batches, False, False)
-        # log(args, 'Running +split %s %s' % (op, dataset))
-        # op_split_times = prepare_and_execute(op, args.target, dataset, b_sizes, args.max_batches, True, False)
-        # log(args, 'Running +fuse %s %s' % (op, dataset))
-        # op_split_hfuse_times = prepare_and_execute(op, args.target, dataset, b_sizes, args.max_batches, True, True)
-        # log(args, 'Running CBT %s %s' % (op, dataset))
+        log(args, 'Running +split %s %s' % (op, dataset))
+        op_split_times = prepare_and_execute(op, args.target, dataset, b_sizes, args.max_batches, True, False)
+        print(op_split_times)
+
+        log(args, 'Running +fuse %s %s' % (op, dataset))
+        op_split_hfuse_times = prepare_and_execute(op, args.target, dataset, b_sizes, args.max_batches, True, True)
+        print(op_split_hfuse_times)
+
+        log(args, 'Running vanilla %s %s' % (op, dataset))
+        vanilla_times = prepare_and_execute(op, args.target, dataset, b_sizes, args.max_batches, False, False)
+        print(vanilla_times)
+
+        log(args, 'Running CBT %s %s' % (op, dataset))
         cbt_times = run_cbt(op, args.target, b_sizes, args.max_batches, com.get_dataset_file(dataset), results_err, args)
         print(cbt_times)
-        # for i in range(len(b_sizes)):
-            # b_size = b_sizes[i]
-            # print(op, args.target, dataset, b_size, vanilla_times[b_size],
-                  # op_split_times[b_size], op_split_hfuse_times[b_size], sep=',')
-            # out_str = '%s,%s,%s,%d,%g,%g,%g,%g' % (op, args.target, dataset, b_size, vanilla_times[b_size],
-                                                   # op_split_times[b_size], op_split_hfuse_times[b_size],
-                                                   # cbt_times[b_size])
-            # print(out_str, file = results_out)
+
+        for i in range(len(b_sizes)):
+            b_size = b_sizes[i]
+            print(op, args.target, dataset, b_size, vanilla_times[b_size],
+                  op_split_times[b_size], op_split_hfuse_times[b_size], sep=',')
+            out_str = '%s,%s,%s,%d,%g,%g,%g,%g' % (op, args.target, dataset, b_size, vanilla_times[b_size],
+                                                   op_split_times[b_size], op_split_hfuse_times[b_size],
+                                                   cbt_times[b_size])
+            print(out_str, file = results_out)
 
 if not args.stdout:
     results_out.close()

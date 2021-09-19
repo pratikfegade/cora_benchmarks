@@ -102,7 +102,7 @@ def schedule_op(S, O, tile_x, tile_y, suffix):
     O_o_o_o_i, O_o_o_i = s[O].split(O_o, factor=32)
     if tile_y == 64: O_o_o_o_o, O_o_o_o_i = s[O].split(O_o_o_o_i, factor=2)
     else: O_o_o_o_o, O_o_o_o_i = s[O].split(O_o_o_o_i, factor=1)
-    s[O].reorder(O_b, O_l_o_o_o, O_o_o_o_o, O_l_o_o_i, O_o_o_o_i, O_l_o_i, O_o_o_i, O_l_i)
+    s[O].reorder(O_b, O_l_o_o_o, O_o_o_o_o, O_h, O_l_o_o_i, O_o_o_o_i, O_l_o_i, O_o_o_i, O_l_i)
 
     Q_shared = s.cache_read(Q, "shared", [S], suffix=suffix)
     Q_shared_axm2, Q_shared_axm1, Q_shared_ax0, Q_shared_ax1, Q_shared_ax2 = tuple(Q_shared.op.axis)
@@ -177,12 +177,12 @@ out, batches = run_utils.lower_or_build(name, s, inputs, args, size_fn=size_fn, 
 #     rounded = utils.ceilmult(length, TILE)
 #     print(rounded, np.mean(O[i,0:rounded,:,0:rounded]))
 
-_, Q, K, O = out
-O = O.flatten()
-ctr = 0
-for length in batches[0]:
-    rounded = utils.ceilmult(length, 32)
-    this_extent = rounded
-    this_storage_extent = rounded * rounded * NUM_HEADS
-    print(rounded, np.mean(O[ctr:ctr+this_storage_extent]))
-    ctr += this_storage_extent
+# _, Q, K, O = out
+# O = O.flatten()
+# ctr = 0
+# for length in batches[0]:
+#     rounded = utils.ceilmult(length, 32)
+#     this_extent = rounded
+#     this_storage_extent = rounded * rounded * NUM_HEADS
+#     print(rounded, np.mean(O[ctr:ctr+this_storage_extent]))
+#     ctr += this_storage_extent

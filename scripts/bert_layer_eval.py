@@ -70,7 +70,7 @@ def get_cora_runner(balance):
         log(args, ' Batch size %d' % (b_size))
         if args.target == "cpu": runner = TVM_CPU_EXE_RUNNER
         else:
-            runner = TVM_MEM_RUNNER if args.mem else TVM_CPU_EXE_RUNNER
+            runner = TVM_MEM_RUNNER if args.mem else TVM_GPU_EXE_RUNNER
 
         cmd = [PYTHON, runner, '--target', com.get_tvm_target(target), '--batch-size', str(b_size),
                '--max-batches', str(n_batch), '--dataset', dataset]
@@ -106,7 +106,8 @@ batch_sizes = [32, 64, 128]
 targets = [args.target] if args.target else ['cuda']
 datasets = com.cluster_datasets_by_max_len() if args.dataset is None else {com.get_dataset_max_len(args.dataset) : [args.dataset]}
 # datasets = {512:['race', 'wiki_512'],384:['squadv2'],128:['wiki_128','mnli','xnli'],112:['mrpc'],48:['cola']}
-datasets = {512:['race', 'wiki_512']}
+datasets = {384:['squadv2'],128:['wiki_128','mnli','xnli'],112:['mrpc'],48:['cola']}
+# datasets = {512:['race', 'wiki_512']}
 
 if args.target == "cpu":
     framework_funs = {
@@ -116,7 +117,7 @@ if args.target == "cpu":
 else:
     if args.prep_overhead:
         framework_funs = {
-            'cora': lambda b_sizes, *args: com.batchify(b_sizes, run_tvm, *args),
+            'cora': lambda b_sizes, *args: com.batchify(b_sizes, get_cora_runner(False), *args),
         }
     elif args.mem:
         framework_funs = {
