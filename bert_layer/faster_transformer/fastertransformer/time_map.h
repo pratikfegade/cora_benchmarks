@@ -1,6 +1,6 @@
 #pragma once
 
-// #define OP_TIMES 1
+#define OP_TIMES 1
 
 #define START_OPTIME_MEASUREMENT  \
   {cudaEventCreate(&start);	  \

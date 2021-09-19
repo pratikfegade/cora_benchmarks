@@ -34,7 +34,7 @@ HEAD_SIZE = 512
 TILE=64
 RTILE=4
 # MAX_LEN = utils.ceilmult(run_utils.get_dataset_max_len(args.dataset), TILE)
-MAX_LEN = 128
+MAX_LEN = 384
 
 ms = tvm.decl_buffer((BATCH_SIZE,), name = 'ms', dtype = 'int32')
 ns = tvm.decl_buffer((BATCH_SIZE,), name = 'ns', dtype = 'int32')
@@ -238,7 +238,6 @@ if args.split:
     if args.hfuse:
         s.hfuse([(s[O1].op, s[O1].leaf_iter_vars[0]), (s[O2].op, s[O2].leaf_iter_vars[0]),
                  (s[O3].op, s[O3].leaf_iter_vars[0]), (s[O4].op, s[O4].leaf_iter_vars[0])])
-
 
     # G1, G2 = s.split_for_bin_packing([S], O, {O.op.axis[1]: mlb_uf}, include_inputs=True)
     # S1, O1, = G1

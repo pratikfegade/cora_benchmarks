@@ -327,7 +327,7 @@ def get_bert_layer_run_fn(bs_var):
         return t_inputs, batches
     return bert_layer_run
 
-def get_vbatch_gemm_run_fn(bs_var, no_scale=False):
+def get_vbatch_gemm_run_fn(bs_var, skip_m_k = False, no_scale=False):
     import tvm
     print('BS_VAR', bs_var)
     def run_vbatch_gemm(built, i_inputs_tensors, t_inputs_tensors, lw_args, args, pad_sum=None):
@@ -349,7 +349,7 @@ def get_vbatch_gemm_run_fn(bs_var, no_scale=False):
             t_inputs = [batch_size] + [create_tvm_array(i, "float32", ctx, rmap=rmap, lw_args={}) for i in t_inputs_tensors[1:]]
             time = 0
             for i in range(len(ms)):
-                if not nno_scale:
+                if not no_scale:
                     mb = np.ceil(ms[i] / args.tile_size).astype('int32')
                     nb = np.ceil(ns[i] / args.tile_size).astype('int32')
                     kb = np.ceil(ks[i] / args.tile_size).astype('int32')
@@ -358,11 +358,14 @@ def get_vbatch_gemm_run_fn(bs_var, no_scale=False):
                     nb = np.ceil(ns[i]).astype('int32')
                     kb = np.ceil(ks[i]).astype('int32')
 
-                l_inputs = [tvm.nd.array(mb, cpu_ctx), tvm.nd.array(nb, cpu_ctx), tvm.nd.array(kb, cpu_ctx)]
+                if skip_m_k:
+                    l_inputs = [tvm.nd.array(mb, cpu_ctx)]
+                else:
+                    l_inputs = [tvm.nd.array(mb, cpu_ctx), tvm.nd.array(nb, cpu_ctx), tvm.nd.array(kb, cpu_ctx)]
                 inputs = t_inputs + l_inputs + host_i_inputs + dev_i_inputs
                 time += execute(args.target, built, inputs, ctx, args.debug)
 
-            print("RESULTS", time / len(ms), sep=',')
+            print("RESULTS", batch_size, time / len(ms), sep=',')
             for i in range(len(t_inputs) - 1):
                 size_fn = {}
                 target = None
