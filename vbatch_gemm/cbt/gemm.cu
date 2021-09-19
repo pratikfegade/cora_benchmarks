@@ -18,9 +18,9 @@ double runBatch(int batch_size, int* M, int* N, int* K, int iters, bool warmup, 
   C = (float**) malloc(BATCH * sizeof(float*));
 
   for (int i=0; i<BATCH; ++i){
-    ErrChk(cudaMalloc((void**)&A[i], CEIL(M[i], 128)*CEIL(K[i], 128)*sizeof(float)));
-    ErrChk(cudaMalloc((void**)&B[i], CEIL(K[i], 128)*CEIL(N[i], 128)*sizeof(float)));
-    ErrChk(cudaMalloc((void**)&C[i], CEIL(M[i], 128)*CEIL(N[i], 128)*sizeof(float)));
+    ErrChk(cudaMalloc((void**)&A[i], CEIL(M[i], 256)*CEIL(K[i], 256)*sizeof(float)));
+    ErrChk(cudaMalloc((void**)&B[i], CEIL(K[i], 256)*CEIL(N[i], 256)*sizeof(float)));
+    ErrChk(cudaMalloc((void**)&C[i], CEIL(M[i], 256)*CEIL(N[i], 256)*sizeof(float)));
   }
 
   float **dev_A;
@@ -246,6 +246,9 @@ int main(int argc, char** argv) {
       //read matrix config
       for (int i = 0; i < batch_size; ++i){
 	fs >> Ms[i] >> Ns[i] >> Ks[i];
+	Ms[i] = CEIL(Ms[i], 16);
+	Ns[i] = CEIL(Ns[i], 16);
+	Ks[i] = CEIL(Ks[i], 16);
       }
     } else {
       for (int i = 0; i < (batch_size / NUM_HEADS); ++i){

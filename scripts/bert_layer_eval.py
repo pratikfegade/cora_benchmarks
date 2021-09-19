@@ -5,16 +5,21 @@ from common import run_cmd, INF, get_out_files, log, run_linearization
 import argparse
 
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
-PYTORCH_RUNNER = SCRIPT_DIR + '/../bert_layer/pytorch/layer.py'
-TVM_EXE_RUNNER = SCRIPT_DIR + '/../bert_layer/tvm/masked_mha.py'
+PYTORCH_RUNNER_CPU = SCRIPT_DIR + '/../bert_layer/pytorch/layer_cpu.py'
+PYTORCH_RUNNER_GPU = SCRIPT_DIR + '/../bert_layer/pytorch/layer.py'
+TVM_GPU_EXE_RUNNER = SCRIPT_DIR + '/../bert_layer/tvm/masked_mha.py'
+TVM_CPU_EXE_RUNNER = SCRIPT_DIR + '/../bert_layer/tvm/masked_mha_cpu.py'
 TVM_MEM_RUNNER = SCRIPT_DIR + '/../bert_layer/tvm/bert_layer_memory_inplace.py'
-TVM_LIB_RUNNER = SCRIPT_DIR + '/../bert_layer/tvm/gen_libs.sh'
+TVM_GPU_LIB_RUNNER = SCRIPT_DIR + '/../bert_layer/tvm/gen_libs.sh'
+TVM_CPU_LIB_RUNNER = SCRIPT_DIR + '/../bert_layer/tvm/gen_libs_cpu.sh'
 FTRANS_EXE_RUNNER = SCRIPT_DIR + '/../bert_layer/faster_transformer/run_encoder_sample.sh'
 FTRANS_MEM_RUNNER = SCRIPT_DIR + '/../bert_layer/faster_transformer/mem/memory'
 PYTHON = 'python3'
 
-def generate_tvm_libs(dataset, args):
-    cmd = [TVM_LIB_RUNNER, dataset,
+def generate_tvm_libs(dataset, target, args):
+    if target == "cpu": runner = TVM_CPU_LIB_RUNNER
+    else: runner = TVM_GPU_LIB_RUNNER
+    cmd = [runner, dataset,
            '1' if args.bin_packed else '0',
            '0',
            '1' if args.prep_overhead else '0']
@@ -23,10 +28,15 @@ def generate_tvm_libs(dataset, args):
     print(out, err)
 
 def run_pytorch(b_size, dataset, n_batch, err_file, args):
+    print(args.target, args.target == "cpu")
+    if args.target == "cpu": runner = PYTORCH_RUNNER_CPU
+    else: runner = PYTORCH_RUNNER_GPU
+
     log(args, ' Batch size %d' % (b_size))
-    cmd = [PYTHON, PYTORCH_RUNNER, '--target', com.get_tvm_target(target), '--batch-size', str(b_size),
+    cmd = [PYTHON, runner, '--target', target, '--batch-size', str(b_size),
            '--max-batches', str(n_batch), '--dataset', dataset]
     if args.mem: cmd += ['--mem']
+    if args.target == "cpu": cmd += ['--masked-mha']
 
     print(' '.join(cmd))
     out, err = run_cmd(cmd)
@@ -58,12 +68,15 @@ def get_ftrans_runner(no_pad):
 def get_cora_runner(balance):
     def run_cora(b_size, dataset, n_batch, err_file, args):
         log(args, ' Batch size %d' % (b_size))
-        runner = TVM_MEM_RUNNER if args.mem else TVM_EXE_RUNNER
+        if args.target == "cpu": runner = TVM_CPU_EXE_RUNNER
+        else:
+            runner = TVM_MEM_RUNNER if args.mem else TVM_CPU_EXE_RUNNER
 
         cmd = [PYTHON, runner, '--target', com.get_tvm_target(target), '--batch-size', str(b_size),
                '--max-batches', str(n_batch), '--dataset', dataset]
         if args.bin_packed: cmd += ['--bin-packed']
         if balance: cmd += ['--average']
+        if args.target == "cpu": cmd += ['--masked-mha']
         print(' '.join(cmd))
         out, err = '', ''
         out, err = run_cmd(cmd)
@@ -89,30 +102,36 @@ args = parser.parse_args()
 
 # batch_sizes = [1, 2, 4, 8, 16, 32, 64, 128]
 # batch_sizes = [8]
-batch_sizes = [2, 8, 32, 128]
+batch_sizes = [32, 64, 128]
 targets = [args.target] if args.target else ['cuda']
 datasets = com.cluster_datasets_by_max_len() if args.dataset is None else {com.get_dataset_max_len(args.dataset) : [args.dataset]}
 # datasets = {512:['race', 'wiki_512'],384:['squadv2'],128:['wiki_128','mnli','xnli'],112:['mrpc'],48:['cola']}
-# datasets = {384:['squadv2'],128:['wiki_128','mnli','xnli'],112:['mrpc'],48:['cola']}
+datasets = {512:['race', 'wiki_512']}
 
-if args.prep_overhead:
+if args.target == "cpu":
     framework_funs = {
-        'cora': lambda b_sizes, *args: com.batchify(b_sizes, run_tvm, *args),
-    }
-elif args.mem:
-    framework_funs = {
-        # 'pytorch': lambda b_sizes, *args: com.batchify(b_sizes, run_pytorch, *args),
-        'ftrans': lambda b_sizes, *args: com.batchify(b_sizes, get_ftrans_runner(False), *args),
+        'pytorch': lambda b_sizes, *args: com.batchify(b_sizes, run_pytorch, *args),
         'cora': lambda b_sizes, *args: com.batchify(b_sizes, get_cora_runner(False), *args),
     }
 else:
-    framework_funs = {
-        'pytorch': lambda b_sizes, *args: com.batchify(b_sizes, run_pytorch, *args),
-        'ftrans_pad': lambda b_sizes, *args: com.batchify(b_sizes, get_ftrans_runner(False), *args),
-        'ftrans_nopad': lambda b_sizes, *args: com.batchify(b_sizes, get_ftrans_runner(True), *args),
-        'cora': lambda b_sizes, *args: com.batchify(b_sizes, get_cora_runner(False), *args),
-        # 'cora_lb': lambda b_sizes, *args: com.batchify(b_sizes, get_cora_runner(True), *args),
-    }
+    if args.prep_overhead:
+        framework_funs = {
+            'cora': lambda b_sizes, *args: com.batchify(b_sizes, run_tvm, *args),
+        }
+    elif args.mem:
+        framework_funs = {
+            # 'pytorch': lambda b_sizes, *args: com.batchify(b_sizes, run_pytorch, *args),
+            'ftrans': lambda b_sizes, *args: com.batchify(b_sizes, get_ftrans_runner(False), *args),
+            'cora': lambda b_sizes, *args: com.batchify(b_sizes, get_cora_runner(False), *args),
+        }
+    else:
+        framework_funs = {
+            'pytorch': lambda b_sizes, *args: com.batchify(b_sizes, run_pytorch, *args),
+            'ftrans_pad': lambda b_sizes, *args: com.batchify(b_sizes, get_ftrans_runner(False), *args),
+            'ftrans_nopad': lambda b_sizes, *args: com.batchify(b_sizes, get_ftrans_runner(True), *args),
+            'cora': lambda b_sizes, *args: com.batchify(b_sizes, get_cora_runner(False), *args),
+            # 'cora_lb': lambda b_sizes, *args: com.batchify(b_sizes, get_cora_runner(True), *args),
+        }
 
 out_prefix = 'bert_layer'
 if args.prep_overhead: out_prefix += '_prelude'
@@ -125,7 +144,7 @@ print(header, file = results_out)
 
 for target in targets:
     for _, dataset_list in datasets.items():
-        if args.gen_libs: generate_tvm_libs(dataset_list[0], args);
+        if args.gen_libs: generate_tvm_libs(dataset_list[0], target, args);
         for dataset in dataset_list:
             exe_times = {}
             for framework, func in framework_funs.items():

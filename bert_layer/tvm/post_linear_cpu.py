@@ -52,7 +52,12 @@ else:
 A = te.ragged_placeholder((BATCH_SIZE, MAX_LEN, NUM_HEADS, HEAD_SIZE), [bd, s1, md, hd], loop_ufs,
                           name='A', width_ufs=width_ufs)
 
-W = te.placeholder((NUM_HEADS * HEAD_SIZE, OUT_SIZE), name='W')
+# W = te.placeholder((NUM_HEADS * HEAD_SIZE, OUT_SIZE), name='W')
+loop_ufs=[ls[4], ls[1], ls[3]]
+width_ufs=[ls[4], ls[1], ls[3]]
+W = te.ragged_placeholder((OUT_SIZE, NUM_HEADS, HEAD_SIZE), [od, md, hd], loop_ufs,
+                          name='W', width_ufs=width_ufs)
+
 B = te.placeholder((OUT_SIZE,), name='B')
 
 loop_ufs=[ls[0], ls[2], ls[4]]
@@ -65,7 +70,8 @@ width_ufs=None if args.dense_storage else [loop_ufs]
 k = tvm.reduce_axis((0, NUM_HEADS * HEAD_SIZE), name = 'k')
 S = te.ragged_compute((BATCH_SIZE, MAX_LEN, OUT_SIZE), [bd, s1, od], loop_ufs,
                       lambda ds: tvm.sum(A[ds[bd], ds[s1], tvm.floordiv(k, HEAD_SIZE), tvm.floormod(k, HEAD_SIZE)] *
-                                         W[k, ds[od]], axis=k, dimensions = [mdhd]),
+                                         W[ds[od], tvm.floordiv(k, HEAD_SIZE), tvm.floormod(k, HEAD_SIZE)],
+                                         axis=k, dimensions = [mdhd]),
                       name = 'S', width_uf_lists=width_ufs)
 
 def compute_body(ds):
@@ -127,6 +133,8 @@ if False:
 else:
     O_local = S
 
+    Wl = s.cache_read(W, 'local', [O_local])
+
     O_local_b_c, O_local_m_c, O_local_n_c, O_local_k = tuple(O_local.op.axis) + tuple(O_local.op.reduce_axis)
     O_local_m_c = s[O_local].fuse(O_local_b_c, O_local_m_c)
 
@@ -137,6 +145,7 @@ else:
     O_local_k_o, O_local_k_i = s[O_local].split(O_local_k, factor=64)
 
     s[O_local].reorder(O_local_m_c_o_o_i, O_local_k_o, O_local_m_c_o_i, O_local_n_c_o_i, O_local_k_i, O_local_m_c_i, O_local_n_c_i)
+    s[Wl].compute_at(s[O_local], O_local_k_o)
 
     s[O_local].unroll(O_local_n_c_i)
     s[O_local].unroll(O_local_m_c_i)
@@ -166,6 +175,9 @@ else:
     s.fuse_tensor_dimensions(O_local, 0, 1)
     s[S].mark_no_bounds_check()
 
+    s.split_tensor_dimension(Wl, 0, 4)
+    s.reorder_tensor_dimensions(Wl, 1, 2)
+    s.reorder_tensor_dimensions(Wl, 2, 3)
 
 def size_fn(l_inputs):
     lens = l_inputs[0]
