@@ -36,7 +36,7 @@ if args.no_raggedness:
     def len_ufw(name, pad): return Ufw(name, "l", (pad, MAX_LEN), [], [], lambda : lambda : utils.ceilmult(MAX_LEN, pad))
 else:
     def len_ufw(name, pad): return Ufw(name, "l", (pad, MAX_LEN), [bd], [lens], lambda lens: lambda b: utils.ceilmult(lens[b], pad))
-lufw1 = len_ufw('s', 1)
+lufw1 = len_ufw('s', 16)
 
 if args.dataset in ['mprc', 'cola']: lufwp = len_ufw('s', 32)
 else: lufwp = len_ufw('s', 64)
@@ -108,12 +108,16 @@ if False:
     inputs = [[lens], [BS_VAR, A, V, O]]
 else:
     O_local, = s.cache_write([O], "local")
+
+    Al = s.cache_read(A, "local", [O_local], layouts='dense')
+
     O_local_b_c, O_local_m_c, O_local_h_c, O_local_n_c, O_local_k = tuple(O_local.op.axis) + tuple(O_local.op.reduce_axis)
     O_local_m_c_o_i, O_local_m_c_i = s[O_local].split(O_local_m_c, factor=4)
     O_local_n_c_o_i, O_local_n_c_i = s[O_local].split(O_local_n_c, factor=4)
     O_local_k_o, O_local_k_i = s[O_local].split(O_local_k, factor=16)
 
     s[O_local].reorder(O_local_b_c, O_local_k_o, O_local_m_c_o_i, O_local_n_c_o_i, O_local_k_i, O_local_m_c_i, O_local_n_c_i)
+    s[Al].compute_at(s[O_local], O_local_k_o)
 
     b, x, h, y = s[O].leaf_iter_vars[0:4]
     xo, xi = s[O].split(x, factor = 64)
@@ -136,6 +140,9 @@ else:
     s[O_local].vectorize(O_local_n_c_i)
     s[O].vectorize(O_n_i)
 
+    s.split_tensor_dimension(Al, 1, 4)
+    s.reorder_tensor_dimensions(Al, 2, 3)
+    s.reorder_tensor_dimensions(Al, 3, 4)
 
 def size_fn(l_inputs):
     if args.no_raggedness: return {}

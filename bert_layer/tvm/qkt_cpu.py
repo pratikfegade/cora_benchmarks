@@ -35,8 +35,10 @@ s2 = Dim('s2')
 hd = Dim('hd')
 
 def len_ufw(name, pad): return Ufw(name, "l", (pad, MAX_LEN), [bd], [lens], lambda lens: lambda b: utils.ceilmult(lens[b], pad))
-if args.sched == 1: lufw = len_ufw('s', 64)
-else: lufw = len_ufw('s', 32)
+# if args.sched == 1: lufw = len_ufw('s', 64)
+# if dataset in ['cola', 'mrpc']: lufw = len_ufw('s', 64)
+# else: lufw = len_ufw('s', 32)
+lufw = len_ufw('s', 64)
 sufw = len_ufw('s', 64)
 
 lbduf = Uf.from_constant('bd', BS_VAR, "l")
@@ -112,6 +114,9 @@ if False:
     s[O].vectorize(O_n_i)
 else:
     O_local = S
+
+    Ks = s.cache_read(K, "shared", [S], layouts='dense')
+
     O_local_b_c, O_local_m_c, O_local_h_c, O_local_n_c, O_local_k = tuple(O_local.op.axis) + tuple(O_local.op.reduce_axis)
 
     O_local_m_c_o_i, O_local_m_c_i = s[O_local].split(O_local_m_c, factor=2)
@@ -143,9 +148,13 @@ else:
     O_n_o_i, O_n_i = s[O].split(O_n, factor=8)
     s[O].reorder(O_m_o_o, O_n_o_i, O_m_o_i, O_m_i, O_n_i)
     s[S].compute_at(s[O], O_n_o_i)
+    s[Ks].compute_at(s[O], O_n_o_i)
 
     s[O_local].vectorize(O_local_n_c_i)
     s[O].vectorize(O_n_i)
+
+    s.reorder_tensor_dimensions(Ks, 2, 3)
+    s.reorder_tensor_dimensions(Ks, 3, 4)
 
 inputs = [[lens], [BS_VAR, Q, K, O]]
 

@@ -158,7 +158,6 @@ else:
     f = s[O].fuse(xo, yo)
     s[O].parallel(f)
 
-
     O_m, O_n = xi, yi
     O_m_o_i, O_m_i = s[O].split(O_m, factor=64)
     O_m_o_o, O_m_o_i = s[O].split(O_m_o_i, factor=1)
