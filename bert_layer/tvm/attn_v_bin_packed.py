@@ -79,11 +79,11 @@ nty = 8
 def schedule_op(O, tile, suffix):
     Ol = s.cache_write(O, 'local')
 
-    As = s.cache_read(A, 'shared', [Ol], suffix=suffix)
-    Vs = s.cache_read(V, 'shared', [Ol], suffix=suffix)
+    # As = s.cache_read(A, 'shared', [Ol], suffix=suffix)
+    # Vs = s.cache_read(V, 'shared', [Ol], suffix=suffix)
 
-    Al = s.cache_read(As, 'local', [Ol], suffix=suffix)
-    Vl = s.cache_read(Vs, 'local', [Ol], suffix=suffix)
+    # Al = s.cache_read(As, 'local', [Ol], suffix=suffix)
+    # Vl = s.cache_read(Vs, 'local', [Ol], suffix=suffix)
 
     b, x, h, y = s[O].leaf_iter_vars[0:4]
     xo, xi = s[O].split(x, factor = tile)
@@ -97,38 +97,38 @@ def schedule_op(O, tile, suffix):
     yo, yi = s[O].split(y, factor = ntx)
     s[O].bind(xii, thread_y())
     s[O].bind(yi, thread_x())
-    s[O].bind(xio, tvm.thread_axis('vthread', name='vth1'))
-    s[O].bind(yo, tvm.thread_axis('vthread', name='vth2'))
+    s[O].bind(xio, tvm.thread_axis('vthread', name='vth1'), no_unroll_vthread=True)
+    s[O].bind(yo, tvm.thread_axis('vthread', name='vth2'), no_unroll_vthread=True)
     s[Ol].compute_at(s[O], yi)
 
     b, x, h, y, k = s[Ol].leaf_iter_vars
     s[Ol].reorder(b, h, k, x, y)
     ko, ki = s[Ol].split(k, factor = red_tile)
-    s[As].compute_at(s[Ol], ko)
-    s[Vs].compute_at(s[Ol], ko)
-    s[Al].compute_at(s[Ol], ki)
-    s[Vl].compute_at(s[Ol], ki)
-    s[Ol].peel(ko)
+    # s[As].compute_at(s[Ol], ko)
+    # s[Vs].compute_at(s[Ol], ko)
+    # s[Al].compute_at(s[Ol], ki)
+    # s[Vl].compute_at(s[Ol], ki)
+    # s[Ol].peel(ko)
 
-    _, x, h, y = s[As].leaf_iter_vars
-    s[As].reorder(h, x, y)
-    f = s[As].fuse(x, y)
-    fo, fi = s[As].split(f, factor = ntx * nty * 4)
-    fio, fii = s[As].split(fi, factor = ntx * 4)
-    fiio, fiii = s[As].split(fii, factor = 4)
-    s[As].bind(fio, thread_y())
-    s[As].bind(fiio, thread_x())
-    if not args.debug_functions: s[As].vectorize(fiii)
+    # _, x, h, y = s[As].leaf_iter_vars
+    # s[As].reorder(h, x, y)
+    # f = s[As].fuse(x, y)
+    # fo, fi = s[As].split(f, factor = ntx * nty * 4)
+    # fio, fii = s[As].split(fi, factor = ntx * 4)
+    # fiio, fiii = s[As].split(fii, factor = 4)
+    # s[As].bind(fio, thread_y())
+    # s[As].bind(fiio, thread_x())
+    # if not args.debug_functions: s[As].vectorize(fiii)
 
-    _, _, x, h, y = s[Vs].leaf_iter_vars
-    s[Vs].reorder(h, x, y)
-    f = s[Vs].fuse(x, y)
-    fo, fi = s[Vs].split(f, factor = ntx * nty * 4)
-    fio, fii = s[Vs].split(fi, factor = ntx * 4)
-    fiio, fiii = s[Vs].split(fii, factor = 4)
-    s[Vs].bind(fio, thread_y())
-    s[Vs].bind(fiio, thread_x())
-    if not args.debug_functions: s[Vs].vectorize(fiii)
+    # _, _, x, h, y = s[Vs].leaf_iter_vars
+    # s[Vs].reorder(h, x, y)
+    # f = s[Vs].fuse(x, y)
+    # fo, fi = s[Vs].split(f, factor = ntx * nty * 4)
+    # fio, fii = s[Vs].split(fi, factor = ntx * 4)
+    # fiio, fiii = s[Vs].split(fii, factor = 4)
+    # s[Vs].bind(fio, thread_y())
+    # s[Vs].bind(fiio, thread_x())
+    # if not args.debug_functions: s[Vs].vectorize(fiii)
 
 G1, G2 = s.split_for_bin_packing([O], O, {O.op.axis[1]: lb_uf}, include_inputs=True)
 O1, O2 = G1[0], G2[0]

@@ -34,7 +34,7 @@ HEAD_SIZE = 512
 TILE=64
 RTILE=4
 # MAX_LEN = utils.ceilmult(run_utils.get_dataset_max_len(args.dataset), TILE)
-MAX_LEN = 128
+MAX_LEN = 384
 
 ms = tvm.decl_buffer((BATCH_SIZE,), name = 'ms', dtype = 'int32')
 ns = tvm.decl_buffer((BATCH_SIZE,), name = 'ns', dtype = 'int32')
@@ -194,11 +194,11 @@ def schedule_op(S, O, tile_x, tile_y, suffix):
         else: O_o_o_o_o, O_o_o_o_i = s[O].split(O_o_o_o_i, factor=1)
         s[O].reorder(O_b, O_l_o_o_o, O_o_o_o_o, O_l_o_o_i, O_o_o_o_i, O_l_o_i, O_o_o_i, O_l_i)
 
-        Q_shared = s.cache_read(Q, "shared", [S])
+        Q_shared = s.cache_read(Q, "shared", [S], suffix=suffix)
         Q_shared_ax0, Q_shared_ax1, Q_shared_ax2 = tuple(Q_shared.op.axis)
         s[Q_shared].compute_at(s[S], S_k_o_o)
 
-        K_shared = s.cache_read(K, "shared", [S])
+        K_shared = s.cache_read(K, "shared", [S], suffix=suffix)
         K_shared_ax0, K_shared_ax1, K_shared_ax2 = tuple(K_shared.op.axis)
         s[K_shared].compute_at(s[S], S_k_o_o)
 
@@ -238,8 +238,17 @@ if args.split:
     if args.hfuse:
         s.hfuse([(s[O1].op, s[O1].leaf_iter_vars[0]), (s[O2].op, s[O2].leaf_iter_vars[0]),
                  (s[O3].op, s[O3].leaf_iter_vars[0]), (s[O4].op, s[O4].leaf_iter_vars[0])])
+
+    # G1, G2 = s.split_for_bin_packing([S], O, {O.op.axis[1]: mlb_uf}, include_inputs=True)
+    # S1, O1, = G1
+    # S2, O2, = G2
+    # schedule_op(S1, O1, 64, 64, '1')
+    # schedule_op(S2, O2, 32, 64, '2')
+
+    # if args.hfuse:
+        # s.hfuse([(s[O1].op, s[O1].leaf_iter_vars[0]), (s[O2].op, s[O2].leaf_iter_vars[0])])
 else:
-    schedule_op(O, 64, 64, '1')
+    schedule_op(S, O, 64, 64, '1')
 
 
 gen_prefix = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0]
@@ -261,6 +270,7 @@ bO = tvm.tir.decl_buffer((BATCH_SIZE, MAX_LEN, MAX_LEN), name="bO")
 inputs = [[ms, ns, ks], [BATCH_SIZE, Q, K, bO]]
 if args.split:
     binds = {O1:bO, O2:bO, O3:bO, O4:bO, Op:bO}
+    # binds = {O1:bO, O2:bO, Op:bO}
 else:
     binds = {O:bO, Op:bO}
 

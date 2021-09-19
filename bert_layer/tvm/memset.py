@@ -73,7 +73,9 @@ else:
 def size_fn(l_inputs):
     lens = l_inputs[0]
     return {
-        O: 3 * NUM_HEADS * OUT_SIZE * run_utils.prefix_sum(len(lens), lambda b: (lufw64.get_fn(lens)(b))),
+        O: NUM_HEADS * run_utils.prefix_sum(len(lens),
+                                            lambda b: (lufw.get_fn(lens)(b) *
+                                                       lufw.get_fn(lens)(b)))
     }
 
 inputs = [[lens], [BATCH_SIZE, O]]
