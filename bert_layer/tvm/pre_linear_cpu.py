@@ -14,7 +14,7 @@ import run_utils
 parser = run_utils.get_cmd_parser()
 args = parser.parse_args()
 
-args.target = "llvm -mcpu=cortex-a76 -mattr=neon"
+args.target = run_utils.get_arm_target()
 
 BS_VAR = te.var('bs')
 BATCH_SIZE = BS_VAR + 1
@@ -81,6 +81,7 @@ if True:
     O_local = S
 
     Wl = s.cache_read(W, 'local', [O_local], layouts='dense')
+    # QKVl = s.cache_read(QKV, 'local', [O_local])
 
     O_local_q_c, O_local_b_c, O_local_m_c, O_local_h_c, O_local_n_c, O_local_k = (tuple(O_local.op.axis) +
                                                                                   tuple(O_local.op.reduce_axis))
@@ -113,6 +114,12 @@ if True:
     O_n_o_o, O_n_o_i = s[O].split(O_n_o_i, factor=4)
     s[O].reorder(O_m_o_o, O_n_o_o, O_m_o_i, O_n_o_i, O_m_i, O_n_i)
     s[O_local].compute_at(s[O], O_n_o_i)
+
+    # s[QKVl].compute_at(s[O], O_n_o_i)
+    # b, l = s[QKVl].leaf_iter_vars[0:2]
+    # s[QKVl].fuse(b, l)
+    # s.fuse_tensor_dimensions(QKVl, 0, 1)
+    # s[QKVl].mark_no_bounds_check()
 
     s[O_local].vectorize(O_local_n_c_i)
     s[O].vectorize(O_n_i)

@@ -16,7 +16,7 @@ parser.add_argument('--kt', dest='kt', default=4, type=int)
 parser.add_argument('--masked-mha', dest='masked_mha', default=False, action='store_true')
 args = parser.parse_args()
 
-args.target = "llvm -mcpu=cortex-a76 -mattr=neon"
+args.target = run_utils.get_arm_target()
 
 BS_VAR = te.var('bs')
 BATCH_SIZE = BS_VAR + 1

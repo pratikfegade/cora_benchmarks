@@ -13,7 +13,7 @@ import run_utils
 parser = run_utils.get_cmd_parser()
 args = parser.parse_args()
 
-args.target = "llvm -mcpu=cortex-a76 -mattr=neon"
+args.target = run_utils.get_arm_target()
 
 BS_VAR = te.var('bs')
 BATCH_SIZE = BS_VAR + 1
