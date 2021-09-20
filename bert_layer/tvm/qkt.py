@@ -149,7 +149,7 @@ if args.target == "cuda":
         Ql = s.cache_read(Qs, "local", [S], layouts='dense')
         Kl = s.cache_read(Ks, "local", [S], layouts='dense')
 
-        tile, ktile = 64, 8
+        tile, ktile = 32, 8
 
         b, x, h, y = s[O].leaf_iter_vars[0:4]
         xo, xi = s[O].split(x, factor = tile)
