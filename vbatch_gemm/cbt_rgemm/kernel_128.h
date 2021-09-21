@@ -11,8 +11,7 @@ __device__ void gemm_128_16x16(int M, int N, int K, float *A, float *B, float *C
   int block_base_y = blockIdx.x*16;
 
   //Load C from global memory to register file
-  /* float2 *C_start = (float2*) (C + block_base_x*M + block_base_y + (threadIdx.x%8)*2 + (threadIdx.x/8)*M); */
-
+  float2 *C_start = (float2*) (C + block_base_x*M + block_base_y + (threadIdx.x%8)*2 + (threadIdx.x/8)*M);
   /* reg_C = *C_start; */
 
   reg_C.x = 0.0;
@@ -76,7 +75,7 @@ __device__ void gemm_128_32x32(int M, int N, int K, float *A, float *B, float *C
   int block_base_y = blockIdx.x*32;
 
   //Load C from global memory to register file
-  /* float4 *C_start = (float4*) (C + block_base_x*M + block_base_y + (threadIdx.x%8)*4 + (threadIdx.x/8)*M); */
+  float4 *C_start = (float4*) (C + block_base_x*M + block_base_y + (threadIdx.x%8)*4 + (threadIdx.x/8)*M);
 
   /* reg_C[0] = *C_start; */
   /* reg_C[1] = *(C_start + 4*M); */
@@ -151,7 +150,7 @@ __device__ void gemm_128_64x64(int M, int N, int K, float *A, float *B, float *C
   int block_base_y = blockIdx.x*64;
 
   /* //Load C from global memory to register file */
-  /* float4 *C_start = (float4*) (C + block_base_x*M + block_base_y + (threadIdx.x%16)*4 + (threadIdx.x/16)*4*M); */
+  float4 *C_start = (float4*) (C + block_base_x*M + block_base_y + (threadIdx.x%16)*4 + (threadIdx.x/16)*4*M);
 
   /* reg_C[0] = *C_start; */
   /* reg_C[1] = *(C_start + M/4); */
@@ -282,7 +281,7 @@ __device__ void gemm_128_64x128(int M, int N, int K, float *A, float *B, float *
   int block_base_y = blockIdx.x*64;
 
   //Load C from global memory to register file
-  /* float4 *C_start = (float4*) (C + block_base_x*M + block_base_y + (threadIdx.x%8)*4 + (threadIdx.x/8)*4*M); */
+  float4 *C_start = (float4*) (C + block_base_x*M + block_base_y + (threadIdx.x%8)*4 + (threadIdx.x/8)*4*M);
 
   /* reg_C[0] = *C_start; */
   /* reg_C[1] = *(C_start + M/4); */
@@ -482,7 +481,7 @@ __device__ void gemm_128_128x64(int M, int N, int K, float *A, float *B, float *
   int block_base_y = blockIdx.x*128;
 
   //Load C from global memory to register file
-  /* float4 *C_start = (float4*) (C + block_base_x*M + block_base_y + (threadIdx.x%16)*4 + (threadIdx.x/16)*4*M); */
+  float4 *C_start = (float4*) (C + block_base_x*M + block_base_y + (threadIdx.x%16)*4 + (threadIdx.x/16)*4*M);
 
   /* reg_C[0] = *C_start; */
   /* reg_C[1] = *(C_start + M/4); */
