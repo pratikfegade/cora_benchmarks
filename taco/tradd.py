@@ -16,6 +16,7 @@ parser.add_argument('--m', dest='m', default=1024, type=int)
 parser.add_argument('--only-prep-code', dest='only_prep_code', default=None, type=str)
 parser.add_argument('--debug-code', dest='debug_code', default=None, type=str)
 parser.add_argument('--debug-functions', dest='debug_functions', default=False, action='store_true')
+parser.add_argument('--debug', dest='debug', default=False, action='store_true')
 parser.add_argument('--gen-lib', dest='gen_lib', default=False, action='store_true')
 parser.add_argument('--disable-assert', dest='disable_assert', default=False, action='store_true')
 parser.add_argument('--manual-code', dest='manual_code', default=False, action='store_true')
@@ -50,6 +51,10 @@ fo, fi = s[O].split(f, factor=128)
 s[O].bind(fo, tvm.thread_axis("blockIdx.x"))
 s[O].bind(fi, tvm.thread_axis("threadIdx.x"))
 
+s.fuse_tensor_dimensions(A1, 0, 1)
+s.fuse_tensor_dimensions(A2, 0, 1)
+s.fuse_tensor_dimensions(O, 0, 1)
+
 gen_prefix = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0]
 _ = tvm.register_func(utils.get_tvm_callback_cuda_compile(256))
 _ = tvm.register_func(
@@ -57,5 +62,5 @@ _ = tvm.register_func(
 
 inputs = [[], [A1, A2, O]]
 name = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0]
-out = run_utils.lower_or_build(name, s, inputs, args, run_function=run_utils.run2,
-                               prep_code_mode='no_prep_code')
+out = run_utils.lower_or_build(name, s, inputs, args, run_function=run_utils.run_trmm,
+                               prep_code_mode='with_prep_code')
