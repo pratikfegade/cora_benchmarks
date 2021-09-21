@@ -80,13 +80,16 @@ class Op:
     def set_inputs_and_variant(self, l_inputs, variant):
         self.inputs = [self.batch_size] + self.tensor_inputs + l_inputs + self.host_ibufs[variant] + self.dev_ibufs[variant]
         self.optimal_module = self.modules[variant]
+        self.optimal_module_entry_func = self.modules[variant].entry_func
 
     def reset(self):
         self.inputs = None
         self.optimal_module = None
+        self.optimal_module_entry_func = None
 
     def execute(self):
-        self.optimal_module(*self.inputs)
+        # self.optimal_module(*self.inputs)
+        self.optimal_module_entry_func(*self.inputs)
 
     def profile_variants(self, l_inputs, ctx):
         if not self.variants: return 0

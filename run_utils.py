@@ -46,6 +46,7 @@ def get_cmd_parser(no_options=False):
         parser.add_argument('--max-batches', dest='max_batches', default=1, type=int)
         parser.add_argument('--batch-sizes', dest='batch_sizes', nargs='+', default=[32], type=int)
         parser.add_argument('--debug', dest='debug', default=False, action='store_true')
+        parser.add_argument('--disable-assert', dest='disable_assert', default=False, action='store_true')
         parser.add_argument('--debug-code', dest='debug_code', default=None, type=str)
         parser.add_argument('--debug-functions', dest='debug_functions', default=False, action='store_true')
         parser.add_argument('--manual-code', dest='manual_code', default=False, action='store_true')
@@ -405,7 +406,9 @@ def lower_or_build(name, s, inputs, args, prep_code_mode='with_prep_code', binds
                    size_fn={}, pad_sum=None, substitutes=None, run_function=run2):
     import tvm
     prep_code_mode = 'only_prep_code' if args.only_prep_code else prep_code_mode
-    with tvm.build_config(prep_code_mode=prep_code_mode, fill_in_function_bodies=not args.debug_functions):
+    with tvm.build_config(prep_code_mode=prep_code_mode,
+                          fill_in_function_bodies=not args.debug_functions,
+                          disable_assert=args.disable_assert):
         if args.gen_lib:
             fadd, i_bufs = tvm.build(s, inputs, args.target, binds=binds)
             variant = ''
