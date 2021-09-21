@@ -25,6 +25,7 @@ args = parser.parse_args()
 M = args.m
 md = Dim('md')
 nd = Dim('nd')
+fd = Dim('fd')
 
 def len_ufw(name, pad): return Ufw(name, "l", (pad, M), [md], [], lambda: lambda m: utils.ceilmult(m + 1, pad))
 luf = len_ufw('s2k', 1).get_uf()
@@ -40,27 +41,33 @@ A1 = te.ragged_placeholder((M, M), [md, nd], loop_ufs, name='A1', width_ufs=widt
 A2 = te.ragged_placeholder((M, M), [md, nd], loop_ufs, name='A2', width_ufs=width_ufs)
 
 O = te.ragged_compute((M, M), [md, nd], loop_ufs,
-                      lambda ds: A1[ds[md], ds[nd]] * A2[ds[md], ds[nd]],
+                      lambda ds: A1[ds[md], ds[nd]] + A2[ds[md], ds[nd]],
                       name = 'O', width_uf_lists=[width_ufs])
+
+f_ext = (M * (M + 1)) // 2
+rmap = te.fuse_ragged_axis([A1, A2], O, md, nd, fd, f_ext)
+A1 = rmap[A1.op].output(0)
+A2 = rmap[A2.op].output(0)
+O = rmap[O.op].output(0)
 
 s = tvm.create_schedule([O.op])
 
-i, j = s[O].op.axis
-f = s[O].fuse(i, j, padding=128)
+f = s[O].op.axis[0]
 fo, fi = s[O].split(f, factor=128)
 s[O].bind(fo, tvm.thread_axis("blockIdx.x"))
 s[O].bind(fi, tvm.thread_axis("threadIdx.x"))
-
-s.fuse_tensor_dimensions(A1, 0, 1)
-s.fuse_tensor_dimensions(A2, 0, 1)
-s.fuse_tensor_dimensions(O, 0, 1)
 
 gen_prefix = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0]
 _ = tvm.register_func(utils.get_tvm_callback_cuda_compile(256))
 _ = tvm.register_func(
     utils.get_tvm_callback_cuda_postproc(args, os.path.realpath(__file__), fileprefix=gen_prefix))
 
-inputs = [[], [A1, A2, O]]
+bA1 = tvm.decl_buffer((f_ext,), name="bA1")
+bA2 = tvm.decl_buffer((f_ext,), name="bA2")
+bO = tvm.decl_buffer((f_ext,), name="bO")
+
+binds={A1:bA1, A2:bA2, O:bO}
+inputs = [[], [bA1, bA2, bO]]
 name = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0]
 out = run_utils.lower_or_build(name, s, inputs, args, run_function=run_utils.run_trmm,
-                               prep_code_mode='with_prep_code')
+                               prep_code_mode='with_prep_code', binds=binds)
