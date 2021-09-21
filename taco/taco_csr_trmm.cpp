@@ -62,12 +62,14 @@ int main(int argc, char* argv[]) {
   for (int i = 0; i < m; ++i) {
     for (int j = 0; j < i + 1; j++) {
       float rand_float = (float)rand()/(float)(RAND_MAX);
+      // float rand_float = 0.1;
       B.insert({i, j}, rand_float);
       C.insert({i, j}, rand_float);
       A.insert({i, j}, rand_float);
     }
     for (int j = i + 1; j < m; j++) {
       float rand_float = (float)rand()/(float)(RAND_MAX);
+      // float rand_float = 0.1;
       B.insert({i, j}, rand_float);
       C.insert({i, j}, rand_float);
     }
@@ -86,6 +88,14 @@ int main(int argc, char* argv[]) {
 
   float time = compute(Ct, At, Bt, m, mode, iters);
   time /= iters;
+
+  // float* vals = (float*)Ct->vals;
+  // for (int i = 0; i < m; ++i) {
+  //   for (int j = 0; j < m; j++) {
+  //     std::cout << vals[i*m + j] << " ";
+  //   }
+  //   std::cout << std::endl;
+  // }
 
   std::cout << "RESULTS," << time << std::endl;
 }

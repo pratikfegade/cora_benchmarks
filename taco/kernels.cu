@@ -197,10 +197,7 @@ float compute(taco_tensor_t *C, taco_tensor_t *A, taco_tensor_t *B, int32_t m, i
     }
   } else {
     int num_blocks = (((A1_dimension + 63) / 64) * ((B2_dimension + 63) / 64));
-    std::cout << "[NB] " << num_blocks << std::endl;
     for (int i = 0; i < iters; ++i) {
-      i_blockStarts = taco_binarySearchBeforeBlockLaunch(A2_pos, i_blockStarts, (int32_t) 0, A1_dimension,
-							 (int32_t) 64, (int32_t) 256, ((A2_pos[A1_dimension] + 63) / 64));
       computeCSRNoLB<<<num_blocks, (32 * 8)>>>(A, B, C, i_blockStarts, m);
     }
   }
@@ -210,6 +207,5 @@ float compute(taco_tensor_t *C, taco_tensor_t *A, taco_tensor_t *B, int32_t m, i
   cudaEventElapsedTime(&elapsed, start, end);
 
   cudaFree(i_blockStarts);
-  C->vals = (uint8_t*)C_vals;
   return elapsed;
 }

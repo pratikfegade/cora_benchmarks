@@ -7,7 +7,7 @@ import argparse
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 CUBLAS_RUNNER = SCRIPT_DIR + '/../trmm/cublas/gemm_cublas'
 TVM_RUNNER = SCRIPT_DIR + '/../trmm/tvm/trmm.py'
-TACO_RUNNER = SCRIPT_DIR + '/../taco/tensor_times_vector'
+TACO_RUNNER = SCRIPT_DIR + '/../taco/taco_csr_trmm'
 PYTHON = 'python3'
 
 def get_cublas_runner(pad):
