@@ -58,23 +58,20 @@ int main(int argc, char* argv[]) {
   Tensor<float> C("C", {NUM_I, NUM_K}, Format({{Dense, Dense}, {1, 0}}));
 
   srand(434321);
-  for (int i = 0; i < NUM_I; i++) {
-    for (int j = 0; j < NUM_J; j++) {
-      if (j <= i) {
-	float rand_float = (float)rand()/(float)(RAND_MAX);
-	A.insert({i, j}, (float) ((int) (rand_float*3/SPARSITY)));
-      }
-    }
-  }
 
-  for (int j = 0; j < NUM_J; j++) {
-    for (int k = 0; k < NUM_K; k++) {
+  for (int i = 0; i < m; ++i) {
+    for (int j = 0; j < i + 1; j++) {
       float rand_float = (float)rand()/(float)(RAND_MAX);
-      B.insert({j, k}, (float) ((int) (rand_float*3/SPARSITY)));
-      C.insert({j, k}, (float) ((int) (rand_float*3/SPARSITY)));
+      B.insert({i, j}, rand_float);
+      C.insert({i, j}, rand_float);
+      A.insert({i, j}, rand_float);
+    }
+    for (int j = i + 1; j < m; j++) {
+      float rand_float = (float)rand()/(float)(RAND_MAX);
+      B.insert({i, j}, rand_float);
+      C.insert({i, j}, rand_float);
     }
   }
-
   A.pack();
   B.pack();
 
@@ -85,9 +82,9 @@ int main(int argc, char* argv[]) {
   int witers = 100;
   int iters = 100;
   // Warm up
-  compute(Ct, At, Bt, 2048, witers);
+  compute(Ct, At, Bt, m, mode, witers);
 
-  float time = compute(Ct, At, Bt, 2048, mode, iters);
+  float time = compute(Ct, At, Bt, m, mode, iters);
   time /= iters;
 
   std::cout << "RESULTS," << time << std::endl;
