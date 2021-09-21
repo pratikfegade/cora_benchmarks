@@ -9,7 +9,7 @@ PYTORCH_RUNNER_CPU = SCRIPT_DIR + '/../bert_layer/pytorch/layer_cpu.py'
 PYTORCH_RUNNER_GPU = SCRIPT_DIR + '/../bert_layer/pytorch/layer.py'
 TVM_GPU_EXE_RUNNER = SCRIPT_DIR + '/../bert_layer/tvm/masked_mha.py'
 TVM_CPU_EXE_RUNNER = SCRIPT_DIR + '/../bert_layer/tvm/masked_mha_cpu.py'
-TVM_MEM_RUNNER = SCRIPT_DIR + '/../bert_layer/tvm/bert_layer_memory_inplace.py'
+TVM_MEM_RUNNER = SCRIPT_DIR + '/../bert_layer/tvm/training_memory.py'
 TVM_GPU_LIB_RUNNER = SCRIPT_DIR + '/../bert_layer/tvm/gen_libs.sh'
 TVM_CPU_LIB_RUNNER = SCRIPT_DIR + '/../bert_layer/tvm/gen_libs_cpu.sh'
 FTRANS_EXE_RUNNER = SCRIPT_DIR + '/../bert_layer/faster_transformer/run_encoder_sample.sh'
@@ -87,8 +87,19 @@ def get_cora_runner(balance):
         else: return com.extract_times(out, 1)[0]
     return run_cora
 
+def get_cora_memory_runner(dense):
+    def run_cora(b_size, dataset, n_batch, err_file, args):
+        log(args, ' Batch size %d' % (b_size))
+        cmd = [PYTHON, TVM_MEM_RUNNER, '--batch-size', str(b_size), '--max-batches', str(n_batch), '--dataset', dataset]
+        if dense: cmd += ['--dense-storage']
+        out, err = run_cmd(cmd)
+        if err: print(err, file = err_file)
+
+        return com.extract_mem(out)
+    return run_cora
+
 parser = argparse.ArgumentParser()
-parser.add_argument('--target', nargs='?', default=None)
+parser.add_argument('--target', nargs='?', default='cuda')
 parser.add_argument('--out-dir', dest='out_dir', nargs='?', default='perf_results')
 parser.add_argument('--dataset', nargs='?', default=None)
 parser.add_argument('--max-batches', dest='max_batches', default=1, type=int)
@@ -101,12 +112,12 @@ parser.add_argument('--append', dest='append', default=False, action='store_true
 args = parser.parse_args()
 
 # batch_sizes = [1, 2, 4, 8, 16, 32, 64, 128]
-# batch_sizes = [8]
+# batch_sizes = [2]
 batch_sizes = [32, 64, 128]
 targets = [args.target] if args.target else ['cuda']
 datasets = com.cluster_datasets_by_max_len() if args.dataset is None else {com.get_dataset_max_len(args.dataset) : [args.dataset]}
 # datasets = {512:['race', 'wiki_512'],384:['squadv2'],128:['wiki_128','mnli','xnli'],112:['mrpc'],48:['cola']}
-datasets = {384:['squadv2'],128:['wiki_128','mnli','xnli'],112:['mrpc'],48:['cola']}
+# datasets = {384:['squadv2'],128:['wiki_128','mnli','xnli'],112:['mrpc'],48:['cola']}
 # datasets = {512:['race', 'wiki_512']}
 
 if args.target == "cpu":
@@ -121,9 +132,8 @@ else:
         }
     elif args.mem:
         framework_funs = {
-            # 'pytorch': lambda b_sizes, *args: com.batchify(b_sizes, run_pytorch, *args),
-            'ftrans': lambda b_sizes, *args: com.batchify(b_sizes, get_ftrans_runner(False), *args),
-            'cora': lambda b_sizes, *args: com.batchify(b_sizes, get_cora_runner(False), *args),
+            'cora_dense': lambda b_sizes, *args: com.batchify(b_sizes, get_cora_memory_runner(True), *args),
+            'cora_ragged': lambda b_sizes, *args: com.batchify(b_sizes, get_cora_memory_runner(False), *args),
         }
     else:
         framework_funs = {
@@ -151,7 +161,7 @@ for target in targets:
             for framework, func in framework_funs.items():
                 log(args, 'Running %s %s %s %s' % (target, dataset, framework, batch_sizes))
                 exe_times[framework] = func(batch_sizes, dataset, args.max_batches, results_err, args)
-                print(exe_times[framework])
+                # print(exe_times[framework])
 
             for b_size in batch_sizes:
                 out_str = '%s,%s,%d' % (target, dataset, b_size)
