@@ -35,6 +35,9 @@ DATASETS = list(dataset_max_lens.keys())
 MODULE_DIR = os.path.dirname(os.path.realpath(__file__)) + '/bert_layer/tvm/genlibs/'
 DATA_DIR = os.path.dirname(os.path.realpath(__file__)) + '/data/'
 
+def get_arm_target():
+    return "llvm -mcpu=cortex-a76 -device=arm_cpu -mtriple=aarch64-linux-gnu -mattr=+v8.2a,+fullfp16,+fp-armv8,+dotprod,+crc,+crypto,+neon"
+
 def get_cmd_parser(no_options=False):
     parser = argparse.ArgumentParser()
     if not no_options:
@@ -429,5 +432,5 @@ def lower_or_build(name, s, inputs, args, prep_code_mode='with_prep_code', binds
             else:
                 assert args.debug_code is None
                 fadd, i_bufs = tvm.build(s, inputs, args.target, binds=binds, substitutes=substitutes)
-                # fadd = tvm.runtime.module.load_module('/home/ppf/benchmarks/bert_layer/tvm/qkt.so')
+                # fadd = tvm.runtime.module.load_module('/home/ppf/cora/benchmarks/bert_layer/tvm/genlibs/attn_v_cpu.so')
                 return run_function(fadd, i_bufs, inputs[1], size_fn, args, pad_sum=pad_sum)

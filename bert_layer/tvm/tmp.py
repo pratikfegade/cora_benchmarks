@@ -51,19 +51,25 @@ width_ufs=[ls[1], ls[3], ls[4]]
 QKV = te.ragged_placeholder((BATCH_SIZE, MAX_LEN, IN_SIZE), [bd, s1, id], loop_ufs,
                             name='QKV', width_ufs=width_ufs)
 
-loop_ufs=[ls[0], ls[2], ls[5], ls[4]]
-width_ufs=[ls[0], ls[2], ls[5], ls[4]]
-W = te.ragged_placeholder((QKV_NUM, NUM_HEADS, OUT_SIZE, IN_SIZE), [qkv, md, od, id], loop_ufs,
-                          name='W', width_ufs=width_ufs)
+# loop_ufs=[ls[0], ls[2], ls[5], ls[4]]
+# width_ufs=[ls[0], ls[2], ls[5], ls[4]]
+# W = te.ragged_placeholder((QKV_NUM, NUM_HEADS, OUT_SIZE, IN_SIZE), [qkv, md, od, id], loop_ufs,
+#                           name='W', width_ufs=width_ufs)
 
 # W = te.placeholder((QKV_NUM, NUM_HEADS, OUT_SIZE, IN_SIZE), name='W')
+red_tile = 64
+n_tile = 16
+W = te.placeholder((QKV_NUM, NUM_HEADS, OUT_SIZE // n_tile, IN_SIZE // red_tile, n_tile, red_tile), name='W')
 B = te.placeholder((QKV_NUM, NUM_HEADS, OUT_SIZE), name='B')
 
 loop_ufs=[ls[0], ls[1], ls[3], ls[2], ls[5]]
 width_ufs=None if args.dense_storage else [loop_ufs]
 k = tvm.reduce_axis((0, IN_SIZE), name = 'k')
 S = te.ragged_compute((QKV_NUM, BATCH_SIZE, MAX_LEN, NUM_HEADS, OUT_SIZE), [qkv, bd, s1, md, od], loop_ufs,
-                      lambda ds: tvm.sum(W[ds[qkv], ds[md], ds[od], k] * QKV[ds[bd], ds[s1], k],
+                      # lambda ds: tvm.sum(W[ds[qkv], ds[md], ds[od], k] * QKV[ds[bd], ds[s1], k],
+                      lambda ds: tvm.sum(W[ds[qkv], ds[md], tvm.floordiv(ds[od], n_tile),
+                                           tvm.floordiv(k, red_tile), tvm.floormod(ds[od], n_tile), tvm.floormod(k, red_tile)] *
+                                         QKV[ds[bd], ds[s1], k],
                                          axis = k, dimensions = [id]),
                       name = 'S', width_uf_lists=width_ufs)
 
@@ -80,8 +86,7 @@ s = tvm.create_schedule([O.op])
 if True:
     O_local = S
 
-    Wl = s.cache_read(W, 'local', [O_local], layouts='dense')
-    # QKVl = s.cache_read(QKV, 'local', [O_local])
+    Wl = s.cache_read(W, 'local', [O_local], vanilla=True)
 
     O_local_q_c, O_local_b_c, O_local_m_c, O_local_h_c, O_local_n_c, O_local_k = (tuple(O_local.op.axis) +
                                                                                   tuple(O_local.op.reduce_axis))
@@ -91,7 +96,7 @@ if True:
     O_local_m_c_o_o_i, O_local_m_c_o_i = s[O_local].split(O_local_m_c_o_i, factor=16)
 
     O_local_n_c_o_i, O_local_n_c_i = s[O_local].split(O_local_n_c, factor=4)
-    O_local_k_o, O_local_k_i = s[O_local].split(O_local_k, factor=64)
+    O_local_k_o, O_local_k_i = s[O_local].split(O_local_k, factor=red_tile)
 
     s[O_local].reorder(O_local_m_c_o_o_i, O_local_k_o, O_local_m_c_o_i, O_local_n_c_o_i, O_local_k_i, O_local_m_c_i, O_local_n_c_i)
     s[Wl].compute_at(s[O_local], O_local_k_o)
@@ -110,16 +115,10 @@ if True:
     O_m, O_n = xi, yi
     O_m_o_i, O_m_i = s[O].split(O_m, factor=64)
     O_m_o_o, O_m_o_i = s[O].split(O_m_o_i, factor=1)
-    O_n_o_i, O_n_i = s[O].split(O_n, factor=16)
+    O_n_o_i, O_n_i = s[O].split(O_n, factor=n_tile)
     O_n_o_o, O_n_o_i = s[O].split(O_n_o_i, factor=4)
     s[O].reorder(O_m_o_o, O_n_o_o, O_m_o_i, O_n_o_i, O_m_i, O_n_i)
     s[O_local].compute_at(s[O], O_n_o_i)
-
-    # s[QKVl].compute_at(s[O], O_n_o_i)
-    # b, l = s[QKVl].leaf_iter_vars[0:2]
-    # s[QKVl].fuse(b, l)
-    # s.fuse_tensor_dimensions(QKVl, 0, 1)
-    # s[QKVl].mark_no_bounds_check()
 
     s[O_local].vectorize(O_local_n_c_i)
     s[O].vectorize(O_n_i)
@@ -129,8 +128,8 @@ if True:
     s.fuse_tensor_dimensions(O_local, 1, 2)
     s[S].mark_no_bounds_check()
 
-    s.split_tensor_dimension(Wl, 2, 4)
-    s.reorder_tensor_dimensions(Wl, 3, 4)
+    s.split_tensor_dimension(Wl, 4, 4)
+    s.reorder_tensor_dimensions(Wl, 5, 6)
 
 else:
     pass
@@ -146,8 +145,6 @@ def size_fn(l_inputs):
                                              run_utils.prefix_sum(len(lens), lambda b: out_fn(b)))
     }
 
-# bQKV = tvm.decl_buffer([BATCH_SIZE*MAX_LEN, IN_SIZE], name = "bQKV")
-# binds = {QKV: bQKV}
 binds={}
 inputs = [[lens], [BS_VAR, QKV, W, B, O]]
 

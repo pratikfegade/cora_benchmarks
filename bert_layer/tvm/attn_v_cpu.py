@@ -15,7 +15,7 @@ parser.add_argument('--kt', dest='kt', default=8, type=int)
 # parser.add_argument('--nt', dest='nt', default=16, type=int)
 args = parser.parse_args()
 
-args.target = "llvm -mcpu=cortex-a76 -mattr=neon"
+args.target = run_utils.get_arm_target()
 
 BS_VAR = te.var('bs')
 BATCH_SIZE = BS_VAR + 1
