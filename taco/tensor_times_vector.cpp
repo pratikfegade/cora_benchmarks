@@ -48,6 +48,7 @@ IndexStmt scheduleSpMMGPU(IndexStmt stmt, Tensor<float> A, int m, IndexExpr prec
 
 int main(int argc, char* argv[]) {
   int m = std::atoi(argv[1]);
+  int mode = std::atoi(argv[2]);
   int NUM_I = m;
   int NUM_J = m;
   int NUM_K = m;
@@ -86,7 +87,7 @@ int main(int argc, char* argv[]) {
   // Warm up
   compute(Ct, At, Bt, 2048, witers);
 
-  float time = compute(Ct, At, Bt, 2048, iters);
+  float time = compute(Ct, At, Bt, 2048, mode, iters);
   time /= iters;
 
   std::cout << "RESULTS," << time << std::endl;
