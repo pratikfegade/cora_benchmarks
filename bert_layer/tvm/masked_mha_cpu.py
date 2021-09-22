@@ -77,11 +77,11 @@ else:
     }
 
     ops_order = [
-        # ops['pre_linear'],
-        # ops['qkt'],
+        ops['pre_linear'],
+        ops['qkt'],
         ops['softmax'],
-        # ops['attn_v'],
-        # ops['post_linear'],
+        ops['attn_v'],
+        ops['post_linear'],
     ]
 
 
@@ -97,7 +97,7 @@ batches = run_utils.append_padded_sum(batches, 64)
 
 pre_linear_in_w = run_utils.create_tvm_array((3, NUM_HEADS, HEAD_SIZE, MODEL_DIM), "float32", dev_ctx, lw_args={})
 pre_linear_in_b = run_utils.create_tvm_array((3, NUM_HEADS, HEAD_SIZE,), "float32", dev_ctx, lw_args={})
-post_linear_in_w = run_utils.create_tvm_array((NUM_HEADS * HEAD_SIZE, MODEL_DIM), "float32", dev_ctx, lw_args={})
+post_linear_in_w = run_utils.create_tvm_array((MODEL_DIM, NUM_HEADS, HEAD_SIZE), "float32", dev_ctx, lw_args={})
 post_linear_in_b = run_utils.create_tvm_array((MODEL_DIM,), "float32", dev_ctx, lw_args={})
 if not only_mha:
     norm_add1_in_b = run_utils.create_tvm_array((MODEL_DIM,), "float32", dev_ctx, lw_args={})
