@@ -8,6 +8,7 @@ YES="1"
 set -x
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
 
+rm -f SCRIPT_DIR/genlibs/*
 EXTRA_ARGS=$EXTRA_ARGS" --skip-residual"
 
 python3 ${SCRIPT_DIR}/pre_linear_cpu.py --dataset $DS --gen-lib $EXTRA_ARGS

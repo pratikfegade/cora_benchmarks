@@ -8,7 +8,7 @@ import run_utils
 def get_tvm_target(arg):
     if arg == "cuda": return "cuda"
     elif arg == "cpu" or arg == "llvm": return "llvm -mcpu=cascadelake"
-    elif arg == "arm": return "llvm -mcpu=cortex-a76 -mattr=neon"
+    elif arg == "arm": return run_utils.get_arm_target()
 
 def run_cmd(cmd):
     result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)

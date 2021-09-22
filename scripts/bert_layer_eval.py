@@ -72,13 +72,13 @@ def get_cora_runner(balance):
         else:
             runner = TVM_MEM_RUNNER if args.mem else TVM_GPU_EXE_RUNNER
 
-        cmd = [PYTHON, runner, '--target', com.get_tvm_target(target), '--batch-size', str(b_size),
+        target = com.get_tvm_target(args.target)
+        cmd = [PYTHON, runner, '--target', target, '--batch-size', str(b_size),
                '--max-batches', str(n_batch), '--dataset', dataset]
         if args.bin_packed: cmd += ['--bin-packed']
         if balance: cmd += ['--average']
         if args.target == "cpu": cmd += ['--masked-mha']
         print(' '.join(cmd))
-        out, err = '', ''
         out, err = run_cmd(cmd)
         print(out)
         if err: print(err, file = err_file)
@@ -94,7 +94,6 @@ def get_cora_memory_runner(dense):
         if dense: cmd += ['--dense-storage']
         out, err = run_cmd(cmd)
         if err: print(err, file = err_file)
-
         return com.extract_mem(out)
     return run_cora
 
@@ -123,7 +122,7 @@ datasets = com.cluster_datasets_by_max_len() if args.dataset is None else {com.g
 if args.target == "cpu":
     framework_funs = {
         'pytorch': lambda b_sizes, *args: com.batchify(b_sizes, run_pytorch, *args),
-        'cora': lambda b_sizes, *args: com.batchify(b_sizes, get_cora_runner(False), *args),
+        # 'cora': lambda b_sizes, *args: com.batchify(b_sizes, get_cora_runner(False), *args),
     }
 else:
     if args.prep_overhead:
