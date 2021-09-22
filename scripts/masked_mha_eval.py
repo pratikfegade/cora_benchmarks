@@ -27,9 +27,10 @@ def run_pytorch(b_size, dataset, n_batch, err_file, args):
     cmd = [PYTHON, PYTORCH_RUNNER, '--target', com.get_tvm_target(target), '--batch-size', str(b_size),
            '--max-batches', str(n_batch), '--dataset', dataset]
     cmd += ['--masked-mha']
-    # print(' '.join(cmd))
+    print(' '.join(cmd))
     out, err = '', ''
     out, err = run_cmd(cmd)
+    print(out)
     if err: print(err, file = err_file)
 
     return com.extract_times(out, 1)[0]
@@ -44,10 +45,10 @@ def get_tvm_runner(masked):
 
         if masked: cmd += ['--masked-mha']
         else: cmd += ['--plain-mha']
-        # print(' '.join(cmd))
+        print(' '.join(cmd))
         out, err = '', ''
         out, err = run_cmd(cmd)
-        # print(out)
+        print(out)
         if err: print(err, file = err_file)
 
         return com.extract_times(out, 1)[0]

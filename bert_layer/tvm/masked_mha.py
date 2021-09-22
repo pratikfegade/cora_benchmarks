@@ -52,11 +52,16 @@ elif args.masked_mha:
     attn_v_module = 'masked_attn_v'
     softmax_module = 'masked_softmax'
 
+if args.plain_mha or args.masked_mha:
+    if args.masked_mha: qkt_variants = None
+    else: qkt_variants = [1]
+else: qkt_variants = [1, 2]
+
 if not only_mha:
     ops = {
         # 'memset': Op('memset', 'memset', BATCH_SIZE, [], cpu_ctx, dev_ctx),
         'pre_linear': Op('pre_linear', 'pre_linear', BATCH_SIZE, [], cpu_ctx, dev_ctx),
-        'qkt': Op('qkt', qkt_module, BATCH_SIZE, [], cpu_ctx, dev_ctx, variants=[1, 2]),
+        'qkt': Op('qkt', qkt_module, BATCH_SIZE, [], cpu_ctx, dev_ctx, variants=qkt_variants),
         'softmax': Op('softmax', softmax_module, BATCH_SIZE, [], cpu_ctx, dev_ctx),
         'attn_v': Op('attn_v', attn_v_module, BATCH_SIZE, [], cpu_ctx, dev_ctx),
         'post_linear': Op('post_linear', 'post_linear', BATCH_SIZE, [], cpu_ctx, dev_ctx),
@@ -80,7 +85,7 @@ if not only_mha:
     ]
 else:
     ops = {
-        'qkt': Op('qkt', qkt_module, BATCH_SIZE, [], cpu_ctx, dev_ctx),
+        'qkt': Op('qkt', qkt_module, BATCH_SIZE, [], cpu_ctx, dev_ctx, variants=qkt_variants),
         'softmax': Op('softmax', softmax_module, BATCH_SIZE, [], cpu_ctx, dev_ctx),
         'attn_v': Op('attn_v', attn_v_module, BATCH_SIZE, [], cpu_ctx, dev_ctx),
     }
