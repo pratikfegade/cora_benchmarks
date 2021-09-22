@@ -5,57 +5,29 @@ from common import run_cmd, INF, get_out_files, log, run_linearization
 import argparse
 
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
-PYTORCH_RUNNER = SCRIPT_DIR + '/../bert_layer/pytorch/layer.py'
-TVM_EXE_RUNNER = SCRIPT_DIR + '/../bert_layer/tvm/masked_mha.py'
-TVM_MEM_RUNNER = SCRIPT_DIR + '/../bert_layer/tvm/bert_layer_memory.py'
-TVM_LIB_RUNNER = SCRIPT_DIR + '/../bert_layer/tvm/gen_libs.sh'
+TVM_EXE_RUNNER = SCRIPT_DIR + '/../bert_layer/tvm/pad_fusion_layer.py'
+TVM_LIB_RUNNER = SCRIPT_DIR + '/../bert_layer/tvm/gen_libs_pad_fusion.sh'
 FTRANS_RUNNER = SCRIPT_DIR + '/../bert_layer/faster_transformer/run_encoder_sample.sh'
 PYTHON = 'python3'
 
-DIR_PREFIX = SCRIPT_DIR + '/../bert_layer/tvm/'
-ops = {
-    'pre_linear':       (False, 'unused', DIR_PREFIX + 'pre_linear.py'),
-    'add_pad64':        (True,  'add',    DIR_PREFIX + 'padding_64to1.py'),
-    'qkt':              (False, 'unused', DIR_PREFIX + 'qkt.py'),
-    'change_pad_to_32': (True,  'remove', DIR_PREFIX + 'padding_32to64.py'),
-    'softmax':          (False, 'unused', DIR_PREFIX + 'softmax.py'),
-    'change_pad_to_64': (True,  'add',    DIR_PREFIX + 'padding_32to64.py'),
-    'attn_v':           (False, 'unused', DIR_PREFIX + 'attn_v.py'),
-    'rem_pad64':        (True,  'remove', DIR_PREFIX + 'padding_64to1.py'),
-    'post_linear':      (False, 'unused', DIR_PREFIX + 'post_linear.py'),
-}
-
-def run_cora_op(op_name, b_sizes, dataset, n_batch, err_file, args, pad_fusion):
-    op_data = ops[op_name]
-    pad_op = op_data[0]
-    runner = op_data[2]
-    cmd = ([PYTHON, runner, '--target', com.get_tvm_target(target), '--batch-sizes'] +
-           [str(i) for i in b_sizes] +
-           ['--max-batches', str(n_batch), '--dataset', dataset, '--skip-residual'])
-
-    if pad_fusion:
-        if pad_op: return None
-    else:
-        if pad_op: cmd += ['--mode', op_data[1]]
-        else: cmd += ['--layout-unfused']
-
+def generate_tvm_libs(dataset, pad_fusion):
+    runner = TVM_LIB_RUNNER
+    cmd = [runner, dataset, '1' if pad_fusion else '0']
     print(' '.join(cmd))
     out, err = run_cmd(cmd)
-    if err: print(err, file = err_file)
-    return com.extract_time_batches(out)
+    print(out, err)
 
-def run_cora(b_sizes, pad_fusion, dataset, n_batch, err_file, args):
-    ret = {}
-    for b_size in b_sizes: ret[b_size] = 0.0
-
-    for op_name in ops:
-        this_times = run_cora_op(op_name, b_sizes, dataset, n_batch, err_file, args, pad_fusion)
-        if this_times:
-            for b_size in b_sizes:
-                log(args, '  OP: ' + op_name + ' ' + str(this_times[b_size]))
-                ret[b_size] += this_times[b_size]
-
-    return ret
+def get_cora_runner(pad_fusion):
+    def run_cora(b_size, dataset, n_batch, err_file, args):
+        log(args, ' Batch size %d' % (b_size))
+        target = com.get_tvm_target(args.target)
+        cmd = [PYTHON, TVM_EXE_RUNNER, '--target', target, '--batch-size', str(b_size),
+               '--max-batches', str(n_batch), '--dataset', dataset]
+        if pad_fusion: cmd == ['--pad-fused']
+        out, err = run_cmd(cmd)
+        if err: print(err, file = err_file)
+        return com.extract_times(out, 1)[0]
+    return run_cora
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--target', nargs='?', default=None)
@@ -67,7 +39,7 @@ parser.add_argument('--append', dest='append', default=False, action='store_true
 
 args = parser.parse_args()
 
-b_sizes = [2, 8, 32, 128]
+b_sizes = [32, 64, 128]
 targets = [args.target] if args.target else ['cuda']
 datasets = com.get_all_datasets() if args.dataset is None else [args.dataset]
 
@@ -77,14 +49,18 @@ results_out, results_err = get_out_files(args, out_prefix, 'a' if args.append el
 header = 'Target,Dataset,Batch Size,Unfused,Fused'
 print(header, file = results_out)
 
+unfused_runner = lambda b_sizes, *args: com.batchify(b_sizes, get_cora_runner(False), *args)
+fused_runner = lambda b_sizes, *args: com.batchify(b_sizes, get_cora_runner(True), *args)
+
 target = targets[0]
 for dataset in datasets:
     exe_times = {}
     log(args, 'Unfused for ' + dataset)
-    unfused_times = run_cora(b_sizes, False, dataset, args.max_batches, results_err, args)
+    generate_tvm_libs(dataset, False)
+    unfused_times = unfused_runner(b_sizes, dataset, args.max_batches, results_err, args)
     log(args, 'Fused for ' + dataset)
-    fused_times = run_cora(b_sizes, True, dataset, args.max_batches, results_err, args)
-
+    generate_tvm_libs(dataset, True)
+    fused_times = fused_runner(b_sizes, dataset, args.max_batches, results_err, args)
 
     for b_size in b_sizes:
         out_str = '%s,%s,%d,%g,%g' % (target, dataset, b_size, unfused_times[b_size], fused_times[b_size])

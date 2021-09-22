@@ -413,6 +413,7 @@ def lower_or_build(name, s, inputs, args, prep_code_mode='with_prep_code', binds
             fadd, i_bufs = tvm.build(s, inputs, args.target, binds=binds)
             variant = ''
             if hasattr(args, 'sched'): variant = str(args.sched)
+            if hasattr(args, 'padding_mode'): variant = '_' + str(args.padding_mode)
             fadd.export_library(MODULE_DIR + name + variant + '.so')
             with open(MODULE_DIR + name + variant + '_bufs.txt', 'w') as buf_file:
                 for buf in i_bufs[0]:
