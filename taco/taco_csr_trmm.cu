@@ -9,7 +9,7 @@ const IndexVar i("i"), j("j"), k("k"), l("l"), m("m"), n("n");
 int WARP_SIZE = 32;
 
 __global__ void computeCSRLB(taco_tensor_t * __restrict__ A, taco_tensor_t * __restrict__ B,
-			     taco_tensor_t * __restrict__ C, int32_t* i_blockStarts, int32_t m) {
+			     taco_tensor_t * __restrict__ C, int32_t* i_blockStarts, int32_t m, float alpha) {
   int A1_dimension = (int)(A->dimensions[0]);
   int* __restrict__ A2_pos = (int*)(A->indices[1][0]);
   int* __restrict__ A2_crd = (int*)(A->indices[1][1]);
@@ -61,13 +61,14 @@ __global__ void computeCSRLB(taco_tensor_t * __restrict__ A, taco_tensor_t * __r
         i = i_pos;
       }
       int32_t iC = k * C1_dimension + i;
-      atomicAdd(&C_vals[iC], B_vals[kB] * precomputedA[nnz]);
+      atomicAdd(&C_vals[iC], alpha*B_vals[kB] * precomputedA[nnz]);
     }
   }
 }
 
 __global__ void computeCSRNoLB(taco_tensor_t * __restrict__ A, taco_tensor_t * __restrict__ B,
-			       taco_tensor_t * __restrict__ C, int32_t* i_blockStarts, int32_t m) {
+			       taco_tensor_t * __restrict__ C, int32_t* i_blockStarts, int32_t m,
+			       float alpha) {
   int A1_dimension = (int)(A->dimensions[0]);
   int* __restrict__ A2_pos = (int*)(A->indices[1][0]);
   int* __restrict__ A2_crd = (int*)(A->indices[1][1]);
@@ -99,13 +100,13 @@ __global__ void computeCSRNoLB(taco_tensor_t * __restrict__ A, taco_tensor_t * _
 	if (j >= B2_dimension)
 	  continue;
 
-	C_vals[jC] = C_vals[jC] + A_vals[kA] * B_vals[jB];
+	C_vals[jC] = C_vals[jC] + alpha*A_vals[kA] * B_vals[jB];
       }
     }
   }
 }
 
-float compute(taco_tensor_t *C, taco_tensor_t *A, taco_tensor_t *B, int32_t m, int32_t mode, int32_t iters) {
+float compute(taco_tensor_t *C, taco_tensor_t *A, taco_tensor_t *B, int32_t m, float alpha, int32_t mode, int32_t iters) {
   int A1_dimension = (int)(A->dimensions[0]);
   int B2_dimension = (int)(B->dimensions[1]);
   int* __restrict__ A2_pos = (int*)(A->indices[1][0]);
@@ -124,12 +125,12 @@ float compute(taco_tensor_t *C, taco_tensor_t *A, taco_tensor_t *B, int32_t m, i
     for (int i = 0; i < iters; ++i) {
       i_blockStarts = taco_binarySearchBeforeBlockLaunch(A2_pos, i_blockStarts, (int32_t) 0, A1_dimension,
 							 (int32_t) 64, (int32_t) 256, ((A2_pos[A1_dimension] + 63) / 64));
-      computeCSRLB<<<(A2_pos[A1_dimension] + 63) / 64, (32 * 8)>>>(A, B, C, i_blockStarts, m);
+      computeCSRLB<<<(A2_pos[A1_dimension] + 63) / 64, (32 * 8)>>>(A, B, C, i_blockStarts, m, alpha);
     }
   } else {
     int num_blocks = (((A1_dimension + 63) / 64) * ((B2_dimension + 63) / 64));
     for (int i = 0; i < iters; ++i) {
-      computeCSRNoLB<<<num_blocks, (32 * 8)>>>(A, B, C, i_blockStarts, m);
+      computeCSRNoLB<<<num_blocks, (32 * 8)>>>(A, B, C, i_blockStarts, m, alpha);
     }
   }
 
@@ -200,10 +201,11 @@ int main(int argc, char* argv[]) {
 
   int witers = 100;
   int iters = 100;
+  float alpha = 0.03;
   // Warm up
-  compute(Ct, At, Bt, m, mode, witers);
+  compute(Ct, At, Bt, m, alpha, mode, witers);
 
-  float time = compute(Ct, At, Bt, m, mode, iters);
+  float time = compute(Ct, At, Bt, m, alpha, mode, iters);
   time /= iters;
 
   // float* vals = (float*)Ct->vals;

@@ -30,7 +30,7 @@ IndexStmt scheduleSpMMGPU(IndexStmt stmt, Tensor<float> A, int m, int bs, IndexE
 }
 
 __global__
-void computeDeviceKernel0(taco_tensor_t * __restrict__ A, taco_tensor_t * __restrict__ B, taco_tensor_t * __restrict__ C, int32_t* io_blockStarts, int mb){
+void computeDeviceKernel0(taco_tensor_t * __restrict__ A, taco_tensor_t * __restrict__ B, taco_tensor_t * __restrict__ C, int32_t* io_blockStarts, int mb, float alpha){
   int A1_dimension = (int)(A->dimensions[0]);
   int A3_dimension = (int)(A->dimensions[2]);
   int A4_dimension = (int)(A->dimensions[3]);
@@ -92,7 +92,7 @@ void computeDeviceKernel0(taco_tensor_t * __restrict__ A, taco_tensor_t * __rest
         }
 	for (int32_t ki = 0; ki < B4_dimension; ki++) {
 	  int32_t kiC = iiC * C4_dimension + ki;
-	  C_vals[kiC] = Cl[ki];
+	  C_vals[kiC] = alpha*Cl[ki];
 	}
       }
     }
@@ -100,7 +100,7 @@ void computeDeviceKernel0(taco_tensor_t * __restrict__ A, taco_tensor_t * __rest
 
 }
 
-float compute(taco_tensor_t *C, taco_tensor_t *B, taco_tensor_t *A, int m, int bs, int iters) {
+float compute(taco_tensor_t *C, taco_tensor_t *B, taco_tensor_t *A, int m, int bs, float alpha, int iters) {
   int A1_dimension = (int)(A->dimensions[0]);
   int* __restrict__ A2_pos = (int*)(A->indices[1][0]);
 
@@ -118,7 +118,7 @@ float compute(taco_tensor_t *C, taco_tensor_t *B, taco_tensor_t *A, int m, int b
   cudaEventRecord(start);
 
   for (int i = 0; i < iters; ++i) {
-    computeDeviceKernel0<<<num_blocks, (32 * 8)>>>(A, B, C, io_blockStarts, m/bs);
+    computeDeviceKernel0<<<num_blocks, (32 * 8)>>>(A, B, C, io_blockStarts, m/bs, alpha);
   }
   cudaEventRecord(end);
   cudaEventSynchronize(end);
@@ -168,10 +168,11 @@ int main(int argc, char* argv[]) {
 
   int witers = 100;
   int iters = 100;
+  float alpha = 0.09;
   // Warm up
-  compute(Ct, Bt, At, m, bs, witers);
+  compute(Ct, Bt, At, m, bs, alpha, witers);
 
-  float time = compute(Ct, Bt, At, m, bs, iters);
+  float time = compute(Ct, Bt, At, m, bs, alpha, iters);
   time /= iters;
   std::cout << "RESULTS," << time << std::endl;
 
