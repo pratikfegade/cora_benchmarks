@@ -27,9 +27,10 @@ def run_pytorch(b_size, dataset, n_batch, err_file, args):
     cmd = [PYTHON, PYTORCH_RUNNER, '--target', com.get_tvm_target(target), '--batch-size', str(b_size),
            '--max-batches', str(n_batch), '--dataset', dataset]
     cmd += ['--masked-mha']
-    # print(' '.join(cmd))
+    print(' '.join(cmd))
     out, err = '', ''
     out, err = run_cmd(cmd)
+    print(out)
     if err: print(err, file = err_file)
 
     return com.extract_times(out, 1)[0]
@@ -44,10 +45,10 @@ def get_tvm_runner(masked):
 
         if masked: cmd += ['--masked-mha']
         else: cmd += ['--plain-mha']
-        # print(' '.join(cmd))
+        print(' '.join(cmd))
         out, err = '', ''
         out, err = run_cmd(cmd)
-        # print(out)
+        print(out)
         if err: print(err, file = err_file)
 
         return com.extract_times(out, 1)[0]
@@ -63,7 +64,7 @@ parser.add_argument('--stdout', dest='stdout', default=False, action='store_true
 parser.add_argument('--append', dest='append', default=False, action='store_true')
 args = parser.parse_args()
 
-batch_sizes = [2, 8, 32, 128]
+batch_sizes = [32, 64, 128]
 target = 'cuda'
 # datasets = com.cluster_datasets_by_max_len() if args.dataset is None else {com.get_dataset_max_len(args.dataset) : [args.dataset]}
 # datasets = {512:['race', 'wiki_512'],384:['squadv2'],128:['wiki_128','mnli','xnli'],112:['mrpc'],48:['cola']}

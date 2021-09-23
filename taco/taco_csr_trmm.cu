@@ -37,7 +37,6 @@ __global__ void computeCSRLB(taco_tensor_t * __restrict__ A, taco_tensor_t * __r
     if (fposA >= A2_pos[A1_dimension])
       break;
 
-    int32_t f = A2_crd[fposA];
     precomputedA[nnz] = precomputedA[nnz] + A_vals[fposA];
   }
   #pragma unroll 4
@@ -73,7 +72,6 @@ __global__ void computeCSRNoLB(taco_tensor_t * __restrict__ A, taco_tensor_t * _
   int* __restrict__ A2_pos = (int*)(A->indices[1][0]);
   int* __restrict__ A2_crd = (int*)(A->indices[1][1]);
   float* __restrict__ A_vals = (float*)(A->vals);
-  int B1_dimension = (int)(B->dimensions[0]);
   int B2_dimension = (int)(B->dimensions[1]);
   float* __restrict__ B_vals = (float*)(B->vals);
   int C2_dimension = (int)(C->dimensions[1]);
@@ -108,9 +106,6 @@ __global__ void computeCSRNoLB(taco_tensor_t * __restrict__ A, taco_tensor_t * _
 }
 
 float compute(taco_tensor_t *C, taco_tensor_t *A, taco_tensor_t *B, int32_t m, int32_t mode, int32_t iters) {
-  int C1_dimension = (int)(C->dimensions[0]);
-  int C2_dimension = (int)(C->dimensions[1]);
-  float* __restrict__ C_vals = (float*)(C->vals);
   int A1_dimension = (int)(A->dimensions[0]);
   int B2_dimension = (int)(B->dimensions[1]);
   int* __restrict__ A2_pos = (int*)(A->indices[1][0]);
@@ -162,7 +157,7 @@ IndexStmt scheduleSpMMGPU(IndexStmt stmt, Tensor<float> A, int m, IndexExpr prec
           .split(k, dense_val_unbounded, thread, WARP_SIZE)
           .reorder({block, warp, thread, dense_val_unbounded, nnz})
           .precompute(precomputedExprA, nnz, nnz, precomputedA)
-          .bound(dense_val_unbounded, dense_val, -1, BoundType::MaxExact)
+    .bound(dense_val_unbounded, dense_val, m/WARP_SIZE, BoundType::MaxExact)
           .unroll(dense_val, 4)
           .parallelize(block, ParallelUnit::GPUBlock, OutputRaceStrategy::IgnoreRaces)
           .parallelize(warp, ParallelUnit::GPUWarp, OutputRaceStrategy::IgnoreRaces)
@@ -175,7 +170,6 @@ int main(int argc, char* argv[]) {
   int NUM_I = m;
   int NUM_J = m;
   int NUM_K = m;
-  float SPARSITY = .3;
   Tensor<float> A("A", {NUM_I, NUM_J}, CSR);
   Tensor<float> B("B", {NUM_J, NUM_K}, {Dense, Dense});
   Tensor<float> C("C", {NUM_I, NUM_K}, Format({{Dense, Dense}, {1, 0}}));

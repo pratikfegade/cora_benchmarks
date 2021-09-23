@@ -150,18 +150,14 @@ def run_for_batches():
                             attn_mask[i][j][k] = -float('inf')
             attn_mask = torch.from_numpy(attn_mask).to(device)
             encoder = Encoder(device, max_len, batch_size, num_heads, head_size, model_size, ff_size, args.debug)
-
-        if args.debug:
-            inp = get_np_tensor((args.batch_size * max_len, model_size), device, True)
-            ret = encoder.forward(inp, attn_mask)
-            print(np.mean(ret.cpu().numpy()))
-        else:
             traced_encoder = torch.jit.script(encoder)
 
             inp = get_np_tensor((args.batch_size * max_len, model_size), device, True)
             timer = benchmark.Timer(stmt='f(x, y)',
                                     globals={'x': inp, 'y': attn_mask, 'f': traced_encoder})
-            batch_times.append(timer.timeit(iters).mean * 1000.0)
+
+        batch_times.append(timer.timeit(iters).mean * 1000.0)
+
     return batch_times
 
 with torch.no_grad():

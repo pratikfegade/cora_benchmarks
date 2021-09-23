@@ -1,6 +1,6 @@
 #include <iostream>
 #include "taco.h"
-#include "tradd_kernels.hpp"
+#include "utils.cuh"
 
 using namespace taco;
 using namespace std::chrono;
@@ -10,16 +10,16 @@ __global__ void computeDeviceKernel0(taco_tensor_t * __restrict__ A,
 				     taco_tensor_t * __restrict__ C) {
   int* __restrict__ A2_pos = (int*)(A->indices[1][0]);
   int* __restrict__ A2_crd = (int*)(A->indices[1][1]);
-  double* __restrict__ A_vals = (double*)(A->vals);
+  float* __restrict__ A_vals = (float*)(A->vals);
   int B1_dimension = (int)(B->dimensions[0]);
   int* __restrict__ B2_pos = (int*)(B->indices[1][0]);
   int* __restrict__ B2_crd = (int*)(B->indices[1][1]);
-  double* __restrict__ B_vals = (double*)(B->vals);
+  float* __restrict__ B_vals = (float*)(B->vals);
   int C2_dimension = (int)(C->dimensions[1]);
-  double* __restrict__ C_vals = (double*)(C->vals);
+  float* __restrict__ C_vals = (float*)(C->vals);
 
   int32_t i0 = blockIdx.x;
-  int32_t i1 = (threadIdx.x % (64));
+  int32_t i1 = threadIdx.x;
   if (threadIdx.x >= 64) {
     return;
   }
@@ -66,10 +66,7 @@ __global__ void computeDeviceKernel0(taco_tensor_t * __restrict__ A,
   }
 }
 
-float compute(taco_tensor_t *C, taco_tensor_t *A, taco_tensor_t *B) {
-  int C1_dimension = (int)(C->dimensions[0]);
-  int C2_dimension = (int)(C->dimensions[1]);
-  double* __restrict__ C_vals = (double*)(C->vals);
+float compute(taco_tensor_t *C, taco_tensor_t *A, taco_tensor_t *B, int m, int iters) {
   int B1_dimension = (int)(B->dimensions[0]);
 
   cudaEvent_t start, end;
@@ -78,6 +75,7 @@ float compute(taco_tensor_t *C, taco_tensor_t *A, taco_tensor_t *B) {
   cudaEventCreate(&end);
   cudaEventRecord(start);
 
+  gpuErrchk(cudaMallocManaged((void**)&(C->vals), sizeof(float) * m * m));
   for (int i = 0; i < iters; ++i) {
     computeDeviceKernel0<<<(B1_dimension + 63) / 64, 64>>>(A, B, C);
   }
@@ -90,8 +88,6 @@ float compute(taco_tensor_t *C, taco_tensor_t *A, taco_tensor_t *B) {
 
 int main(int argc, char* argv[]) {
   int m = std::atoi(argv[1]);
-  int mode = std::atoi(argv[2]);
-  float SPARSITY = .3;
   Tensor<float> A("A", {m, m}, CSR);
   Tensor<float> B("B", {m, m}, CSR);
   Tensor<float> C("C", {m, m}, Format({{Dense, Dense}, {1, 0}}));
@@ -109,7 +105,6 @@ int main(int argc, char* argv[]) {
     for (int j = i + 1; j < m; j++) {
       float rand_float = (float)rand()/(float)(RAND_MAX);
       // float rand_float = 0.1;
-      B.insert({i, j}, rand_float);
       C.insert({i, j}, rand_float);
     }
   }
@@ -123,9 +118,9 @@ int main(int argc, char* argv[]) {
   int witers = 100;
   int iters = 100;
   // Warm up
-  compute(Ct, At, Bt, m, mode, witers);
+  compute(Ct, At, Bt, m, witers);
 
-  float time = compute(Ct, At, Bt, m, mode, iters);
+  float time = compute(Ct, At, Bt, m, iters);
   time /= iters;
 
   // float* vals = (float*)Ct->vals;

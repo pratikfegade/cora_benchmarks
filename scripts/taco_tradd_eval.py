@@ -5,7 +5,6 @@ from common import run_cmd, INF, get_out_files, log, run_linearization
 import argparse
 
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
-CUBLAS_RUNNER = SCRIPT_DIR + '/../trmm/cublas/gemm_cublas'
 TVM_RUNNER = SCRIPT_DIR + '/../taco/tradd.py'
 TACO_RUNNER = SCRIPT_DIR + '/../taco/taco_csr_tradd'
 PYTHON = 'python3'
@@ -14,14 +13,15 @@ def run_tvm(m_size, err_file, args):
     runner = TVM_RUNNER
     cmd = [PYTHON, runner, '--target', com.get_tvm_target(target), '--m', str(m_size)]
     out, err = run_cmd(cmd)
+    print(' '.join(cmd))
     if err: print(err, file = err_file)
     return com.extract_times(out, 1)[0]
 
 def run_taco(m_size, err_file, args):
     runner = TACO_RUNNER
     cmd = [runner, str(m_size)]
-    out, err = '', ''
     out, err = run_cmd(cmd)
+    print(' '.join(cmd))
     if err: print(err, file = err_file)
     return com.extract_times(out, 1)[0]
 
@@ -39,10 +39,10 @@ targets = [args.target] if args.target else ['cuda']
 if args.target == 'cuda':
     framework_funs = {
         'cora': run_tvm,
-        # 'taco': run_taco,
+        'taco': run_taco,
     }
 
-results_out, results_err = get_out_files(args, 'trmm', 'a' if args.append else 'w')
+results_out, results_err = get_out_files(args, 'taco_tradd', 'a' if args.append else 'w')
 header = 'Target,M'
 for framework, func in framework_funs.items(): header += ',' + framework + ' (ms)'
 print(header, file = results_out)

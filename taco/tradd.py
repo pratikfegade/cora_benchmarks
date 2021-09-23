@@ -70,4 +70,4 @@ binds={A1:bA1, A2:bA2, O:bO}
 inputs = [[], [bA1, bA2, bO]]
 name = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0]
 out = run_utils.lower_or_build(name, s, inputs, args, run_function=run_utils.run_trmm,
-                               prep_code_mode='with_prep_code', binds=binds)
+                               prep_code_mode='no_prep_code', binds=binds)

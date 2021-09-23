@@ -12,7 +12,7 @@ import utils
 import run_utils
 
 parser = run_utils.get_cmd_parser()
-parser.add_argument('--mode', default='remove')
+parser.add_argument('--padding-mode', dest='padding_mode', default='remove')
 args = parser.parse_args()
 
 BS_VAR = te.var('bs')
@@ -36,7 +36,7 @@ ls =  {
     2: Uf.from_constant('od', OUT_SIZE, 'l'),
 }
 
-if args.mode == 'remove':
+if args.padding_mode == 'remove':
     a_fnw = lufw64
     o_fnw = lufw1
 else:
