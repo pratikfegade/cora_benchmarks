@@ -120,8 +120,8 @@ if True:
     s[O].reorder(xii, yii, xio, yio)
     s[O].bind(xii, thread_y())
     s[O].bind(yii, thread_x())
-    s[O].bind(xio, tvm.thread_axis("vthread"))
-    s[O].bind(yio, tvm.thread_axis("vthread"))
+    s[O].bind(xio, tvm.thread_axis("vthread"), no_unroll_vthread=args.debug_code)
+    s[O].bind(yio, tvm.thread_axis("vthread"), no_unroll_vthread=args.debug_code)
     s[Ol].compute_at(s[O], yio)
 
     b, x, h, y, k = s[Ol].leaf_iter_vars
