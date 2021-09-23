@@ -109,7 +109,7 @@ def get_shape(t, rmap):
 def create_ragged_array(dense_shape, flat_size, dtype, ctx):
     import tvm
     # src_np_array = np.random.normal(size=(flat_size,)).astype(dtype)
-    src_np_array = np.full((flat_size,), 0.1, dtype).astype(dtype)
+    src_np_array = np.full((flat_size,), 0.01, dtype).astype(dtype)
     tvm_array = tvm.nd.ragged_empty(dense_shape, flat_size, dtype=dtype, ctx=ctx)
     tvm_array.copyfrom(src_np_array, is_dst_ragged=True)
     del src_np_array
@@ -118,7 +118,7 @@ def create_ragged_array(dense_shape, flat_size, dtype, ctx):
 def create_numpy_array(t, dtype, rmap={}, lw_args=None):
     shape = get_shape(t, rmap)
     # return np.zeros(shape, dtype)
-    return np.full(shape, 0.1, dtype)
+    return np.full(shape, 0.01, dtype)
     # return np.random.normal(size=shape, loc=0.5, scale=4).astype(dtype)
 
 def create_tvm_array(t, dtype, ctx, rmap={}, lw_args=None):
@@ -132,7 +132,7 @@ def create_tvm_array(t, dtype, ctx, rmap={}, lw_args=None):
         return create_ragged_array(shape, flat_size, dtype, ctx)
 
     # return np.zeros(shape, dtype)
-    return tvm.nd.array(np.full(shape, 0.1, dtype), ctx)
+    return tvm.nd.array(np.full(shape, 0.01, dtype), ctx)
     # return np.random.normal(size=shape, loc=0.5, scale=4).astype(dtype)
 
 def get_ctx(target):
@@ -163,8 +163,8 @@ def execute(target, built, inputs, ctx, debug = False):
             return -100000000
             evaluator = built.time_evaluator('default_function', ctx, 1, repeat=10)
         else:
-            # evaluator = built.time_evaluator(built.entry_name, ctx, repeat=5, number=20)
-            evaluator = built.time_evaluator(built.entry_name, ctx, repeat=5, number=100)
+            evaluator = built.time_evaluator(built.entry_name, ctx, repeat=5, number=20)
+            # evaluator = built.time_evaluator(built.entry_name, ctx, repeat=5, number=100)
         eval_result = evaluator(*inputs)
         return mean(list(eval_result.results)[1:]) * 1000
         # return mean(list(eval_result.results)) * 1000
