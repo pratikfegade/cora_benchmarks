@@ -23,7 +23,8 @@ def get_cora_runner(pad_fusion):
         target = com.get_tvm_target(args.target)
         cmd = [PYTHON, TVM_EXE_RUNNER, '--target', target, '--batch-size', str(b_size),
                '--max-batches', str(n_batch), '--dataset', dataset]
-        if pad_fusion: cmd == ['--pad-fused']
+        print(' '.join(cmd))
+        if pad_fusion: cmd += ['--pad-fused']
         out, err = run_cmd(cmd)
         if err: print(err, file = err_file)
         return com.extract_times(out, 1)[0]
@@ -61,7 +62,7 @@ for dataset in datasets:
     log(args, 'Fused for ' + dataset)
     generate_tvm_libs(dataset, True)
     fused_times = fused_runner(b_sizes, dataset, args.max_batches, results_err, args)
-
+    print(fused_times)
     for b_size in b_sizes:
         out_str = '%s,%s,%d,%g,%g' % (target, dataset, b_size, unfused_times[b_size], fused_times[b_size])
         print(out_str, file = results_out)

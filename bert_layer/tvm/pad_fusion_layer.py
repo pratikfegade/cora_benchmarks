@@ -170,9 +170,23 @@ for batch in batches:
 
     l_inputs = [tvm.nd.array(batch, cpu_ctx)]
 
+    # for op in ops_order: op.set_inputs_and_variant(l_inputs, 0)
+    # for i in range(args.witers):
+        # for op in ops_order:
+            # op.execute()
+            # dev_ctx.sync()
+
+
+
+
+
+
+
     for op in ops_order: op.set_inputs_and_variant(l_inputs, 0)
     for i in range(args.witers):
         for op in ops_order: op.execute()
+    dev_ctx.sync()
+
     start = time.perf_counter()
     for i in range(args.iters):
         for op in ops_order: op.execute()
