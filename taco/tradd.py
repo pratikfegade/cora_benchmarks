@@ -52,10 +52,30 @@ O = rmap[O.op].output(0)
 
 s = tvm.create_schedule([O.op])
 
+A1l = s.cache_read(A1, "local", [O], vanilla=True)
+A2l = s.cache_read(A2, "local", [O], vanilla=True)
+Ol = s.cache_write(O, "local")
+
+if M == 128: tile,ntx=1,64
+elif M == 256: tile,ntx=2,64
+elif M == 512: tile,ntx=4,64
+else: tile,ntx=4,128
+
 f = s[O].op.axis[0]
-fo, fi = s[O].split(f, factor=128)
+fo, fi = s[O].split(f, factor=ntx*tile)
+fio, fii = s[O].split(fi, factor=tile)
+
 s[O].bind(fo, tvm.thread_axis("blockIdx.x"))
-s[O].bind(fi, tvm.thread_axis("threadIdx.x"))
+s[O].bind(fio, tvm.thread_axis("threadIdx.x"))
+
+s[Ol].unroll(s[Ol].leaf_iter_vars[0])
+
+s[A1l].compute_at(s[O], fio)
+s[A2l].compute_at(s[O], fio)
+s[Ol].compute_at(s[O], fio)
+s[A1l].vectorize(s[A1l].leaf_iter_vars[0])
+s[A2l].vectorize(s[A2l].leaf_iter_vars[0])
+s[O].vectorize(fii)
 
 gen_prefix = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0]
 _ = tvm.register_func(utils.get_tvm_callback_cuda_compile(256))

@@ -1,28 +1,12 @@
 #include <iostream>
 #include "taco.h"
+#include "utils.cuh"
 
 using namespace taco;
 using namespace std::chrono;
 
 const IndexVar io("io"), jo("jo"), ko("ko"), ii("ii"), ji("ji"), ki("ki");
 int WARP_SIZE = 32;
-
-float measure_time(std::function<float()> runner) {
-  // int w_iters = 1000;
-  // int a_iters = 1000;
-  int w_iters = 10;
-  int a_iters = 10;
-  for (int i = 0; i < w_iters; ++i) {
-    runner();
-  }
-
-  float exe_time = 0.0;
-  for (int i = 0; i < a_iters; ++i) {
-        exe_time += runner();
-  }
-
-  return exe_time / a_iters;
-}
 
 IndexStmt scheduleSpMMGPU(IndexStmt stmt, Tensor<float> A, int m, int bs, IndexExpr precomputedAExpr,
 			  int NNZ_PER_WARP=1, int BLOCK_SIZE=256) {
@@ -46,7 +30,7 @@ IndexStmt scheduleSpMMGPU(IndexStmt stmt, Tensor<float> A, int m, int bs, IndexE
 }
 
 __global__
-void computeDeviceKernel0(taco_tensor_t * __restrict__ A, taco_tensor_t * __restrict__ B, taco_tensor_t * __restrict__ C, int32_t* io_blockStarts){
+void computeDeviceKernel0(taco_tensor_t * __restrict__ A, taco_tensor_t * __restrict__ B, taco_tensor_t * __restrict__ C, int32_t* io_blockStarts, int mb){
   int A1_dimension = (int)(A->dimensions[0]);
   int A3_dimension = (int)(A->dimensions[2]);
   int A4_dimension = (int)(A->dimensions[3]);
@@ -69,8 +53,13 @@ void computeDeviceKernel0(taco_tensor_t * __restrict__ A, taco_tensor_t * __rest
     return;
   }
 
+  float Cl[32];
+  for (int i = 0; i < 32; ++i) {
+    Cl[i] = 0;
+  }
+
   #pragma unroll 4
-  for (int32_t dense_val = 0; dense_val < 0; dense_val++) {
+  for (int32_t dense_val = 0; dense_val < mb/32; dense_val++) {
     int32_t ko = dense_val * 32 + thread;
     int32_t pA2_begin = io_blockStarts[block];
     int32_t pA2_end = io_blockStarts[(block + 1)];
@@ -98,39 +87,47 @@ void computeDeviceKernel0(taco_tensor_t * __restrict__ A, taco_tensor_t * __rest
           for (int32_t ki = 0; ki < B4_dimension; ki++) {
             int32_t kiC = iiC * C4_dimension + ki;
             int32_t kiB = jiB * B4_dimension + ki;
-            atomicAdd(&C_vals[kiC], B_vals[kiB] * A_vals[jiA]);
+	    Cl[ji] += B_vals[kiB] * A_vals[jiA];
           }
         }
+	for (int32_t ki = 0; ki < B4_dimension; ki++) {
+	  int32_t kiC = iiC * C4_dimension + ki;
+	  C_vals[kiC] = Cl[ki];
+	}
       }
     }
   }
 
 }
 
-int compute(taco_tensor_t *C, taco_tensor_t *B, taco_tensor_t *A) {
-  int C1_dimension = (int)(C->dimensions[0]);
-  int C2_dimension = (int)(C->dimensions[1]);
-  int C3_dimension = (int)(C->dimensions[2]);
-  int C4_dimension = (int)(C->dimensions[3]);
-  float* __restrict__ C_vals = (float*)(C->vals);
+float compute(taco_tensor_t *C, taco_tensor_t *B, taco_tensor_t *A, int m, int bs, int iters) {
   int A1_dimension = (int)(A->dimensions[0]);
   int* __restrict__ A2_pos = (int*)(A->indices[1][0]);
 
   int32_t* io_blockStarts = 0;
   gpuErrchk(cudaMallocManaged((void**)&io_blockStarts, sizeof(int32_t) * ((A2_pos[A1_dimension] + 7) / 8 + 1)));
+  gpuErrchk(cudaMallocManaged((void**)&(C->vals), sizeof(float) * m * m));
   io_blockStarts = taco_binarySearchBeforeBlockLaunch(A2_pos, io_blockStarts, (int32_t) 0, A1_dimension, (int32_t) 8, (int32_t) 256, ((A2_pos[A1_dimension] + 7) / 8));
 
-  for (int32_t pC = 0; pC < (((C1_dimension * C2_dimension) * C3_dimension) * C4_dimension); pC++) {
-    C_vals[pC] = 0.0;
-  }
+  int num_blocks = (A2_pos[A1_dimension] + 7) / 8;
+  std::cout << "NB " << num_blocks << " " << A2_pos[A1_dimension] << std::endl;
+  cudaEvent_t start, end;
+  float elapsed;
+  cudaEventCreate(&start);
+  cudaEventCreate(&end);
+  cudaEventRecord(start);
 
-  computeDeviceKernel0<<<(A2_pos[A1_dimension] + 7) / 8, (32 * 8)>>>(A, B, C, io_blockStarts);
-  cudaDeviceSynchronize();
+  for (int i = 0; i < iters; ++i) {
+    computeDeviceKernel0<<<num_blocks, (32 * 8)>>>(A, B, C, io_blockStarts, m/bs);
+  }
+  cudaEventRecord(end);
+  cudaEventSynchronize(end);
+  cudaEventElapsedTime(&elapsed, start, end);
+  gpuErrchk(cudaPeekAtLastError());
+  gpuErrchk(cudaDeviceSynchronize());
 
   cudaFree(io_blockStarts);
-
-  C->vals = (uint8_t*)C_vals;
-  return 0;
+  return elapsed;
 }
 
 
@@ -139,17 +136,53 @@ int main(int argc, char* argv[]) {
   int m = std::atoi(argv[1]);
   int bs = std::atoi(argv[2]);
   int mb = m/bs;
-  float SPARSITY = .3;
   Tensor<float> A("A", {mb, mb, bs, bs}, {Dense, Compressed, Dense, Dense});
   Tensor<float> B("B", {mb, mb, bs, bs}, {Dense, Dense, Dense, Dense});
   Tensor<float> C("C", {mb, mb, bs, bs}, {Dense, Dense, Dense, Dense});
 
-  IndexExpr precomputedA = A(io, jo, ii, ji);
-  IndexExpr precomputedB = B(jo, ko, ji, ki);
-  C(io, ko, ii, ki) += precomputedB * precomputedA;
+  for (int i = 0; i < mb; ++i) {
+    for (int j = 0; j < i + 1; ++j) {
+      for (int ii = 0; ii < bs; ++ii) {
+  	for (int ji = 0; ji < bs; ++ji) {
+  	  float rand_float = (float)rand()/(float)(RAND_MAX);
+  	  A.insert({i, j, ii, ji}, rand_float);
+  	}
+      }
+    }
+    for (int j = i + 1; j < mb; j++) {
+      for (int ii = 0; ii < bs; ++ii) {
+  	for (int ji = 0; ji < bs; ++ji) {
+  	  float rand_float = (float)rand()/(float)(RAND_MAX);
+  	  B.insert({i, j, ii, ji}, rand_float);
+  	  C.insert({i, j, ii, ji}, rand_float);
+  	}
+      }
+    }
+  }
+  A.pack();
+  B.pack();
 
-  IndexStmt stmt = C.getAssignment().concretize();
-  stmt = scheduleSpMMGPU(stmt, A, m, bs, precomputedA);
+  auto At = A.getTacoTensorT();
+  auto Bt = B.getTacoTensorT();
+  auto Ct = C.getTacoTensorT();
 
-  C.compile(stmt);
+  int witers = 100;
+  int iters = 100;
+  // Warm up
+  compute(Ct, Bt, At, m, bs, witers);
+
+  float time = compute(Ct, Bt, At, m, bs, iters);
+  time /= iters;
+  std::cout << "RESULTS," << time << std::endl;
+
+
+
+  // IndexExpr precomputedA = A(io, jo, ii, ji);
+  // IndexExpr precomputedB = B(jo, ko, ji, ki);
+  // C(io, ko, ii, ki) += precomputedB * precomputedA;
+
+  // IndexStmt stmt = C.getAssignment().concretize();
+  // stmt = scheduleSpMMGPU(stmt, A, m, bs, precomputedA);
+
+  // C.compile(stmt);
 }

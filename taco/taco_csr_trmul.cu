@@ -39,30 +39,10 @@ __global__ void computeDeviceKernel0(taco_tensor_t * __restrict__ A,
     int32_t j = TACO_MIN(jA0,jB0);
     if (jA0 == j && jB0 == j) {
       int32_t jC = i * C2_dimension + j;
-      C_vals[jC] = A_vals[jA] + B_vals[jB];
-    }
-    else if (jA0 == j) {
-      int32_t jC = i * C2_dimension + j;
-      C_vals[jC] = A_vals[jA];
-    }
-    else {
-      int32_t jC = i * C2_dimension + j;
-      C_vals[jC] = B_vals[jB];
+      C_vals[jC] = A_vals[jA] * B_vals[jB];
     }
     jA = jA + (int32_t)(jA0 == j);
     jB = jB + (int32_t)(jB0 == j);
-  }
-  while (jA < pA2_end) {
-    int32_t j = A2_crd[jA];
-    int32_t jC = i * C2_dimension + j;
-    C_vals[jC] = A_vals[jA];
-    jA = jA + 1;
-  }
-  while (jB < pB2_end) {
-    int32_t j = B2_crd[jB];
-    int32_t jC = i * C2_dimension + j;
-    C_vals[jC] = B_vals[jB];
-    jB = jB + 1;
   }
 }
 

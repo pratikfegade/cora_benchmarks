@@ -1,5 +1,6 @@
 #include <iostream>
 #include "taco.h"
+#include "utils.cuh"
 
 using namespace taco;
 using namespace std::chrono;
@@ -23,13 +24,14 @@ __global__ void computeDeviceKernel0(taco_tensor_t * __restrict__ A,
   int* __restrict__ A2_pos = (int*)(A->indices[1][0]);
   int* __restrict__ A2_crd = (int*)(A->indices[1][1]);
   float* __restrict__ A_vals = (float*)(A->vals);
-  int B1_dimension = (int)(B->dimensions[0]);
   int B3_dimension = (int)(B->dimensions[2]);
   int B4_dimension = (int)(B->dimensions[3]);
   int* __restrict__ B2_pos = (int*)(B->indices[1][0]);
   int* __restrict__ B2_crd = (int*)(B->indices[1][1]);
   float* __restrict__ B_vals = (float*)(B->vals);
   int C1_dimension = (int)(C->dimensions[0]);
+  int C3_dimension = (int)(C->dimensions[2]);
+  int C4_dimension = (int)(C->dimensions[3]);
   float* __restrict__ C_vals = (float*)(C->vals);
 
   int32_t io = blockIdx.x;
@@ -52,14 +54,14 @@ __global__ void computeDeviceKernel0(taco_tensor_t * __restrict__ A,
       int32_t ii = fi / B4_dimension;
       int32_t iiB = joB * B3_dimension + ii;
       int32_t iiA = joA * A3_dimension + ii;
-      int32_t iiC = joC * C1_dimension + ii;
+      int32_t iiC = joC * C3_dimension + ii;
       if (ii >= B3_dimension)
         return;
 
       int32_t ji = fi % B4_dimension;
       int32_t jiB = iiB * B4_dimension + ji;
       int32_t jiA = iiA * A4_dimension + ji;
-      int32_t jiC = iiC * C1_dimension + ji;
+      int32_t jiC = iiC * C4_dimension + ji;
       if (ji >= B4_dimension)
         return;
 
@@ -71,13 +73,15 @@ __global__ void computeDeviceKernel0(taco_tensor_t * __restrict__ A,
 }
 
 float compute(taco_tensor_t *C, taco_tensor_t *A, taco_tensor_t *B, int m, int iters) {
-  int C1_dimension = (int)(C->dimensions[0]);
-  float* __restrict__ C_vals = (float*)(C->vals);
   int B1_dimension = (int)(B->dimensions[0]);
   int B3_dimension = (int)(B->dimensions[2]);
   int B4_dimension = (int)(B->dimensions[3]);
 
   gpuErrchk(cudaMallocManaged((void**)&(C->vals), sizeof(float) * m * m));
+
+  int num_blocks = B1_dimension;
+  int num_threads = B3_dimension * B4_dimension;
+  std::cout << "NB/NT " << num_blocks << " " << num_threads << std::endl;
 
   cudaEvent_t start, end;
   float elapsed;
@@ -85,11 +89,14 @@ float compute(taco_tensor_t *C, taco_tensor_t *A, taco_tensor_t *B, int m, int i
   cudaEventCreate(&end);
   cudaEventRecord(start);
 
-  computeDeviceKernel0<<<B1_dimension, B3_dimension * B4_dimension>>>(A, B, C);
-
+  for (int i = 0; i < iters; ++i) {
+    computeDeviceKernel0<<<num_blocks, num_threads>>>(A, B, C);
+  }
   cudaEventRecord(end);
   cudaEventSynchronize(end);
   cudaEventElapsedTime(&elapsed, start, end);
+  // gpuErrchk(cudaPeekAtLastError());
+  // gpuErrchk(cudaDeviceSynchronize());
   return elapsed;
 }
 
@@ -97,31 +104,32 @@ int main(int argc, char* argv[]) {
   int m = std::atoi(argv[1]);
   int bs = std::atoi(argv[2]);
   int mb = m/bs;
+  std::cout << "M/BS/Mb " << m << " " << bs << " " << mb << std::endl;
   Tensor<float> A("A", {mb, mb, bs, bs}, {Dense, Compressed, Dense, Dense});
   Tensor<float> B("B", {mb, mb, bs, bs}, {Dense, Compressed, Dense, Dense});
   Tensor<float> C("C", {mb, mb, bs, bs}, Format({{Dense, Dense, Dense, Dense}}));
 
-  // for (int i = 0; i < mb; ++i) {
-  //   for (int j = 0; j < i + 1; ++j) {
-  //     for (int ii = 0; ii < bs; ++ii) {
-  // 	for (int ji = 0; ji < bs; ++ji) {
-  // 	  float rand_float = (float)rand()/(float)(RAND_MAX);
-  // 	  A.insert({i, j, ii, ji}, rand_float);
-  // 	  B.insert({i, j, ii, ji}, rand_float);
-  // 	}
-  //     }
-  //   }
-  //   for (int j = i + 1; j < mb; j++) {
-  //     for (int ii = 0; ii < bs; ++ii) {
-  // 	for (int ji = 0; ji < bs; ++ji) {
-  // 	  float rand_float = (float)rand()/(float)(RAND_MAX);
-  // 	  C.insert({i, j, ii, ji}, rand_float);
-  // 	}
-  //     }
-  //   }
-  // }
-  // A.pack();
-  // B.pack();
+  for (int i = 0; i < mb; ++i) {
+    for (int j = 0; j < i + 1; ++j) {
+      for (int ii = 0; ii < bs; ++ii) {
+  	for (int ji = 0; ji < bs; ++ji) {
+  	  float rand_float = (float)rand()/(float)(RAND_MAX);
+  	  A.insert({i, j, ii, ji}, rand_float);
+  	  B.insert({i, j, ii, ji}, rand_float);
+  	}
+      }
+    }
+    for (int j = i + 1; j < mb; j++) {
+      for (int ii = 0; ii < bs; ++ii) {
+  	for (int ji = 0; ji < bs; ++ji) {
+  	  float rand_float = (float)rand()/(float)(RAND_MAX);
+  	  C.insert({i, j, ii, ji}, rand_float);
+  	}
+      }
+    }
+  }
+  A.pack();
+  B.pack();
 
   auto At = A.getTacoTensorT();
   auto Bt = B.getTacoTensorT();
