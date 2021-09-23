@@ -33,8 +33,7 @@ if args.no_raggedness:
 else:
     def len_ufw(name, pad): return Ufw(name, "l", (pad, MAX_LEN), [bd], [lens], lambda lens: lambda b: utils.ceilmult(lens[b], pad))
 lufw1 = len_ufw('s1_1', 1)
-# lufw32 = len_ufw('s2_32', 32)
-lufw32 = len_ufw('s2_32', 8)
+lufw32 = len_ufw('s2_32', 16)
 lufw64 = len_ufw('s64', 64)
 
 ls =  {

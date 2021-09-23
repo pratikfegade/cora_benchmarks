@@ -129,7 +129,7 @@ else:
 
     s[O_local].unroll(O_local_m_c_i)
     s[O_local].unroll(O_local_n_c_i)
-    s[O_local].peel(O_local_k_o)
+    # s[O_local].peel(O_local_k_o)
 
     O_m, O_n = xi, yi
     O_m_o_i, O_m_i = s[O].split(O_m, factor=16)
