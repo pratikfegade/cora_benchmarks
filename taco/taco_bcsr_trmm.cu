@@ -111,11 +111,9 @@ float compute(taco_tensor_t *C, taco_tensor_t *B, taco_tensor_t *A, int m, int b
   int* __restrict__ A2_pos = (int*)(A->indices[1][0]);
 
   int num_bcsr_blocks = A2_pos[A1_dimension];
-  int num_blocks = -1;
   int32_t* io_blockStarts = 0;
-  gpuErrchk(cudaMallocManaged((void**)&io_blockStarts, sizeof(int32_t) * ((num_bcsr_blocks + 7) / 8 + 1)));
+  gpuErrchk(cudaMallocManaged((void**)&io_blockStarts, sizeof(int32_t) * 5000));
   gpuErrchk(cudaMallocManaged((void**)&(C->vals), sizeof(float) * m * m));
-  io_blockStarts = taco_binarySearchBeforeBlockLaunch(A2_pos, io_blockStarts, (int32_t) 0, A1_dimension, (int32_t) 8, (int32_t) 256, ((num_bcsr_blocks + 7) / 8));
 
   cudaEvent_t start, end;
   float elapsed;
@@ -126,22 +124,31 @@ float compute(taco_tensor_t *C, taco_tensor_t *B, taco_tensor_t *A, int m, int b
   if (m == 128) {
     const int warp_size = 4;
     const int block_size = 8;
+    int num_tblocks = num_bcsr_blocks / (block_size / warp_size);
     for (int i = 0; i < iters; ++i) {
-      computeKernel<32, block_size, warp_size><<<num_bcsr_blocks / (block_size / warp_size), block_size>>>
+      io_blockStarts = taco_binarySearchBeforeBlockLaunch(A2_pos, io_blockStarts, 0, A1_dimension,
+							  block_size / warp_size, block_size, num_tblocks);
+      computeKernel<32, block_size, warp_size><<<num_tblocks, block_size>>>
 	(A, B, C, io_blockStarts, m/bs, alpha);
     }
   } else if (m == 512) {
     const int warp_size = 16;
     const int block_size = 32;
+    int num_tblocks = num_bcsr_blocks / (block_size / warp_size);
     for (int i = 0; i < iters; ++i) {
-      computeKernel<32, block_size, warp_size><<<num_bcsr_blocks / (block_size / warp_size), block_size>>>
+      io_blockStarts = taco_binarySearchBeforeBlockLaunch(A2_pos, io_blockStarts, 0, A1_dimension,
+							  block_size / warp_size, block_size, num_tblocks);
+      computeKernel<32, block_size, warp_size><<<num_tblocks, block_size>>>
 	(A, B, C, io_blockStarts, m/bs, alpha);
     }
   } else {
     const int warp_size = 32;
     const int block_size = 256;
+    int num_tblocks = num_bcsr_blocks / (block_size / warp_size);
     for (int i = 0; i < iters; ++i) {
-      computeKernel<32, block_size, warp_size><<<num_bcsr_blocks / (block_size / warp_size), block_size>>>
+      io_blockStarts = taco_binarySearchBeforeBlockLaunch(A2_pos, io_blockStarts, 0, A1_dimension,
+							  block_size / warp_size, block_size, num_tblocks);
+      computeKernel<32, block_size, warp_size><<<num_tblocks, block_size>>>
 	(A, B, C, io_blockStarts, m/bs, alpha);
     }
   }

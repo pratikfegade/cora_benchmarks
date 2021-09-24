@@ -95,8 +95,8 @@ float compute(taco_tensor_t *C, taco_tensor_t *A, taco_tensor_t *B, int m, int i
   cudaEventRecord(end);
   cudaEventSynchronize(end);
   cudaEventElapsedTime(&elapsed, start, end);
-  // gpuErrchk(cudaPeekAtLastError());
-  // gpuErrchk(cudaDeviceSynchronize());
+  gpuErrchk(cudaPeekAtLastError());
+  gpuErrchk(cudaDeviceSynchronize());
   return elapsed;
 }
 
