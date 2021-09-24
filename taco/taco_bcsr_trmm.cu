@@ -59,14 +59,11 @@ __global__ void computeKernel(taco_tensor_t * __restrict__ A,
   }
 
   float Cl[BLOCK_SIZE];
-  for (int i = 0; i < BLOCK_SIZE; ++i) {
-    Cl[i] = 0;
-  }
 
   #pragma unroll 4
-  for (int32_t dense_val = 0; dense_val < (mb + WARP_SIZE + 1)/WARP_SIZE; dense_val++) {
+  for (int32_t dense_val = 0; dense_val < (mb + WARP_SIZE - 1)/WARP_SIZE; dense_val++) {
     int32_t ko = dense_val * WARP_SIZE + thread;
-    if (ko > mb) break;
+    // if (ko >= mb) break;
 
     int32_t pA2_begin = io_blockStarts[block];
     int32_t pA2_end = io_blockStarts[(block + 1)];
@@ -86,6 +83,9 @@ __global__ void computeKernel(taco_tensor_t * __restrict__ A,
       }
       int32_t koC = io * C2_dimension + ko;
       for (int32_t ii = 0; ii < A3_dimension; ii++) {
+	for (int i = 0; i < BLOCK_SIZE; ++i) {
+	  Cl[i] = 0;
+	}
         int32_t iiC = koC * C3_dimension + ii;
         int32_t iiA = fposA * A3_dimension + ii;
         for (int32_t ji = 0; ji < A4_dimension; ji++) {
@@ -94,12 +94,15 @@ __global__ void computeKernel(taco_tensor_t * __restrict__ A,
           for (int32_t ki = 0; ki < B4_dimension; ki++) {
             int32_t kiC = iiC * C4_dimension + ki;
             int32_t kiB = jiB * B4_dimension + ki;
-	    Cl[ji] += B_vals[kiB] * A_vals[jiA];
+	    float av = A_vals[jiA];
+	    float bv = B_vals[kiB];
+	    Cl[ji] += av*bv;
           }
         }
 	for (int32_t ki = 0; ki < B4_dimension; ki++) {
 	  int32_t kiC = iiC * C4_dimension + ki;
-	  C_vals[kiC] = alpha*Cl[ki];
+	  // C_vals[kiC] = alpha*Cl[ki];
+	  atomicAdd(&(C_vals[kiC]), alpha*Cl[ki]);
 	}
       }
     }
@@ -175,7 +178,7 @@ int main(int argc, char* argv[]) {
     for (int j = 0; j < i + 1; ++j) {
       for (int ii = 0; ii < bs; ++ii) {
   	for (int ji = 0; ji < bs; ++ji) {
-  	  float rand_float = (float)rand()/(float)(RAND_MAX);
+  	  float rand_float = 0.1;//(float)rand()/(float)(RAND_MAX);
   	  A.insert({i, j, ii, ji}, rand_float);
   	}
       }
@@ -183,7 +186,7 @@ int main(int argc, char* argv[]) {
     for (int j = i + 1; j < mb; j++) {
       for (int ii = 0; ii < bs; ++ii) {
   	for (int ji = 0; ji < bs; ++ji) {
-  	  float rand_float = (float)rand()/(float)(RAND_MAX);
+  	  float rand_float = 0.1;//(float)rand()/(float)(RAND_MAX);
   	  B.insert({i, j, ii, ji}, rand_float);
   	  C.insert({i, j, ii, ji}, rand_float);
   	}
@@ -197,9 +200,9 @@ int main(int argc, char* argv[]) {
   auto Bt = B.getTacoTensorT();
   auto Ct = C.getTacoTensorT();
 
-  int witers = 100;
-  int iters = 100;
-  float alpha = 0.09;
+  int witers = 0;
+  int iters = 1;
+  float alpha = 1;
   // Warm up
   compute(Ct, Bt, At, m, bs, alpha, witers);
 
@@ -207,7 +210,12 @@ int main(int argc, char* argv[]) {
   time /= iters;
   std::cout << "RESULTS," << time << std::endl;
 
-
+  for (int i = 0; i < m; ++i) {
+    for (int j = 0; j < m; ++j) {
+      std::cout << ((float*)Ct->vals)[i*m+j] << " ";
+    }
+    std::cout << std::endl;
+  }
 
   // IndexExpr precomputedA = A(io, jo, ii, ji);
   // IndexExpr precomputedB = B(jo, ko, ji, ki);
