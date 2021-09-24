@@ -110,12 +110,13 @@ float compute(taco_tensor_t *C, taco_tensor_t *B, taco_tensor_t *A, int m, int b
   int A1_dimension = (int)(A->dimensions[0]);
   int* __restrict__ A2_pos = (int*)(A->indices[1][0]);
 
-  int32_t* io_blockStarts = 0;
-  gpuErrchk(cudaMallocManaged((void**)&io_blockStarts, sizeof(int32_t) * ((A2_pos[A1_dimension] + 7) / 8 + 1)));
-  gpuErrchk(cudaMallocManaged((void**)&(C->vals), sizeof(float) * m * m));
-  io_blockStarts = taco_binarySearchBeforeBlockLaunch(A2_pos, io_blockStarts, (int32_t) 0, A1_dimension, (int32_t) 8, (int32_t) 256, ((A2_pos[A1_dimension] + 7) / 8));
-
   int num_bcsr_blocks = A2_pos[A1_dimension];
+  int num_blocks = -1;
+  int32_t* io_blockStarts = 0;
+  gpuErrchk(cudaMallocManaged((void**)&io_blockStarts, sizeof(int32_t) * ((num_bcsr_blocks + 7) / 8 + 1)));
+  gpuErrchk(cudaMallocManaged((void**)&(C->vals), sizeof(float) * m * m));
+  io_blockStarts = taco_binarySearchBeforeBlockLaunch(A2_pos, io_blockStarts, (int32_t) 0, A1_dimension, (int32_t) 8, (int32_t) 256, ((num_bcsr_blocks + 7) / 8));
+
   cudaEvent_t start, end;
   float elapsed;
   cudaEventCreate(&start);
@@ -126,19 +127,22 @@ float compute(taco_tensor_t *C, taco_tensor_t *B, taco_tensor_t *A, int m, int b
     const int warp_size = 4;
     const int block_size = 8;
     for (int i = 0; i < iters; ++i) {
-      computeKernel<block_size, warp_size, 4><<<num_blocks / (block_size / warp_size), block_size>>>(A, B, C, io_blockStarts, m/bs, alpha);
+      computeKernel<32, block_size, warp_size><<<num_bcsr_blocks / (block_size / warp_size), block_size>>>
+	(A, B, C, io_blockStarts, m/bs, alpha);
     }
   } else if (m == 512) {
     const int warp_size = 16;
     const int block_size = 32;
     for (int i = 0; i < iters; ++i) {
-      computeKernel<block_size, warp_size, 16><<<num_blocks / (block_size / warp_size), block_size>>>(A, B, C, io_blockStarts, m/bs, alpha);
+      computeKernel<32, block_size, warp_size><<<num_bcsr_blocks / (block_size / warp_size), block_size>>>
+	(A, B, C, io_blockStarts, m/bs, alpha);
     }
   } else {
     const int warp_size = 32;
     const int block_size = 256;
     for (int i = 0; i < iters; ++i) {
-      computeKernel<block_size, warp_size, 32><<<num_blocks / (block_size / warp_size), block_size>>>(A, B, C, io_blockStarts, m/bs, alpha);
+      computeKernel<32, block_size, warp_size><<<num_bcsr_blocks / (block_size / warp_size), block_size>>>
+	(A, B, C, io_blockStarts, m/bs, alpha);
     }
   }
 
@@ -151,8 +155,6 @@ float compute(taco_tensor_t *C, taco_tensor_t *B, taco_tensor_t *A, int m, int b
   cudaFree(io_blockStarts);
   return elapsed;
 }
-
-
 
 int main(int argc, char* argv[]) {
   int m = std::atoi(argv[1]);
