@@ -54,7 +54,7 @@ A = te.ragged_placeholder((BATCH_SIZE, MAX_LEN, NUM_HEADS, MAX_LEN), [bd, s1, md
 width_ufs=[ls[0], o_fnw.get_uf(), ls[1], o_fnw.get_uf()]
 O = te.ragged_compute((BATCH_SIZE, MAX_LEN, NUM_HEADS, MAX_LEN), [bd, s1, md, s2], loop_ufs,
                       lambda ds: A[ds[bd], ds[s1], ds[md], ds[s2]],
-                      fpred = lambda ds: ds[s2] < lens[ds[bd]],
+                      fpred = lambda ds: ds[s2] < utils.ceilmult(lens[ds[bd]], 32),
                       name = 'O', width_uf_lists=[width_ufs])
 
 s = tvm.create_schedule([O.op])
