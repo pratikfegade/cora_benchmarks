@@ -12,6 +12,7 @@ import run_utils
 
 parser = run_utils.get_cmd_parser(no_options=True)
 parser.add_argument('--target', nargs='?', default='llvm')
+parser.add_argument('--op', nargs='?', default='mul')
 parser.add_argument('--m', dest='m', default=1024, type=int)
 parser.add_argument('--only-prep-code', dest='only_prep_code', default=None, type=str)
 parser.add_argument('--debug-code', dest='debug_code', default=None, type=str)
@@ -40,9 +41,10 @@ width_ufs=loop_ufs
 A1 = te.ragged_placeholder((M, M), [md, nd], loop_ufs, name='A1', width_ufs=width_ufs)
 A2 = te.ragged_placeholder((M, M), [md, nd], loop_ufs, name='A2', width_ufs=width_ufs)
 
-O = te.ragged_compute((M, M), [md, nd], loop_ufs,
-                      lambda ds: A1[ds[md], ds[nd]] + A2[ds[md], ds[nd]],
-                      name = 'O', width_uf_lists=[width_ufs])
+def body_fn(ds):
+    if args.op == 'mul': A1[ds[md], ds[nd]] * A2[ds[md], ds[nd]]
+    else: A1[ds[md], ds[nd]] + A2[ds[md], ds[nd]]
+O = te.ragged_compute((M, M), [md, nd], loop_ufs, body_fn, name = 'O', width_uf_lists=[width_ufs])
 
 f_ext = (M * (M + 1)) // 2
 rmap = te.fuse_ragged_axis([A1, A2], O, md, nd, fd, f_ext)
