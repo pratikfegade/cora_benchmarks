@@ -73,7 +73,7 @@ if args.target == 'cuda':
         'cora': run_tvm,
     }
 
-results_out, results_err = get_out_files(args, 'taco_', 'a' if args.append else 'w')
+results_out, results_err = get_out_files(args, 'taco', 'a' if args.append else 'w')
 header = 'Target,M,Op'
 for framework, func in framework_funs.items(): header += ',' + framework + ' (ms)'
 print(header, file = results_out)
