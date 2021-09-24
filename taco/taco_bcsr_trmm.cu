@@ -29,8 +29,12 @@ IndexStmt scheduleSpMMGPU(IndexStmt stmt, Tensor<float> A, int m, int bs, IndexE
     .parallelize(thread, ParallelUnit::GPUThread, OutputRaceStrategy::Atomics);
 }
 
-__global__
-void computeDeviceKernel0(taco_tensor_t * __restrict__ A, taco_tensor_t * __restrict__ B, taco_tensor_t * __restrict__ C, int32_t* io_blockStarts, int mb, float alpha){
+template<int BLOCK_SIZE, int TBLOCK_SIZE, int WARP_SIZE>
+__global__ void computeKernel(taco_tensor_t * __restrict__ A,
+			      taco_tensor_t * __restrict__ B,
+			      taco_tensor_t * __restrict__ C,
+			      int32_t* io_blockStarts, int mb,
+			      float alpha) {
   int A1_dimension = (int)(A->dimensions[0]);
   int A3_dimension = (int)(A->dimensions[2]);
   int A4_dimension = (int)(A->dimensions[3]);
@@ -45,29 +49,32 @@ void computeDeviceKernel0(taco_tensor_t * __restrict__ A, taco_tensor_t * __rest
   int C3_dimension = (int)(C->dimensions[2]);
   int C4_dimension = (int)(C->dimensions[3]);
   float* __restrict__ C_vals = (float*)(C->vals);
+  const int NUM_WARPS = TBLOCK_SIZE / WARP_SIZE;
 
   int32_t block = blockIdx.x;
-  int32_t thread = (threadIdx.x % (32));
-  int32_t warp = (threadIdx.x / 32);
-  if (threadIdx.x >= 256) {
+  int32_t thread = (threadIdx.x % (WARP_SIZE));
+  int32_t warp = (threadIdx.x / WARP_SIZE);
+  if (threadIdx.x >= TBLOCK_SIZE) {
     return;
   }
 
-  float Cl[32];
-  for (int i = 0; i < 32; ++i) {
+  float Cl[BLOCK_SIZE];
+  for (int i = 0; i < BLOCK_SIZE; ++i) {
     Cl[i] = 0;
   }
 
   #pragma unroll 4
-  for (int32_t dense_val = 0; dense_val < mb/32; dense_val++) {
-    int32_t ko = dense_val * 32 + thread;
+  for (int32_t dense_val = 0; dense_val < (mb + WARP_SIZE + 1)/WARP_SIZE; dense_val++) {
+    int32_t ko = dense_val * WARP_SIZE + thread;
+    if (ko > mb) break;
+
     int32_t pA2_begin = io_blockStarts[block];
     int32_t pA2_end = io_blockStarts[(block + 1)];
-    int32_t fposA = block * 8 + warp;
+    int32_t fposA = block * NUM_WARPS + warp;
     int32_t io_pos = taco_binarySearchBefore(A2_pos, pA2_begin, pA2_end, fposA);
     int32_t io = io_pos;
     for (int32_t nnz = 0; nnz < 1; nnz++) {
-      int32_t fposA = block * 8 + warp;
+      int32_t fposA = block * NUM_WARPS + warp;
       if (fposA >= A2_pos[A1_dimension])
         break;
 
@@ -97,7 +104,6 @@ void computeDeviceKernel0(taco_tensor_t * __restrict__ A, taco_tensor_t * __rest
       }
     }
   }
-
 }
 
 float compute(taco_tensor_t *C, taco_tensor_t *B, taco_tensor_t *A, int m, int bs, float alpha, int iters) {
@@ -109,17 +115,33 @@ float compute(taco_tensor_t *C, taco_tensor_t *B, taco_tensor_t *A, int m, int b
   gpuErrchk(cudaMallocManaged((void**)&(C->vals), sizeof(float) * m * m));
   io_blockStarts = taco_binarySearchBeforeBlockLaunch(A2_pos, io_blockStarts, (int32_t) 0, A1_dimension, (int32_t) 8, (int32_t) 256, ((A2_pos[A1_dimension] + 7) / 8));
 
-  int num_blocks = (A2_pos[A1_dimension] + 7) / 8;
-  std::cout << "NB " << num_blocks << " " << A2_pos[A1_dimension] << std::endl;
+  int num_bcsr_blocks = A2_pos[A1_dimension];
   cudaEvent_t start, end;
   float elapsed;
   cudaEventCreate(&start);
   cudaEventCreate(&end);
   cudaEventRecord(start);
 
-  for (int i = 0; i < iters; ++i) {
-    computeDeviceKernel0<<<num_blocks, (32 * 8)>>>(A, B, C, io_blockStarts, m/bs, alpha);
+  if (m == 128) {
+    const int warp_size = 4;
+    const int block_size = 8;
+    for (int i = 0; i < iters; ++i) {
+      computeKernel<block_size, warp_size, 4><<<num_blocks / (block_size / warp_size), block_size>>>(A, B, C, io_blockStarts, m/bs, alpha);
+    }
+  } else if (m == 512) {
+    const int warp_size = 16;
+    const int block_size = 32;
+    for (int i = 0; i < iters; ++i) {
+      computeKernel<block_size, warp_size, 16><<<num_blocks / (block_size / warp_size), block_size>>>(A, B, C, io_blockStarts, m/bs, alpha);
+    }
+  } else {
+    const int warp_size = 32;
+    const int block_size = 256;
+    for (int i = 0; i < iters; ++i) {
+      computeKernel<block_size, warp_size, 32><<<num_blocks / (block_size / warp_size), block_size>>>(A, B, C, io_blockStarts, m/bs, alpha);
+    }
   }
+
   cudaEventRecord(end);
   cudaEventSynchronize(end);
   cudaEventElapsedTime(&elapsed, start, end);
