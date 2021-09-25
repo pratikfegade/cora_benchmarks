@@ -211,14 +211,21 @@ else:
 
     s[S].set_scope('local')
 
+    # x, y = s[Ws].leaf_iter_vars
+    # f = s[Ws].fuse(x, y)
+    # fo, fi = s[Ws].split(f, factor = nt * nt * 4)
+    # fio, fii = s[Ws].split(fi, factor = nt * 4)
+    # fiio, fiii = s[Ws].split(fii, factor = 4)
+    # s[Ws].bind(fio, thread_y())
+    # s[Ws].bind(fiio, thread_x())
+    # if not args.debug_functions: s[Ws].vectorize(fiii)
+
     x, y = s[Ws].leaf_iter_vars
-    f = s[Ws].fuse(x, y)
-    fo, fi = s[Ws].split(f, factor = nt * nt * 4)
-    fio, fii = s[Ws].split(fi, factor = nt * 4)
+    s[Ws].bind(x, thread_y())
+    fio, fii = s[Ws].split(y, factor = nt * 4)
     fiio, fiii = s[Ws].split(fii, factor = 4)
-    s[Ws].bind(fio, thread_y())
     s[Ws].bind(fiio, thread_x())
-    if not args.debug_functions: s[Ws].vectorize(fiii)
+    s[Ws].vectorize(fiii)
 
     x, = s[Bs].leaf_iter_vars
     fo, fi = s[Bs].split(x, factor = nt * nt)
