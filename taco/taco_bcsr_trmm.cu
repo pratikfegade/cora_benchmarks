@@ -180,6 +180,8 @@ int main(int argc, char* argv[]) {
   	for (int ji = 0; ji < bs; ++ji) {
   	  float rand_float = 0.1;//(float)rand()/(float)(RAND_MAX);
   	  A.insert({i, j, ii, ji}, rand_float);
+  	  B.insert({i, j, ii, ji}, rand_float);
+  	  C.insert({i, j, ii, ji}, rand_float);
   	}
       }
     }
@@ -200,9 +202,9 @@ int main(int argc, char* argv[]) {
   auto Bt = B.getTacoTensorT();
   auto Ct = C.getTacoTensorT();
 
-  int witers = 0;
-  int iters = 1;
-  float alpha = 1;
+  int witers = 100;
+  int iters = 100;
+  float alpha = 0.9;
   // Warm up
   compute(Ct, Bt, At, m, bs, alpha, witers);
 
@@ -210,12 +212,12 @@ int main(int argc, char* argv[]) {
   time /= iters;
   std::cout << "RESULTS," << time << std::endl;
 
-  for (int i = 0; i < m; ++i) {
-    for (int j = 0; j < m; ++j) {
-      std::cout << ((float*)Ct->vals)[i*m+j] << " ";
-    }
-    std::cout << std::endl;
-  }
+  // for (int i = 0; i < m; ++i) {
+    // for (int j = 0; j < m; ++j) {
+      // std::cout << ((float*)Ct->vals)[i*m+j] << " ";
+    // }
+    // std::cout << std::endl;
+  // }
 
   // IndexExpr precomputedA = A(io, jo, ii, ji);
   // IndexExpr precomputedB = B(jo, ko, ji, ki);
