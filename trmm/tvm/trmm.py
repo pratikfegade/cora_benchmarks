@@ -44,7 +44,7 @@ A = te.ragged_placeholder((M, M), [md, kd], loop_ufs, name='A', width_ufs=None)
 
 B = te.placeholder((M, N), name='B')
 
-alpha = 0.03
+alpha = 2
 
 if args.op_split:
     def len_ufw(name, pad): return Ufw(name, "l", (pad, M), [md], [], lambda: lambda m: utils.floormult(m, pad))
@@ -83,6 +83,10 @@ else:
 
     s = tvm.create_schedule([O.op])
 
+if M == 256: tl, to, tx, stl = 16, 32, 32, 2
+elif M == 512: tl, to, tx, stl = 16, 32, 32, 2
+else: tl, to, tx, stl = 32, 64, 64, 4
+
 def schedule_op(O, suffix, cache_write_tensor=None):
     if cache_write_tensor is not None:
         S = cache_write_tensor
@@ -90,7 +94,7 @@ def schedule_op(O, suffix, cache_write_tensor=None):
         S, = s.cache_write([O], "local", storage_layout_mode='loop_layout')
 
     S_l, S_o, S_k = tuple(S.op.axis) + tuple(S.op.reduce_axis)
-    S_l_o_i, S_l_i = s[S].split(S_l, factor=4)
+    S_l_o_i, S_l_i = s[S].split(S_l, factor=stl)
     S_l_o_o_i, S_l_o_i = s[S].split(S_l_o_i, factor=8)
 
     S_k_o_o, S_k_o_i = s[S].split(S_k, factor=4)
@@ -98,9 +102,9 @@ def schedule_op(O, suffix, cache_write_tensor=None):
     s[S].unroll(S_l_i)
 
     O_l, O_o = tuple(O.op.axis)
-    O_l_o_i, O_l_i = s[O].split(O_l, factor=32)
+    O_l_o_i, O_l_i = s[O].split(O_l, factor=tl)
 
-    O_o_o_o_i, O_o_o_i = s[O].split(O_o, factor=64)
+    O_o_o_o_i, O_o_o_i = s[O].split(O_o, factor=to)
     O_o_o_o_o, O_o_o_o_i = s[O].split(O_o_o_o_i, factor=2)
 
     s[O].reorder(O_l_o_i, O_o_o_o_o, O_o_o_o_i, O_o_o_i, O_l_i)
@@ -122,13 +126,13 @@ def schedule_op(O, suffix, cache_write_tensor=None):
     A_shared_ax0_ax1_fused = s[A_shared].fuse(A_shared_ax0, A_shared_ax1)
     A_shared_ax0_ax1_fused_o, A_shared_ax0_ax1_fused_i = s[A_shared].split(A_shared_ax0_ax1_fused, factor=2)
     s[A_shared].vectorize(A_shared_ax0_ax1_fused_i)
-    A_shared_ax0_ax1_fused_o_o, A_shared_ax0_ax1_fused_o_i = s[A_shared].split(A_shared_ax0_ax1_fused_o, factor=64)
+    A_shared_ax0_ax1_fused_o_o, A_shared_ax0_ax1_fused_o_i = s[A_shared].split(A_shared_ax0_ax1_fused_o, factor=tx)
     s[A_shared].bind(A_shared_ax0_ax1_fused_o_i, te.thread_axis("threadIdx.x"))
 
     B_shared_ax0_ax1_fused = s[B_shared].fuse(B_shared_ax0, B_shared_ax1)
     B_shared_ax0_ax1_fused_o, B_shared_ax0_ax1_fused_i = s[B_shared].split(B_shared_ax0_ax1_fused, factor=4)
     s[B_shared].vectorize(B_shared_ax0_ax1_fused_i)
-    B_shared_ax0_ax1_fused_o_o, B_shared_ax0_ax1_fused_o_i = s[B_shared].split(B_shared_ax0_ax1_fused_o, factor=64)
+    B_shared_ax0_ax1_fused_o_o, B_shared_ax0_ax1_fused_o_i = s[B_shared].split(B_shared_ax0_ax1_fused_o, factor=tx)
     s[B_shared].bind(B_shared_ax0_ax1_fused_o_i, te.thread_axis("threadIdx.x"))
 
     # s[S].pragma(S_l_o_o_o_o, "auto_unroll_max_step", 512)
@@ -151,8 +155,7 @@ else: inputs = [[], [A, B, O]]
 substitutes=None
 if args.load_balance:
     print('Load balancing')
-    max_by = M//32
-    # substitutes={'blockIdx.y': Uf('sub', "", (0, max_by), [Dim('dum')], lambda b: max_by - 1 - b)}
+    max_by = M//tl
     substitutes={'blockIdx.y': Uf('sub', "", (0, max_by), [Dim('dum')], lambda b: tvm.tir.Select(b > 80, b - 80, max_by - b - 1))}
 
 name = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0]
