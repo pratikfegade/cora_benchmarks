@@ -398,8 +398,9 @@ if args.target == "cuda":
     _ = tvm.register_func(utils.get_tvm_callback_cuda_compile(256))
     _ = tvm.register_func(
         utils.get_tvm_callback_cuda_postproc(args, os.path.realpath(__file__), fileprefix=gen_prefix))
+    inputs = [[lens], [BS_VAR, A, A2, W, B, O]]
 else:
-    pass
+    inputs = [[lens], [BS_VAR, A, A2, W, B, S, O]]
 
 def size_fn(l_inputs):
     lens = l_inputs[0]
@@ -409,12 +410,11 @@ def size_fn(l_inputs):
                        run_utils.prefix_sum(len(lens), lambda b: lufw.get_fn(lens)(b)))
     }
 
-inputs = [[lens], [BS_VAR, A, A2, W, B, O]]
 name = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0]
 out, batches = run_utils.lower_or_build(name, s, inputs, args, size_fn=size_fn, pad_sum=32,
                                         run_function=run_utils.get_bert_layer_run_fn(BS_VAR))
 
-# _, A, W, B, O  = out
+# O  = out[-1]
 # ctr = 0
 # O = O.flatten()
 # for length in batches[0]:
