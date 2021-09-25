@@ -111,6 +111,10 @@ if args.target == "cuda":
     _ = tvm.register_func(utils.get_tvm_callback_cuda_compile(256))
     _ = tvm.register_func(
         utils.get_tvm_callback_cuda_postproc(args, os.path.realpath(__file__), fileprefix=gen_prefix))
+    inputs = [[lens], [BATCH_SIZE, A, B, G, O]]
+else:
+    inputs = [[lens], [BATCH_SIZE, A, B, G, O, Am1, Am2]]
+
 
 def size_fn(l_inputs):
     lens = l_inputs[0]
@@ -119,14 +123,13 @@ def size_fn(l_inputs):
         # O: OUT_SIZE * run_utils.prefix_sum(len(lens), lambda b: lufw.get_fn(lens)(b)),
     }
 
-inputs = [[lens], [BATCH_SIZE, A, B, G, O]]
 name = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0]
 out, batches = run_utils.lower_or_build(name, s, inputs, args, size_fn=size_fn,
                                         run_function=run_utils.get_bert_layer_run_fn(BATCH_SIZE))
 
-# _, A1, A2, O = out
-# ctr = 0
-# O = O.flatten()
+_, A, B, G, O = out[0:5]
+ctr = 0
+O = O.flatten()
 # for i in range(A1.shape[0]):
 #     this_a1 = A1[i]
 #     this_a2 = A2[i]
@@ -137,4 +140,9 @@ out, batches = run_utils.lower_or_build(name, s, inputs, args, size_fn=size_fn,
 #     length = batches[0][i]
 #     this_extent = batches[0][i] * OUT_SIZE
 #     print(length, np.mean(res), np.std(res), np.mean(O[ctr:ctr+this_extent]), np.std(O[ctr:ctr+this_extent]))
+#     ctr += this_extent
+
+# for length in batches[0]:
+#     this_extent = length * OUT_SIZE
+#     print(length, np.mean(O[ctr:ctr+this_extent]), np.std(O[ctr:ctr+this_extent]))
 #     ctr += this_extent

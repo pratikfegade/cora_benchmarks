@@ -11,7 +11,7 @@ import utils
 import run_utils
 
 parser = run_utils.get_cmd_parser()
-parser.add_argument('--mode', default='remove')
+parser.add_argument('--padding-mode', dest='padding_mode', default='remove')
 args = parser.parse_args()
 
 BATCH_SIZE = te.var('bs')
@@ -31,7 +31,7 @@ lufw1 = len_ufw('s1_1', 1)
 lufw32 = len_ufw('s2_32', 32)
 lufw64 = len_ufw('s64', 64)
 
-if args.mode == 'remove':
+if args.padding_mode == 'remove':
     a_fnw = lufw64
     o_fnw = lufw32
 else:
@@ -54,7 +54,7 @@ A = te.ragged_placeholder((BATCH_SIZE, MAX_LEN, NUM_HEADS, MAX_LEN), [bd, s1, md
 width_ufs=[ls[0], o_fnw.get_uf(), ls[1], o_fnw.get_uf()]
 O = te.ragged_compute((BATCH_SIZE, MAX_LEN, NUM_HEADS, MAX_LEN), [bd, s1, md, s2], loop_ufs,
                       lambda ds: A[ds[bd], ds[s1], ds[md], ds[s2]],
-                      fpred = lambda ds: ds[s2] < lens[ds[bd]],
+                      fpred = lambda ds: ds[s2] < utils.ceilmult(lens[ds[bd]], 32),
                       name = 'O', width_uf_lists=[width_ufs])
 
 s = tvm.create_schedule([O.op])

@@ -12,7 +12,6 @@ import utils
 import run_utils
 
 parser = run_utils.get_cmd_parser()
-parser.add_argument('--mode', default='remove')
 args = parser.parse_args()
 
 BS_VAR = te.var('bs')
@@ -36,12 +35,8 @@ ls =  {
     2: Uf.from_constant('od', OUT_SIZE, 'l'),
 }
 
-if args.mode == 'remove':
-    a_fnw = lufw64
-    o_fnw = lufw1
-else:
-    a_fnw = lufw1
-    o_fnw = lufw64
+a_fnw = lufw64
+o_fnw = lufw1
 
 loop_ufs=[ls[0], ls[1], ls[2]]
 width_ufs=[ls[0], a_fnw.get_uf(), ls[2]]

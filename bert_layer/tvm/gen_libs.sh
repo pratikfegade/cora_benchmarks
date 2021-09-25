@@ -8,13 +8,15 @@ YES="1"
 set -x
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
 
-EXTRA_ARGS=""
+rm -f $SCRIPT_DIR/genlibs/*
+
+EXTRA_ARGS="--disable-assert "
 if [ $OP == $YES ]; then
-    EXTRA_ARGS="--only-prep-code"
+    EXTRA_ARGS="--only-prep-code "
 fi
 
 if [ $MS == $YES ]; then
-    EXTRA_ARGS=$EXTRA_ARGS" --skip-residual"
+    EXTRA_ARGS=$EXTRA_ARGS"--skip-residual"
 fi
 
 if [ $MS == $YES ]; then

@@ -8,8 +8,8 @@ SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 CBT_RUNNER = SCRIPT_DIR + '/../vbatch_gemm/cbt/gemm'
 CUBLAS_RUNNER = SCRIPT_DIR + '/../vbatch_gemm/cublas/gemm_cublas'
 MKL_RUNNER = SCRIPT_DIR + '/../vbatch_gemm/mkl/vbatch_gemm'
-TVM_RUNNER = SCRIPT_DIR + '/../vbatch_gemm/tvm/vbatch_gemm.py'
-TVM_MKL_RUNNER = SCRIPT_DIR + '/../vbatch_gemm/tvm/cpu_mklized.py'
+TVM_CPU_RUNNER = SCRIPT_DIR + '/../vbatch_gemm/tvm/cpu_mklized.py'
+TVM_GPU_RUNNER = SCRIPT_DIR + '/../vbatch_gemm/tvm/vbatch_gemm.py'
 DATA_FILE_PATH = SCRIPT_DIR + '/../vbatch_gemm/data.txt'
 PYTHON = 'python3'
 
@@ -35,20 +35,18 @@ def run_cublas(b_size, n_batch, data_file_path, err_file, args):
     if err: print(err, file = err_file)
     return com.extract_times(out, 1)[0]
 
-def get_tvm_runner(mklized):
-    def run_tvm(b_sizes, n_batch, data_file_path, err_file, args):
-        runner = TVM_MKL_RUNNER if mklized else TVM_RUNNER
+def run_tvm(b_size, n_batch, data_file_path, err_file, args):
+    runner = TVM_GPU_RUNNER if args.target == "cuda" else TVM_CPU_RUNNER
 
-        cmd = ([PYTHON, runner, '--target', com.get_tvm_target(target), '--batch-sizes'] +
-               [str(i) for i in b_sizes] +
-               ['--max-batches', str(n_batch), '--data-file', data_file_path])
-        if args.prep_overhead:
-            cmd += ['--only-prep-code']
-        out, err = run_cmd(cmd)
-        if err: print(err, file = err_file)
+    cmd = ([PYTHON, runner, '--target', com.get_tvm_target(target), '--batch-sizes'] +
+           [str(i) for i in b_sizes] +
+           ['--max-batches', str(n_batch), '--data-file', data_file_path])
+    if args.prep_overhead:
+        cmd += ['--only-prep-code']
+    out, err = run_cmd(cmd)
+    if err: print(err, file = err_file)
 
-        return com.extract_time_batches(out)
-    return run_tvm
+    return com.extract_time_batches(out)
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--target', nargs='?', default=None)

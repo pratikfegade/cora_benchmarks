@@ -1,3 +1,4 @@
+import gc
 import os
 import sys
 import numpy as np
@@ -14,8 +15,8 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--target', nargs='?', default='llvm')
 parser.add_argument('--dtype', dest='dtype', nargs='?', default='float32')
 parser.add_argument('--max-batches', dest='max_batches', default=200, type=int)
-parser.add_argument('--witers', dest='witers', default=5, type=int)
-parser.add_argument('--iters', dest='iters', default=20, type=int)
+parser.add_argument('--witers', dest='witers', default=100, type=int)
+parser.add_argument('--iters', dest='iters', default=200, type=int)
 parser.add_argument('--batch-size', dest='batch_size', default=32, type=int)
 parser.add_argument('--dense-storage', dest='dense_storage', default=False, action='store_true')
 parser.add_argument('--average', dest='average', default=False, action='store_true')
@@ -51,11 +52,16 @@ elif args.masked_mha:
     attn_v_module = 'masked_attn_v'
     softmax_module = 'masked_softmax'
 
+if args.plain_mha or args.masked_mha:
+    if args.masked_mha: qkt_variants = None
+    else: qkt_variants = [1]
+else: qkt_variants = [1, 2]
+
 if not only_mha:
     ops = {
         # 'memset': Op('memset', 'memset', BATCH_SIZE, [], cpu_ctx, dev_ctx),
         'pre_linear': Op('pre_linear', 'pre_linear', BATCH_SIZE, [], cpu_ctx, dev_ctx),
-        'qkt': Op('qkt', qkt_module, BATCH_SIZE, [], cpu_ctx, dev_ctx, variants=[1, 2]),
+        'qkt': Op('qkt', qkt_module, BATCH_SIZE, [], cpu_ctx, dev_ctx, variants=qkt_variants),
         'softmax': Op('softmax', softmax_module, BATCH_SIZE, [], cpu_ctx, dev_ctx),
         'attn_v': Op('attn_v', attn_v_module, BATCH_SIZE, [], cpu_ctx, dev_ctx),
         'post_linear': Op('post_linear', 'post_linear', BATCH_SIZE, [], cpu_ctx, dev_ctx),
@@ -79,7 +85,7 @@ if not only_mha:
     ]
 else:
     ops = {
-        'qkt': Op('qkt', qkt_module, BATCH_SIZE, [], cpu_ctx, dev_ctx),
+        'qkt': Op('qkt', qkt_module, BATCH_SIZE, [], cpu_ctx, dev_ctx, variants=qkt_variants),
         'softmax': Op('softmax', softmax_module, BATCH_SIZE, [], cpu_ctx, dev_ctx),
         'attn_v': Op('attn_v', attn_v_module, BATCH_SIZE, [], cpu_ctx, dev_ctx),
     }
@@ -121,6 +127,8 @@ if args.per_op:
     for op in ops_order:
         time_dict[op.name] = []
 batch_size_ = BATCH_SIZE + 1
+
+optimal_variants = None
 for batch in batches:
     sum1 = run_utils.prefix_sum(batch_size_, lambda i: batch[i])
     sum16 = run_utils.prefix_sum(batch_size_, lambda i: utils.ceilmult(batch[i], 16))
@@ -128,7 +136,7 @@ for batch in batches:
     sum64 = run_utils.prefix_sum(batch_size_, lambda i: utils.ceilmult(batch[i], 64))
     sum264 = run_utils.prefix_sum(batch_size_, lambda i: utils.ceilmult(batch[i], 64) * utils.ceilmult(batch[i], 64))
 
-        # t_inputs: Allocate tensors
+    # t_inputs: Allocate tensors
     memset_out_qkv = run_utils.create_ragged_array((3, batch_size_, MAX_LEN, NUM_HEADS, HEAD_SIZE),
                                                    3*sum64*NUM_HEADS*HEAD_SIZE, "float32", dev_ctx)
 
@@ -181,24 +189,54 @@ for batch in batches:
 
     l_inputs = [tvm.nd.array(batch, cpu_ctx)]
 
-    # this_times = []
-    # for i in range(args.witers + args.iters):
-        # start = time.perf_counter()
-        # for op in ops_order: op.execute(l_inputs)
-        # dev_ctx.sync()
-        # end = time.perf_counter()
-        # this_times.append(end - start)
-    # this_times = this_times[args.witers:]
-    # times.append(sum(this_times) / args.iters)
+    if not optimal_variants:
+        optimal_variants = {}
+        for op in ops_order:
+            optimal_variants[op.name] = op.profile_variants(l_inputs, dev_ctx)
 
-    this_time = 0
+    for op in ops_order: op.set_inputs_and_variant(l_inputs, optimal_variants[op.name])
+    print(optimal_variants)
+    for i in range(args.witers):
+        for op in ops_order: op.execute()
+    dev_ctx.sync()
+    start = time.perf_counter()
+    for i in range(args.iters):
+        for op in ops_order: op.execute()
+    dev_ctx.sync()
+    end = time.perf_counter()
+    times.append((end - start) / args.iters)
 
-    for op in ops_order:
-        op_time = op.execute_multiple(l_inputs, dev_ctx)
-        if (args.per_op):
-            time_dict[op.name].append(op_time)
-        this_time += op_time
-    times.append(this_time)
+    for op in ops_order: op.reset()
+
+    # this_time = 0
+
+    # for op in ops_order:
+        # op_time = op.execute_multiple(l_inputs, dev_ctx)
+        # if (args.per_op):
+            # time_dict[op.name].append(op_time)
+        # this_time += op_time
+    # times.append(this_time)
+
+
+
+
+    # memset_out_qkv.__del__()
+    # pre_linear_in_qkv.__del__()
+    # qkt_out.__del__()
+    # softmax_out.__del__()
+    # attn_v_out.__del__()
+    # post_linear_out.__del__()
+    # norm_add1_out.__del__()
+    # ff1_out.__del__()
+    # ff2_out.__del__()
+    # norm_add2_out.__del__()
+    gc.collect()
+
+
+
+
+
+
 
 if args.per_op:
     for op in ops_order:

@@ -10,7 +10,7 @@ QKT_BP_TVM_RUNNER = SCRIPT_DIR + '/../bert_layer/tvm/qkt_bin_packed.py'
 ATTN_TVM_RUNNER = SCRIPT_DIR + '/../bert_layer/tvm/attn_v.py'
 ATTN_BP_TVM_RUNNER = SCRIPT_DIR + '/../bert_layer/tvm/attn_v_bin_packed.py'
 BP_TEST_RUNNER = SCRIPT_DIR + '/../experimental/bp_test2.py'
-CBT_RUNNER = SCRIPT_DIR + '/../vbatch_gemm/cbt/gemm'
+CBT_RUNNER = SCRIPT_DIR + '/../vbatch_gemm/cbt_rgemm/gemm'
 PYTHON = 'python3'
 
 def run_cbt(op, target, b_sizes, n_batch, data_file_path, err_file, args):

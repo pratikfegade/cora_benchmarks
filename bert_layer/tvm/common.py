@@ -73,26 +73,44 @@ class Op:
         ibuf_info = load_ibuf_info(module_name, variants)
         self.host_ibufs, self.dev_ibufs = list(zip(*create_ibufs(ibuf_info, batch_size, cpu_ctx, dev_ctx, alloc_op=alloc_op)))
         self.batch_size = batch_size
+        self.variants = variants
+        self.inputs = None
+        self.optimal_module = None
 
-    def execute(self, l_inputs):
-        inputs = [self.batch_size] + self.tensor_inputs + l_inputs + self.host_ibufs[0] + self.dev_ibufs[0]
-        # print('Exe', self.name, self.batch_size)
-        # sys.stdout.flush()
-        self.modules[0](*inputs)
+    def set_inputs_and_variant(self, l_inputs, variant):
+        self.inputs = [self.batch_size] + self.tensor_inputs + l_inputs + self.host_ibufs[variant] + self.dev_ibufs[variant]
+        self.optimal_module = self.modules[variant]
+        self.optimal_module_entry_func = self.modules[variant].entry_func
+
+    def reset(self):
+        self.inputs = None
+        self.optimal_module = None
+        self.optimal_module_entry_func = None
+
+    def execute(self):
+        # self.optimal_module(*self.inputs)
+        self.optimal_module_entry_func(*self.inputs)
+
+    def profile_variants(self, l_inputs, ctx):
+        if not self.variants: return 0
+        else:
+            means = []
+            for i in range(len(self.modules)):
+                inputs = [self.batch_size] + self.tensor_inputs + l_inputs + self.host_ibufs[i] + self.dev_ibufs[i]
+                evaluator = self.modules[i].time_evaluator(self.modules[i].entry_name, ctx, number=5, repeat=20)
+                eval_result = evaluator(*inputs)
+                means.append(mean(list(eval_result.results)[1:]))
+            print(self.name, means)
+            return min(range(len(means)), key=means.__getitem__)
 
     def execute_multiple(self, l_inputs, ctx):
-        sys.stdout.flush()
         means = []
         for i in range(len(self.modules)):
             inputs = [self.batch_size] + self.tensor_inputs + l_inputs + self.host_ibufs[i] + self.dev_ibufs[i]
-            # evaluator = self.modules[i].time_evaluator(self.modules[i].entry_name, ctx, number=10, repeat=10)
-            # print('Exe', self.name, self.batch_size, len(inputs))
-            # evaluator = self.modules[i].time_evaluator(self.modules[i].entry_name, ctx, number=5, repeat=100)
-            evaluator = self.modules[i].time_evaluator(self.modules[i].entry_name, ctx, number=5, repeat=10)
+            evaluator = self.modules[i].time_evaluator(self.modules[i].entry_name, ctx, number=5, repeat=100)
             eval_result = evaluator(*inputs)
             means.append(mean(list(eval_result.results)[1:]))
         return min(means)
-
 
 class OpShell:
     def __init__(self, name, module_name, batch_size, tensor_inputs, cpu_ctx, dev_ctx, alloc_op=None, variants=None):

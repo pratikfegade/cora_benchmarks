@@ -34,7 +34,7 @@ if args.no_raggedness:
     def len_ufw(name, pad): return Ufw(name, "l", (pad, MAX_LEN), [], [], lambda : lambda : utils.ceilmult(MAX_LEN, pad))
 else:
     def len_ufw(name, pad): return Ufw(name, "l", (pad, MAX_LEN), [bd], [lens], lambda lens: lambda b: utils.ceilmult(lens[b], pad))
-lufw1 = len_ufw('s', 1)
+lufw1 = len_ufw('s', 16)
 
 if args.dataset in ['mprc', 'cola']: lufwp = len_ufw('s', 32)
 else: lufwp = len_ufw('s', 64)
@@ -71,8 +71,8 @@ O = te.ragged_compute((BATCH_SIZE, MAX_LEN, NUM_HEADS, HEAD_SIZE), [bd, s2, md, 
 s = tvm.create_schedule([O.op])
 
 if args.target == "cuda":
-    if args.dataset in ['mprc', 'cola']: nt = 16
-    else: nt = 8
+    if args.dataset in ['mprc', 'cola']: nt, tile = 16, 32
+    else: nt, tile = 8, 64
 
     thread_x = lambda: tvm.thread_axis("threadIdx.x")
     thread_y = lambda: tvm.thread_axis("threadIdx.y")
@@ -86,8 +86,9 @@ if args.target == "cuda":
     Al = s.cache_read(As, "local", [Ol])
     Vl = s.cache_read(Vs, "local", [Ol])
 
+
     b, x, h, y = s[O].leaf_iter_vars[0:4]
-    xo, xi = s[O].split(x, factor = 64)
+    xo, xi = s[O].split(x, factor = tile)
 
     s[O].reorder(b, xo, h, xi, y)
     f = s[O].fuse(b, xo)
@@ -111,23 +112,25 @@ if args.target == "cuda":
     s[Vl].compute_at(s[Ol], ki)
     s[Ol].peel(ko)
 
+    if nt == 16: vtile = 1
+    else: vtile = 4
     _, x, h, y = s[As].leaf_iter_vars
     s[As].reorder(h, x, y)
     f = s[As].fuse(x, y)
-    fo, fi = s[As].split(f, factor = nt * nt * 4)
-    fio, fii = s[As].split(fi, factor = nt * 4)
-    fiio, fiii = s[As].split(fii, factor = 4)
+    fo, fi = s[As].split(f, factor = nt * nt * vtile)
+    fio, fii = s[As].split(fi, factor = nt * vtile)
+    fiio, fiii = s[As].split(fii, factor = vtile)
     s[As].bind(fio, thread_y())
     s[As].bind(fiio, thread_x())
     s[As].vectorize(fiii)
 
+    if nt == 16: vtile = 2
+    else: vtile = 4
     _, _, x, h, y = s[Vs].leaf_iter_vars
     s[Vs].reorder(h, x, y)
-    f = s[Vs].fuse(x, y)
-    fo, fi = s[Vs].split(f, factor = nt * nt * 4)
-    fio, fii = s[Vs].split(fi, factor = nt * 4)
-    fiio, fiii = s[Vs].split(fii, factor = 4)
-    s[Vs].bind(fio, thread_y())
+    s[Vs].bind(x, thread_y())
+    fio, fii = s[Vs].split(y, factor = nt * vtile)
+    fiio, fiii = s[Vs].split(fii, factor = vtile)
     s[Vs].bind(fiio, thread_x())
     s[Vs].vectorize(fiii)
 

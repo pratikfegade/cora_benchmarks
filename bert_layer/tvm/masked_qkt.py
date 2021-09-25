@@ -64,7 +64,6 @@ width_ufs=[[ls[0], luf1, ls[1], luf1]]
 k = tvm.reduce_axis((0, HEAD_SIZE), name = 'k')
 S = te.ragged_compute((BATCH_SIZE, MAX_LEN, NUM_HEADS, MAX_LEN), [bd, s1, md, s2], loop_ufs,
                       lambda ds: tvm.sum(Q[0, ds[bd], ds[s1], ds[md], k] * K[0, ds[bd], ds[s2], ds[md], k],
-                      # lambda ds: tvm.sum(Q[0, ds[bd], ds[s1], ds[md], k],
                                          axis = k, dimensions = [hd]),
                       name = 'S', width_uf_lists=width_ufs)
 
@@ -72,11 +71,8 @@ O = te.ragged_compute((BATCH_SIZE, MAX_LEN, NUM_HEADS, MAX_LEN), [bd, s1, md, s2
                       lambda ds: tvm.if_then_else(ds[s2] >= ds[s1] + 1, -float('inf'), S[ds[bd], ds[s1], ds[md], ds[s2]]),
                       name = 'O', width_uf_lists=width_ufs)
 
-# O =  S
-
 s = tvm.create_schedule([O.op])
 
-# if args.target == 'cuda':
 if True:
     thread_x = lambda: tvm.thread_axis("threadIdx.x")
     thread_y = lambda: tvm.thread_axis("threadIdx.y")
@@ -94,7 +90,7 @@ if True:
     Kl = s.cache_read(Ks, "local", [Ol], layouts='dense')
 
     b, x, h, y = s[O].leaf_iter_vars[0:4]
-    yo, yi = s[O].split(y, factor = TILE1)
+    yo, yi = s[O].split(y, factor = TILE2)
     xo, xi = s[O].split(x, factor = TILE2)
 
     ###############################################################################
@@ -120,8 +116,8 @@ if True:
     s[O].reorder(xii, yii, xio, yio)
     s[O].bind(xii, thread_y())
     s[O].bind(yii, thread_x())
-    s[O].bind(xio, tvm.thread_axis("vthread"))
-    s[O].bind(yio, tvm.thread_axis("vthread"))
+    s[O].bind(xio, tvm.thread_axis("vthread", name='vth1'), no_unroll_vthread=args.debug_code)
+    s[O].bind(yio, tvm.thread_axis("vthread", name='vth2'), no_unroll_vthread=args.debug_code)
     s[Ol].compute_at(s[O], yio)
 
     b, x, h, y, k = s[Ol].leaf_iter_vars

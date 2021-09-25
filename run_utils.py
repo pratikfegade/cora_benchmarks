@@ -3,10 +3,12 @@ import utils
 import argparse
 import os
 import numpy as np
+np.random.seed(0)
 
 def stats(arr):
     # return np.min(arr), np.mean(arr), np.max(arr)
-    return np.min(arr), np.max(arr)
+    # return np.min(arr), np.max(arr)
+    return np.mean(arr)
 
 dataset_files = {
     "wiki_128": "/old_wikipedia/full_lengths_128.txt",
@@ -35,6 +37,9 @@ DATASETS = list(dataset_max_lens.keys())
 MODULE_DIR = os.path.dirname(os.path.realpath(__file__)) + '/bert_layer/tvm/genlibs/'
 DATA_DIR = os.path.dirname(os.path.realpath(__file__)) + '/data/'
 
+def get_arm_target():
+    return "llvm -mcpu=cortex-a76 -device=arm_cpu -mtriple=aarch64-linux-gnu -mattr=+v8.2a,+fullfp16,+fp-armv8,+dotprod,+crc,+crypto,+neon"
+
 def get_cmd_parser(no_options=False):
     parser = argparse.ArgumentParser()
     if not no_options:
@@ -43,6 +48,7 @@ def get_cmd_parser(no_options=False):
         parser.add_argument('--max-batches', dest='max_batches', default=1, type=int)
         parser.add_argument('--batch-sizes', dest='batch_sizes', nargs='+', default=[32], type=int)
         parser.add_argument('--debug', dest='debug', default=False, action='store_true')
+        parser.add_argument('--disable-assert', dest='disable_assert', default=False, action='store_true')
         parser.add_argument('--debug-code', dest='debug_code', default=None, type=str)
         parser.add_argument('--debug-functions', dest='debug_functions', default=False, action='store_true')
         parser.add_argument('--manual-code', dest='manual_code', default=False, action='store_true')
@@ -103,18 +109,21 @@ def get_shape(t, rmap):
         assert False
 
 def create_ragged_array(dense_shape, flat_size, dtype, ctx):
+    # print("YO1: ", flat_size)
     import tvm
-    # src_np_array = np.random.normal(size=(flat_size,)).astype(dtype)
-    src_np_array = np.full((flat_size,), 0.1, dtype).astype(dtype)
+    src_np_array = np.random.normal(size=(flat_size,)).astype(dtype)
+    # src_np_array = np.full((flat_size,), 0.1, dtype).astype(dtype)
     tvm_array = tvm.nd.ragged_empty(dense_shape, flat_size, dtype=dtype, ctx=ctx)
     tvm_array.copyfrom(src_np_array, is_dst_ragged=True)
+    del src_np_array
     return tvm_array
 
 def create_numpy_array(t, dtype, rmap={}, lw_args=None):
     shape = get_shape(t, rmap)
+    # print("YO2: ", shape)
     # return np.zeros(shape, dtype)
     return np.full(shape, 0.1, dtype)
-    # return np.random.normal(size=shape, loc=0.5, scale=4).astype(dtype)
+    # return np.random.normal(size=shape, loc=0, scale=4).astype(dtype)
 
 def create_tvm_array(t, dtype, ctx, rmap={}, lw_args=None):
     import tvm
@@ -127,8 +136,9 @@ def create_tvm_array(t, dtype, ctx, rmap={}, lw_args=None):
         return create_ragged_array(shape, flat_size, dtype, ctx)
 
     # return np.zeros(shape, dtype)
-    return tvm.nd.array(np.full(shape, 0.1, dtype), ctx)
-    # return np.random.normal(size=shape, loc=0.5, scale=4).astype(dtype)
+    # return tvm.nd.array(np.full(shape, 0.1, dtype), ctx)
+    # print("YO3: ", shape)
+    return tvm.nd.array(np.random.normal(size=shape, loc=0, scale=4).astype(dtype), ctx)
 
 def get_ctx(target):
     import tvm
@@ -158,8 +168,8 @@ def execute(target, built, inputs, ctx, debug = False):
             return -100000000
             evaluator = built.time_evaluator('default_function', ctx, 1, repeat=10)
         else:
-            evaluator = built.time_evaluator(built.entry_name, ctx, repeat=5, number=20)
-            # evaluator = built.time_evaluator(built.entry_name, ctx, repeat=5, number=100)
+            # evaluator = built.time_evaluator(built.entry_name, ctx, repeat=5, number=20)
+            evaluator = built.time_evaluator(built.entry_name, ctx, repeat=5, number=100)
         eval_result = evaluator(*inputs)
         return mean(list(eval_result.results)[1:]) * 1000
         # return mean(list(eval_result.results)) * 1000
@@ -401,11 +411,14 @@ def lower_or_build(name, s, inputs, args, prep_code_mode='with_prep_code', binds
                    size_fn={}, pad_sum=None, substitutes=None, run_function=run2):
     import tvm
     prep_code_mode = 'only_prep_code' if args.only_prep_code else prep_code_mode
-    with tvm.build_config(prep_code_mode=prep_code_mode, fill_in_function_bodies=not args.debug_functions):
+    with tvm.build_config(prep_code_mode=prep_code_mode,
+                          fill_in_function_bodies=not args.debug_functions,
+                          disable_assert=args.disable_assert if hasattr(args, 'disable_assert') else False):
         if args.gen_lib:
             fadd, i_bufs = tvm.build(s, inputs, args.target, binds=binds)
             variant = ''
             if hasattr(args, 'sched'): variant = str(args.sched)
+            if hasattr(args, 'padding_mode'): variant = '_' + str(args.padding_mode)
             fadd.export_library(MODULE_DIR + name + variant + '.so')
             with open(MODULE_DIR + name + variant + '_bufs.txt', 'w') as buf_file:
                 for buf in i_bufs[0]:
@@ -428,5 +441,5 @@ def lower_or_build(name, s, inputs, args, prep_code_mode='with_prep_code', binds
             else:
                 assert args.debug_code is None
                 fadd, i_bufs = tvm.build(s, inputs, args.target, binds=binds, substitutes=substitutes)
-                # fadd = tvm.runtime.module.load_module('/home/ppf/benchmarks/bert_layer/tvm/qkt.so')
+                # fadd = tvm.runtime.module.load_module('/home/ppf/rnn_compilers/ragged_tensors/incubator-tvm/build/attn_v.so')
                 return run_function(fadd, i_bufs, inputs[1], size_fn, args, pad_sum=pad_sum)

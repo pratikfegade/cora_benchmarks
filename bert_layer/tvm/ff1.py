@@ -173,10 +173,6 @@ if args.target == "cuda":
         W_shared_ax0, W_shared_ax1 = tuple(W_shared.op.axis)
         s[W_shared].compute_at(s[S], S_k_o_o)
 
-        # B_shared = s.cache_read(B, "shared", [O], vanilla=True)
-        # B_shared_ax0, = tuple(B_shared.op.axis)
-
-        # O_l_o_o_o_o_i_o_o_fused = s[O].fuse(O_l_o_o_o, O_o_o_o_i)
         s[O].bind(O_l_o_o_o, te.thread_axis("blockIdx.y"))
         s[O].bind(O_o_o_o_i, te.thread_axis("blockIdx.x"))
         O_l_o_o_i_o_o_o_i_fused = O_l_o_o_i
@@ -185,11 +181,6 @@ if args.target == "cuda":
         s[O].bind(O_l_o_i_o_o_i_fused, te.thread_axis("threadIdx.x"))
         s[S].compute_at(s[O], O_l_o_i_o_o_i_fused)
 
-        # s[B_shared].compute_at(s[O], O_l_o_i_o_o_i_fused)
-        # B_shared_ax0, = tuple(B_shared.op.axis)
-        # B_shared_ax0_o, B_shared_ax0_i = s[B_shared].split(B_shared_ax0, factor=64)
-        # s[B_shared].bind(B_shared_ax0_i, te.thread_axis("threadIdx.x"))
-
         A_shared_ax0_ax1_fused = s[A_shared].fuse(A_shared_ax0, A_shared_ax1)
         A_shared_ax0_ax1_fused_o, A_shared_ax0_ax1_fused_i = s[A_shared].split(A_shared_ax0_ax1_fused, factor=4)
         s[A_shared].vectorize(A_shared_ax0_ax1_fused_i)
@@ -197,13 +188,10 @@ if args.target == "cuda":
         s[A_shared].bind(A_shared_ax0_ax1_fused_o_i, te.thread_axis("threadIdx.x"))
 
         W_shared_ax0_ax1_fused = s[W_shared].fuse(W_shared_ax0, W_shared_ax1)
-        W_shared_ax0_ax1_fused_o, W_shared_ax0_ax1_fused_i = s[W_shared].split(W_shared_ax0_ax1_fused, factor=2)
+        W_shared_ax0_ax1_fused_o, W_shared_ax0_ax1_fused_i = s[W_shared].split(W_shared_ax0_ax1_fused, factor=4)
         s[W_shared].vectorize(W_shared_ax0_ax1_fused_i)
         W_shared_ax0_ax1_fused_o_o, W_shared_ax0_ax1_fused_o_i = s[W_shared].split(W_shared_ax0_ax1_fused_o, factor=64)
         s[W_shared].bind(W_shared_ax0_ax1_fused_o_i, te.thread_axis("threadIdx.x"))
-
-        # s[S].pragma(S_l_o_o_o_o, "auto_unroll_max_step", 512)
-        # s[S].pragma(S_l_o_o_o_o, "unroll_explicit", True)
 
         s[S].set_scope('local')
         s.fuse_tensor_dimensions(S, 0, 1)

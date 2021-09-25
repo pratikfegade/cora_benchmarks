@@ -13,7 +13,7 @@ import run_utils
 parser = run_utils.get_cmd_parser()
 args = parser.parse_args()
 
-args.target = "llvm -mcpu=cortex-a76 -mattr=neon"
+args.target = run_utils.get_arm_target()
 
 BS_VAR = te.var('bs')
 BATCH_SIZE = BS_VAR + 1
@@ -33,8 +33,7 @@ if args.no_raggedness:
 else:
     def len_ufw(name, pad): return Ufw(name, "l", (pad, MAX_LEN), [bd], [lens], lambda lens: lambda b: utils.ceilmult(lens[b], pad))
 lufw1 = len_ufw('s1_1', 1)
-# lufw32 = len_ufw('s2_32', 32)
-lufw32 = len_ufw('s2_32', 8)
+lufw32 = len_ufw('s2_32', 16)
 lufw64 = len_ufw('s64', 64)
 
 ls =  {

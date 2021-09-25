@@ -14,8 +14,8 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--target', nargs='?', default='llvm')
 parser.add_argument('--dtype', dest='dtype', nargs='?', default='float32')
 parser.add_argument('--max-batches', dest='max_batches', default=200, type=int)
-parser.add_argument('--witers', dest='witers', default=5, type=int)
-parser.add_argument('--iters', dest='iters', default=20, type=int)
+parser.add_argument('--witers', dest='witers', default=25, type=int)
+parser.add_argument('--iters', dest='iters', default=50, type=int)
 parser.add_argument('--batch-size', dest='batch_size', default=32, type=int)
 parser.add_argument('--dense-storage', dest='dense_storage', default=False, action='store_true')
 parser.add_argument('--average', dest='average', default=False, action='store_true')
@@ -77,11 +77,11 @@ else:
     }
 
     ops_order = [
-        # ops['pre_linear'],
-        # ops['qkt'],
+        ops['pre_linear'],
+        ops['qkt'],
         ops['softmax'],
-        # ops['attn_v'],
-        # ops['post_linear'],
+        ops['attn_v'],
+        ops['post_linear'],
     ]
 
 
@@ -97,7 +97,7 @@ batches = run_utils.append_padded_sum(batches, 64)
 
 pre_linear_in_w = run_utils.create_tvm_array((3, NUM_HEADS, HEAD_SIZE, MODEL_DIM), "float32", dev_ctx, lw_args={})
 pre_linear_in_b = run_utils.create_tvm_array((3, NUM_HEADS, HEAD_SIZE,), "float32", dev_ctx, lw_args={})
-post_linear_in_w = run_utils.create_tvm_array((NUM_HEADS * HEAD_SIZE, MODEL_DIM), "float32", dev_ctx, lw_args={})
+post_linear_in_w = run_utils.create_tvm_array((MODEL_DIM, NUM_HEADS, HEAD_SIZE), "float32", dev_ctx, lw_args={})
 post_linear_in_b = run_utils.create_tvm_array((MODEL_DIM,), "float32", dev_ctx, lw_args={})
 if not only_mha:
     norm_add1_in_b = run_utils.create_tvm_array((MODEL_DIM,), "float32", dev_ctx, lw_args={})
@@ -173,25 +173,28 @@ for batch in batches:
 
     l_inputs = [tvm.nd.array(batch, cpu_ctx)]
 
-    # this_times = []
-    # for i in range(args.witers + args.iters):
-        # start = time.perf_counter()
-        # for op in ops_order: op.execute(l_inputs)
-        # dev_ctx.sync()
-        # end = time.perf_counter()
-        # this_times.append(end - start)
-    # this_times = this_times[args.witers:]
-    # times.append(sum(this_times) / args.iters)
+    for op in ops_order: op.set_inputs_and_variant(l_inputs, 0)
+    for i in range(args.witers):
+        for op in ops_order: op.execute()
+    dev_ctx.sync()
+    start = time.perf_counter()
+    for i in range(args.iters):
+        for op in ops_order: op.execute()
+    dev_ctx.sync()
+    end = time.perf_counter()
+    times.append((end - start) / args.iters)
 
-    this_time = 0
+    for op in ops_order: op.reset()
 
-    for op in ops_order:
-        print('Executing', op.name)
-        op_time = op.execute_multiple(l_inputs, dev_ctx)
-        if (args.per_op):
-            time_dict[op.name].append(op_time)
-        this_time += op_time
-    times.append(this_time)
+    # this_time = 0
+    # for op in ops_order:
+    #     print('Executing', op.name)
+    #     op_time = op.execute_multiple(l_inputs, dev_ctx)
+    #     print('  Time', op_time)
+    #     if (args.per_op):
+    #         time_dict[op.name].append(op_time)
+    #     this_time += op_time
+    # times.append(this_time)
 
 if args.per_op:
     for op in ops_order:

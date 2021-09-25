@@ -15,7 +15,7 @@ parser.add_argument('--kt', dest='kt', default=8, type=int)
 # parser.add_argument('--nt', dest='nt', default=16, type=int)
 args = parser.parse_args()
 
-args.target = "llvm -mcpu=cortex-a76 -mattr=neon"
+args.target = run_utils.get_arm_target()
 
 BS_VAR = te.var('bs')
 BATCH_SIZE = BS_VAR + 1
@@ -129,7 +129,7 @@ else:
 
     s[O_local].unroll(O_local_m_c_i)
     s[O_local].unroll(O_local_n_c_i)
-    s[O_local].peel(O_local_k_o)
+    # s[O_local].peel(O_local_k_o)
 
     O_m, O_n = xi, yi
     O_m_o_i, O_m_i = s[O].split(O_m, factor=16)
