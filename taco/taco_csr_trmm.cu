@@ -123,6 +123,7 @@ float compute(taco_tensor_t *C, taco_tensor_t *A, taco_tensor_t *B, int32_t m, f
 
   if (mode == 0) {
     for (int i = 0; i < iters; ++i) {
+      cudaMemsetAsync(C->vals, 0, sizeof(float) * m * m);
       i_blockStarts = taco_binarySearchBeforeBlockLaunch(A2_pos, i_blockStarts, (int32_t) 0, A1_dimension,
 							 (int32_t) 64, (int32_t) 256, ((A2_pos[A1_dimension] + 63) / 64));
       computeCSRLB<<<(A2_pos[A1_dimension] + 63) / 64, (32 * 8)>>>(A, B, C, i_blockStarts, m, alpha);
@@ -130,6 +131,7 @@ float compute(taco_tensor_t *C, taco_tensor_t *A, taco_tensor_t *B, int32_t m, f
   } else {
     int num_blocks = (((A1_dimension + 63) / 64) * ((B2_dimension + 63) / 64));
     for (int i = 0; i < iters; ++i) {
+      cudaMemsetAsync(C->vals, 0, sizeof(float) * m * m);
       computeCSRNoLB<<<num_blocks, (32 * 8)>>>(A, B, C, i_blockStarts, m, alpha);
     }
   }

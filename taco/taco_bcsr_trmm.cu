@@ -129,6 +129,7 @@ float compute(taco_tensor_t *C, taco_tensor_t *B, taco_tensor_t *A, int m, int b
     const int block_size = 8;
     int num_tblocks = num_bcsr_blocks / (block_size / warp_size);
     for (int i = 0; i < iters; ++i) {
+      cudaMemsetAsync(C->vals, 0, sizeof(float) * m * m);
       io_blockStarts = taco_binarySearchBeforeBlockLaunch(A2_pos, io_blockStarts, 0, A1_dimension,
 							  block_size / warp_size, block_size, num_tblocks);
       computeKernel<32, block_size, warp_size><<<num_tblocks, block_size>>>
@@ -139,6 +140,7 @@ float compute(taco_tensor_t *C, taco_tensor_t *B, taco_tensor_t *A, int m, int b
     const int block_size = 32;
     int num_tblocks = num_bcsr_blocks / (block_size / warp_size);
     for (int i = 0; i < iters; ++i) {
+      cudaMemsetAsync(C->vals, 0, sizeof(float) * m * m);
       io_blockStarts = taco_binarySearchBeforeBlockLaunch(A2_pos, io_blockStarts, 0, A1_dimension,
 							  block_size / warp_size, block_size, num_tblocks);
       computeKernel<32, block_size, warp_size><<<num_tblocks, block_size>>>
@@ -149,6 +151,7 @@ float compute(taco_tensor_t *C, taco_tensor_t *B, taco_tensor_t *A, int m, int b
     const int block_size = 256;
     int num_tblocks = num_bcsr_blocks / (block_size / warp_size);
     for (int i = 0; i < iters; ++i) {
+      cudaMemsetAsync(C->vals, 0, sizeof(float) * m * m);
       io_blockStarts = taco_binarySearchBeforeBlockLaunch(A2_pos, io_blockStarts, 0, A1_dimension,
 							  block_size / warp_size, block_size, num_tblocks);
       computeKernel<32, block_size, warp_size><<<num_tblocks, block_size>>>
