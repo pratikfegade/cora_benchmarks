@@ -15,7 +15,8 @@ parser = run_utils.get_cmd_parser(no_options=True)
 parser.add_argument('--target', nargs='?', default='llvm')
 parser.add_argument('--dtype', dest='dtype', nargs='?', default='float32')
 parser.add_argument('--max-batches', dest='max_batches', default=1, type=int)
-parser.add_argument('--batch-size', dest='batch_size', default=2, type=int)
+parser.add_argument('--batch-sizes', dest='batch_sizes', nargs='+', default=[32], type=int)
+# parser.add_argument('--batch-size', dest='batch_size', default=2, type=int)
 parser.add_argument('--tile-size', dest='tile_size', default=128, type=int)
 parser.add_argument('--debug', dest='debug', default=False, action='store_true')
 parser.add_argument('--debug-code', dest='debug_code', default=None, type=str)
@@ -26,15 +27,6 @@ parser.add_argument('--gen-lib', dest='gen_lib', default=False, action='store_tr
 parser.add_argument('--only-prep-code', dest='only_prep_code', default=False, action='store_true')
 parser.add_argument('--data-file', nargs='?', default='random')
 
-# parser.add_argument('--m1', dest='m1', default=2, type=int)
-# parser.add_argument('--m2', dest='m2', default=1, type=int)
-# parser.add_argument('--n1', dest='n1', default=32, type=int)
-# parser.add_argument('--n2', dest='n2', default=4, type=int)
-# parser.add_argument('--k1', dest='k1', default=8, type=int)
-# parser.add_argument('--k2', dest='k2', default=8, type=int)
-# parser.add_argument('--fs', dest='fs', default=3, type=int)
-
-
 parser.add_argument('--m1', dest='m1', default=2, type=int)
 parser.add_argument('--m2', dest='m2', default=1, type=int)
 parser.add_argument('--n1', dest='n1', default=32, type=int)
@@ -44,7 +36,8 @@ parser.add_argument('--k2', dest='k2', default=8, type=int)
 parser.add_argument('--fs', dest='fs', default=3, type=int)
 args = parser.parse_args()
 
-BATCH_SIZE = args.batch_size
+BATCH_SIZE = te.var('bs')
+# BATCH_SIZE = args.batch_size
 
 ms = te.placeholder((BATCH_SIZE,), name = 'ms', dtype = 'int32')
 ns = te.placeholder((BATCH_SIZE,), name = 'ns', dtype = 'int32')
@@ -220,10 +213,11 @@ def size_fn(l_inputs):
 bO = tvm.tir.decl_buffer((BATCH_SIZE, MAX_DIM, MAX_DIM), name="bO")
 binds = {Op: bO, O: bO}
 if args.only_prep_code: prep_code_mode = 'only_prep_code'
-inputs = [[ms, ns, ks], [A, B, bO]]
+inputs = [[ms, ns, ks], [BATCH_SIZE, A, B, bO]]
 name = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0]
 out = run_utils.lower_or_build(name, s, inputs, args, size_fn=size_fn,
-                               run_function=run_utils.run_vbatch_gemm,
+                               run_function=run_utils.get_vbatch_gemm_run_fn(BATCH_SIZE),
+                               # run_function=run_utils.run_vbatch_gemm,
                                prep_code_mode=prep_code_mode, binds=binds)
 
 # A, W, O  = out
