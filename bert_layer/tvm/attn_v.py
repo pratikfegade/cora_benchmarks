@@ -99,8 +99,9 @@ if args.target == "cuda":
     yo, yi = s[O].split(y, factor = nt)
     s[O].bind(xii, thread_y())
     s[O].bind(yi, thread_x())
-    s[O].bind(xio, tvm.thread_axis("vthread", name="vth1"))
-    s[O].bind(yo, tvm.thread_axis("vthread", name="vth2"))
+    s[O].bind(xio, tvm.thread_axis("vthread", name="vth1"), no_unroll_vthread=args.debug_code)
+    s[O].bind(yo, tvm.thread_axis("vthread", name="vth2"), no_unroll_vthread=args.debug_code)
+    s[O].vectorize(yo)
     s[Ol].compute_at(s[O], yi)
 
     b, x, h, y, k = s[Ol].leaf_iter_vars
@@ -110,7 +111,7 @@ if args.target == "cuda":
     s[Vs].compute_at(s[Ol], ko)
     s[Al].compute_at(s[Ol], ki)
     s[Vl].compute_at(s[Ol], ki)
-    s[Ol].peel(ko)
+    # s[Ol].peel(ko)
 
     if nt == 16: vtile = 1
     else: vtile = 4
@@ -128,11 +129,9 @@ if args.target == "cuda":
     else: vtile = 4
     _, _, x, h, y = s[Vs].leaf_iter_vars
     s[Vs].reorder(h, x, y)
-    f = s[Vs].fuse(x, y)
-    fo, fi = s[Vs].split(f, factor = nt * nt * vtile)
-    fio, fii = s[Vs].split(fi, factor = nt * vtile)
+    s[Vs].bind(x, thread_y())
+    fio, fii = s[Vs].split(y, factor = nt * vtile)
     fiio, fiii = s[Vs].split(fii, factor = vtile)
-    s[Vs].bind(fio, thread_y())
     s[Vs].bind(fiio, thread_x())
     s[Vs].vectorize(fiii)
 

@@ -11,19 +11,16 @@ FTRANS_EXE_RUNNER = SCRIPT_DIR + '/../bert_layer/faster_transformer/run_encoder_
 PYTHON = 'python3'
 
 def generate_tvm_libs(dataset, args):
-    cmd = [TVM_LIB_RUNNER, dataset,
-           '1' if args.bin_packed else '0',
-           '0',
-           '1' if args.prep_overhead else '0']
+    cmd = [TVM_LIB_RUNNER, dataset, '0', '0', '0']
     print(' '.join(cmd))
     out, err = run_cmd(cmd)
     print(out, err)
 
-def run_ftrans(b_size, dataset, n_batch, err_file, args):
+def run_ftrans(b_size, padding, dataset, n_batch, err_file, args):
     log(args, ' Batch size %d' % (b_size))
     num_layers = 25
     cmd = [FTRANS_EXE_RUNNER, com.get_dataset_file(dataset), str(b_size), str(n_batch),
-           str(com.get_dataset_max_len(dataset)), str(num_layers), '1']
+           str(com.get_dataset_max_len(dataset)), str(num_layers), '0' if padding else '1']
 
     out, err = run_cmd(cmd)
     if err: print(err, file = err_file)
@@ -48,8 +45,8 @@ parser.add_argument('--append', dest='append', default=False, action='store_true
 args = parser.parse_args()
 
 # data_points = [('race', 128), ('cola', 128)]
-# data_points = [('race', 128)]
-data_points = [('cola', 128)]
+data_points = [('race', 128)]
+# data_points = [('cola', 128)]
 target = 'cuda'
 
 out_prefix = 'per_op_times'
@@ -67,9 +64,15 @@ for dataset, b_size in data_points:
         print(out_str, file = results_out)
     results_out.flush()
 
-    ft_times = run_ftrans(b_size, dataset, args.max_batches, results_err, args)
+    ft_times = run_ftrans(b_size, False, dataset, args.max_batches, results_err, args)
     for op, time in ft_times.items():
         out_str = '%s,%d,%s,%s,%g' % (dataset, b_size, 'ftrans_nopad', op, time)
+        print(out_str, file = results_out)
+    results_out.flush()
+
+    ft_times = run_ftrans(b_size, True, dataset, args.max_batches, results_err, args)
+    for op, time in ft_times.items():
+        out_str = '%s,%d,%s,%s,%g' % (dataset, b_size, 'ftrans_pad', op, time)
         print(out_str, file = results_out)
     results_out.flush()
 
