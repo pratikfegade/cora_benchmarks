@@ -97,6 +97,7 @@ if args.target == "cuda":
     O_hooo, O_hooi = s[O].split(O_hooi, factor=2)
 
     s[O].reorder(O_q, O_looo, O_nooi, O_hooo, O_looi, O_hooi, O_loi, O_noi, O_hoi, O_li, O_ni)
+    s[O].vectorize(O_ni)
 
     QKV_sh = s.cache_read(QKV, "shared", [O_local])
     s.fuse_tensor_dimensions(QKV_sh, 0, 1)
@@ -176,11 +177,11 @@ q_size = 0
 for length in batches[0]:
     q_size += utils.ceilmult(length, 64) * NUM_HEADS * OUT_SIZE
 
-ctr = 0
-_, QKV, W, B, O  = out
-O = O.flatten()
-for length in batches[0]:
-    this_extent = length * NUM_HEADS * OUT_SIZE
-    print(length, np.mean(O[ctr:ctr + this_extent]), np.mean(O[ctr+q_size:ctr+q_size + this_extent]),
-          np.mean(O[ctr+2*q_size:ctr+2*q_size + this_extent]))
-    ctr += utils.ceilmult(length, 64) * NUM_HEADS * OUT_SIZE
+# ctr = 0
+# _, QKV, W, B, O  = out
+# O = O.flatten()
+# for length in batches[0]:
+#     this_extent = length * NUM_HEADS * OUT_SIZE
+#     print(length, np.mean(O[ctr:ctr + this_extent]), np.mean(O[ctr+q_size:ctr+q_size + this_extent]),
+#           np.mean(O[ctr+2*q_size:ctr+2*q_size + this_extent]))
+#     ctr += utils.ceilmult(length, 64) * NUM_HEADS * OUT_SIZE

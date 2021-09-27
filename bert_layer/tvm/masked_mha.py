@@ -59,7 +59,6 @@ else: qkt_variants = [1, 2]
 
 if not only_mha:
     ops = {
-        # 'memset': Op('memset', 'memset', BATCH_SIZE, [], cpu_ctx, dev_ctx),
         'pre_linear': Op('pre_linear', 'pre_linear', BATCH_SIZE, [], cpu_ctx, dev_ctx),
         'qkt': Op('qkt', qkt_module, BATCH_SIZE, [], cpu_ctx, dev_ctx, variants=qkt_variants),
         'softmax': Op('softmax', softmax_module, BATCH_SIZE, [], cpu_ctx, dev_ctx),
@@ -72,7 +71,6 @@ if not only_mha:
     }
 
     ops_order = [
-        # ops['memset'],
         ops['pre_linear'],
         ops['qkt'],
         ops['softmax'],
@@ -137,11 +135,9 @@ for batch in batches:
     sum264 = run_utils.prefix_sum(batch_size_, lambda i: utils.ceilmult(batch[i], 64) * utils.ceilmult(batch[i], 64))
 
     # t_inputs: Allocate tensors
-    memset_out_qkv = run_utils.create_ragged_array((3, batch_size_, MAX_LEN, NUM_HEADS, HEAD_SIZE),
-                                                   3*sum64*NUM_HEADS*HEAD_SIZE, "float32", dev_ctx)
-
     pre_linear_in_qkv = run_utils.create_ragged_array((batch_size_ * MAX_LEN, MODEL_DIM), sum1*MODEL_DIM, "float32", dev_ctx)
-    pre_linear_out = memset_out_qkv
+    pre_linear_out = run_utils.create_ragged_array((3, batch_size_, MAX_LEN, NUM_HEADS, HEAD_SIZE),
+                                                   3*sum64*NUM_HEADS*HEAD_SIZE, "float32", dev_ctx)
 
     qkt_in_q = pre_linear_out
     qkt_in_k = pre_linear_out
@@ -175,7 +171,6 @@ for batch in batches:
 
 
     if not only_mha:
-        # ops['memset'].tensor_inputs = [memset_out_qkv]
         ops['pre_linear'].tensor_inputs = [pre_linear_in_qkv, pre_linear_in_w, pre_linear_in_b, pre_linear_out]
     ops['qkt'].tensor_inputs = [qkt_in_q, qkt_in_k, qkt_out]
     ops['softmax'].tensor_inputs = [softmax_in, softmax_out]
@@ -193,29 +188,29 @@ for batch in batches:
         optimal_variants = {}
         for op in ops_order:
             optimal_variants[op.name] = op.profile_variants(l_inputs, dev_ctx)
+        print(optimal_variants)
 
-    for op in ops_order: op.set_inputs_and_variant(l_inputs, optimal_variants[op.name])
-    print(optimal_variants)
-    for i in range(args.witers):
-        for op in ops_order: op.execute()
-    dev_ctx.sync()
-    start = time.perf_counter()
-    for i in range(args.iters):
-        for op in ops_order: op.execute()
-    dev_ctx.sync()
-    end = time.perf_counter()
-    times.append((end - start) / args.iters)
+    if args.per_op:
+        this_time = 0
+        for op in ops_order:
+            op_time = op.execute_multiple(l_inputs, dev_ctx)
+            if (args.per_op):
+                time_dict[op.name].append(op_time)
+            this_time += op_time
+        times.append(this_time)
+    else:
+        for op in ops_order: op.set_inputs_and_variant(l_inputs, optimal_variants[op.name])
+        for i in range(args.witers):
+            for op in ops_order: op.execute()
+        dev_ctx.sync()
+        start = time.perf_counter()
+        for i in range(args.iters):
+            for op in ops_order: op.execute()
+        dev_ctx.sync()
+        end = time.perf_counter()
+        times.append((end - start) / args.iters)
 
-    for op in ops_order: op.reset()
-
-    # this_time = 0
-
-    # for op in ops_order:
-        # op_time = op.execute_multiple(l_inputs, dev_ctx)
-        # if (args.per_op):
-            # time_dict[op.name].append(op_time)
-        # this_time += op_time
-    # times.append(this_time)
+        for op in ops_order: op.reset()
 
 
 

@@ -305,7 +305,7 @@ def get_bert_layer_run_fn(bs_var):
             if args.debug: num_batches = 1
 
             batches = get_nlp_batches(batch_size, num_batches, args.dataset)
-            # batches = [sorted(batch, reverse=True) for batch in batches]
+            batches = [sorted(batch, reverse=True) for batch in batches]
             if pad_sum: batches = append_padded_sum(batches, pad_sum)
 
             time = 0
