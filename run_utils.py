@@ -3,10 +3,12 @@ import utils
 import argparse
 import os
 import numpy as np
+np.random.seed(0)
 
 def stats(arr):
     # return np.min(arr), np.mean(arr), np.max(arr)
-    return np.min(arr), np.max(arr)
+    # return np.min(arr), np.max(arr)
+    return np.mean(arr)
 
 dataset_files = {
     "wiki_128": "/old_wikipedia/full_lengths_128.txt",
@@ -107,9 +109,10 @@ def get_shape(t, rmap):
         assert False
 
 def create_ragged_array(dense_shape, flat_size, dtype, ctx):
+    # print("YO1: ", flat_size)
     import tvm
-    # src_np_array = np.random.normal(size=(flat_size,)).astype(dtype)
-    src_np_array = np.full((flat_size,), 0.1, dtype).astype(dtype)
+    src_np_array = np.random.normal(size=(flat_size,)).astype(dtype)
+    # src_np_array = np.full((flat_size,), 0.1, dtype).astype(dtype)
     tvm_array = tvm.nd.ragged_empty(dense_shape, flat_size, dtype=dtype, ctx=ctx)
     tvm_array.copyfrom(src_np_array, is_dst_ragged=True)
     del src_np_array
@@ -117,9 +120,10 @@ def create_ragged_array(dense_shape, flat_size, dtype, ctx):
 
 def create_numpy_array(t, dtype, rmap={}, lw_args=None):
     shape = get_shape(t, rmap)
+    # print("YO2: ", shape)
     # return np.zeros(shape, dtype)
     return np.full(shape, 0.1, dtype)
-    # return np.random.normal(size=shape, loc=0.5, scale=4).astype(dtype)
+    # return np.random.normal(size=shape, loc=0, scale=4).astype(dtype)
 
 def create_tvm_array(t, dtype, ctx, rmap={}, lw_args=None):
     import tvm
@@ -132,8 +136,9 @@ def create_tvm_array(t, dtype, ctx, rmap={}, lw_args=None):
         return create_ragged_array(shape, flat_size, dtype, ctx)
 
     # return np.zeros(shape, dtype)
-    return tvm.nd.array(np.full(shape, 0.1, dtype), ctx)
-    # return np.random.normal(size=shape, loc=0.5, scale=4).astype(dtype)
+    # return tvm.nd.array(np.full(shape, 0.1, dtype), ctx)
+    # print("YO3: ", shape)
+    return tvm.nd.array(np.random.normal(size=shape, loc=0, scale=4).astype(dtype), ctx)
 
 def get_ctx(target):
     import tvm
@@ -436,5 +441,5 @@ def lower_or_build(name, s, inputs, args, prep_code_mode='with_prep_code', binds
             else:
                 assert args.debug_code is None
                 fadd, i_bufs = tvm.build(s, inputs, args.target, binds=binds, substitutes=substitutes)
-                # fadd = tvm.runtime.module.load_module('/home/ppf/cora/benchmarks/bert_layer/tvm/genlibs/attn_v_cpu.so')
+                # fadd = tvm.runtime.module.load_module('/home/ppf/rnn_compilers/ragged_tensors/incubator-tvm/build/attn_v.so')
                 return run_function(fadd, i_bufs, inputs[1], size_fn, args, pad_sum=pad_sum)
