@@ -71,7 +71,7 @@ target = 'cuda'
 datasets = {512:['race'],128:['mnli']}
 
 framework_funs = {
-    # 'pytorch': lambda b_sizes, *args: com.batchify(b_sizes, run_pytorch, *args),
+    'pytorch': lambda b_sizes, *args: com.batchify(b_sizes, run_pytorch, *args),
     'cora_plain': lambda b_sizes, *args: com.batchify(b_sizes, get_tvm_runner(False), *args),
     'cora_masked': lambda b_sizes, *args: com.batchify(b_sizes, get_tvm_runner(True), *args),
 }

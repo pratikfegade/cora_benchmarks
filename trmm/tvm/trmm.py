@@ -138,22 +138,27 @@ def schedule_op(O, suffix, cache_write_tensor=None):
     # s[S].pragma(S_l_o_o_o_o, "auto_unroll_max_step", 512)
     # s[S].pragma(S_l_o_o_o_o, "unroll_explicit", True)
 
-if args.op_split:
-    schedule_op(O1, '1')
-    schedule_op(O2, '2', O2i)
-else:
-    schedule_op(O, '', S)
+if args.target == "cuda":
+    if args.op_split:
+        schedule_op(O1, '1')
+        schedule_op(O2, '2', O2i)
+    else:
+        schedule_op(O, '', S)
 
 gen_prefix = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0]
 _ = tvm.register_func(utils.get_tvm_callback_cuda_compile(256))
 _ = tvm.register_func(
     utils.get_tvm_callback_cuda_postproc(args, os.path.realpath(__file__), fileprefix=gen_prefix))
 
-if args.op_split: inputs = [[], [A, B, O1, O2]]
-else: inputs = [[], [A, B, O]]
+if args.target == "cuda":
+    if args.op_split: inputs = [[], [A, B, O1, O2]]
+    else: inputs = [[], [A, B, O]]
+else:
+    if args.op_split: inputs = [[], [A, B, O2i, O1, O2]]
+    else: inputs = [[], [A, B, S, O]]
 
 substitutes=None
-if args.load_balance:
+if args.load_balance and args.target == "cuda":
     print('Load balancing')
     max_by = M//tl
     substitutes={'blockIdx.y': Uf('sub', "", (0, max_by), [Dim('dum')], lambda b: tvm.tir.Select(b > 80, b - 80, max_by - b - 1))}
@@ -163,10 +168,10 @@ out = run_utils.lower_or_build(name, s, inputs, args, run_function=run_utils.run
                                prep_code_mode='no_prep_code', substitutes=substitutes)
 
 # if args.op_split:
-#     A, B, O1, O2  = out
+#     O1, O2  = out[:-2]
 #     for i in range(args.m):
 #         print(i + 1, np.mean(O1[i, 0:(i+1)]), np.mean(O2[i, 0:(i+1)]))
 # else:
-#     A, B, O  = out
+#     O  = out[-1]
 #     for i in range(args.m):
 #         print(i + 1, np.mean(O[i, 0:(i+1)]))

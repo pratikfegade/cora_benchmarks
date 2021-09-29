@@ -97,6 +97,7 @@ if args.target == "cuda":
     O_hooo, O_hooi = s[O].split(O_hooi, factor=2)
 
     s[O].reorder(O_q, O_looo, O_nooi, O_hooo, O_looi, O_hooi, O_loi, O_noi, O_hoi, O_li, O_ni)
+    s[O].vectorize(O_ni)
 
     QKV_sh = s.cache_read(QKV, "shared", [O_local])
     s.fuse_tensor_dimensions(QKV_sh, 0, 1)

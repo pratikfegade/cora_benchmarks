@@ -310,7 +310,7 @@ def get_bert_layer_run_fn(bs_var):
             if args.debug: num_batches = 1
 
             batches = get_nlp_batches(batch_size, num_batches, args.dataset)
-            # batches = [sorted(batch, reverse=True) for batch in batches]
+            batches = [sorted(batch, reverse=True) for batch in batches]
             if pad_sum: batches = append_padded_sum(batches, pad_sum)
 
             time = 0
@@ -408,11 +408,12 @@ def run_trmm(built, i_inputs_tensors, t_inputs_tensors, lw_args, args, pad_sum=N
     return t_inputs
 
 def lower_or_build(name, s, inputs, args, prep_code_mode='with_prep_code', binds=None,
-                   size_fn={}, pad_sum=None, substitutes=None, run_function=run2):
+                   size_fn={}, pad_sum=None, substitutes=None, run_function=run2, hoist_loads=False):
     import tvm
     prep_code_mode = 'only_prep_code' if args.only_prep_code else prep_code_mode
     with tvm.build_config(prep_code_mode=prep_code_mode,
                           fill_in_function_bodies=not args.debug_functions,
+                          hoist_loads=hoist_loads,
                           disable_assert=args.disable_assert if hasattr(args, 'disable_assert') else False):
         if args.gen_lib:
             fadd, i_bufs = tvm.build(s, inputs, args.target, binds=binds)

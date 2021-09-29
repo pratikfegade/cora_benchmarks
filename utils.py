@@ -34,7 +34,7 @@ def get_tvm_callback_cuda_compile(threads, grid_sync = False):
                    # "--ptxas-options='-allow-expensive-optimizations'", "--maxrregcount=" + str((65536 // threads) - 1)]
         # options = ["-lineinfo", "-Xcompiler", "-rdynamic", "-D_FORCE_INLINES",
                    # "--ptxas-options='-allow-expensive-optimizations'", "--use_fast_math"]
-        options = ["-lineinfo", "-Xcompiler", "-rdynamic", "-D_FORCE_INLINES", "--use_fast_math"]
+        options = ["-Xcompiler", "-rdynamic", "-D_FORCE_INLINES", "--use_fast_math"]
         if nvcc.have_grid_sync(grid_sync): options += ["-rdc=true", "-L /usr/lib/x86_64-linux-gnu"]
         ptx = nvcc.compile_cuda(code, target="cubin", options = options)
         return ptx
