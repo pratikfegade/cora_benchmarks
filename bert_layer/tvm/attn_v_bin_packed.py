@@ -132,8 +132,9 @@ def schedule_op(O, tile, suffix):
 
 G1, G2 = s.split_for_bin_packing([O], O, {O.op.axis[1]: lb_uf}, include_inputs=True)
 O1, O2 = G1[0], G2[0]
-schedule_op(O1, 64, '1')
-schedule_op(O2, 32, '2')
+if args.target == "cuda":
+    schedule_op(O1, 64, '1')
+    schedule_op(O2, 32, '2')
 
 if args.hfuse:
     s.hfuse([(s[O1].op, s[O1].leaf_iter_vars[0]), (s[O2].op, s[O2].leaf_iter_vars[0])])
@@ -154,17 +155,20 @@ def size_fn(l_inputs):
 
 bO = tvm.tir.decl_buffer(output_layout, name="bO")
 binds = {O1:bO, O2:bO}
-inputs = [[lens], [BATCH_SIZE, V, A, bO]]
+if args.target == "cuda":
+    inputs = [[lens], [BATCH_SIZE, V, A, bO]]
+else:
+    inputs = [[lens], [BATCH_SIZE, V, A, bO]]
 
 name = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0]
 out, batches = run_utils.lower_or_build(name, s, inputs, args, size_fn=size_fn, binds=binds,
                                         run_function=run_utils.get_bert_layer_run_fn(BATCH_SIZE))
 
-# _, V, A, O  = out
-# ctr = 0
-# O = O.flatten()
-# for length in batches[0]:
-#     rounded64 = utils.ceilmult(length, 32)
-#     this_extent = rounded64 * NUM_HEADS * HEAD_SIZE
-#     print(length, np.mean(O[ctr:ctr + this_extent]))
-#     ctr += this_extent
+_, V, A, O  = out
+ctr = 0
+O = O.flatten()
+for length in batches[0]:
+    rounded64 = utils.ceilmult(length, 32)
+    this_extent = rounded64 * NUM_HEADS * HEAD_SIZE
+    print(length, np.mean(O[ctr:ctr + this_extent]))
+    ctr += this_extent
