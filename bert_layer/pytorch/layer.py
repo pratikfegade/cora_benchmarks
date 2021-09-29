@@ -78,7 +78,7 @@ class Encoder(nn.Module):
 
         ff1_out = torch.matmul(sa_out, self.ff1_w)
         ff1_out += self.ff1_b
-        ff1_out = f.gelu(ff1_out)
+        ff1_out = f.relu(ff1_out)
         ff2_out = torch.matmul(ff1_out, self.ff2_w)
         ff2_out += self.ff2_b
         ff2_out += sa_out

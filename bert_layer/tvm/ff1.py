@@ -54,7 +54,8 @@ S = te.ragged_compute((BATCH_SIZE, MAX_LEN, OUT_SIZE), [bd, s1, od], loop_ufs,
                       name = 'S', width_uf_lists=width_ufs)
 
 O = te.ragged_compute((BATCH_SIZE, MAX_LEN, OUT_SIZE), [bd, s1, od], loop_ufs,
-                      lambda ds: utils.gelu(S[ds[bd], ds[s1], ds[od]] + B[ds[od]]),
+                      # lambda ds: utils.gelu(S[ds[bd], ds[s1], ds[od]] + B[ds[od]]),
+                      lambda ds: tvm.max(0, S[ds[bd], ds[s1], ds[od]] + B[ds[od]]),
                       name = 'O', width_uf_lists=None if args.dense_storage else width_ufs)
 
 s = tvm.create_schedule([O.op])
@@ -90,6 +91,7 @@ if args.target == "cuda":
         O_o_o_i, O_o_i = s[O].split(O_o, factor=4)
         O_o_o_o_i, O_o_o_i = s[O].split(O_o_o_i, factor=16)
         s[O].reorder(O_l_o_o_o, O_o_o_o_i, O_l_o_o_i, O_l_o_i, O_o_o_i, O_l_i, O_o_i)
+        s[O].vectorize(O_o_i)
 
         A_shared = s.cache_read(A, "shared", [S])
         A_shared_axm1, A_shared_ax0, A_shared_ax1 = tuple(A_shared.op.axis)
@@ -163,6 +165,7 @@ if args.target == "cuda":
         O_o_o_i, O_o_i = s[O].split(O_o, factor=2)
         O_o_o_o_i, O_o_o_i = s[O].split(O_o_o_i, factor=16)
         s[O].reorder(O_l_o_o_o, O_o_o_o_i, O_l_o_o_i, O_l_o_i, O_o_o_i, O_l_i, O_o_i)
+        s[O].vectorize(O_o_i)
 
         A_shared = s.cache_read(A, "shared", [S])
         A_shared_axm1, A_shared_ax0, A_shared_ax1 = tuple(A_shared.op.axis)
