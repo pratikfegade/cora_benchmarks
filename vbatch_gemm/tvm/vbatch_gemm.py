@@ -15,9 +15,9 @@ parser = run_utils.get_cmd_parser(no_options=True)
 parser.add_argument('--target', nargs='?', default='llvm')
 parser.add_argument('--dtype', dest='dtype', nargs='?', default='float32')
 parser.add_argument('--max-batches', dest='max_batches', default=1, type=int)
-# parser.add_argument('--batch-size', dest='batch_size', default=2, type=int)
 parser.add_argument('--batch-sizes', dest='batch_sizes', nargs='+', default=[32], type=int)
 parser.add_argument('--tile-size', dest='tile_size', default=128, type=int)
+parser.add_argument('--no-hoist-loads', dest='no_hoist_loads', default=False, action='store_true')
 parser.add_argument('--debug', dest='debug', default=False, action='store_true')
 parser.add_argument('--debug-code', dest='debug_code', default=None, type=str)
 parser.add_argument('--debug-functions', dest='debug_functions', default=False, action='store_true')
@@ -230,7 +230,8 @@ name = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0]
 out = run_utils.lower_or_build(name, s, inputs, args, size_fn=size_fn,
                                # run_function=run_utils.run_vbatch_gemm2,
                                run_function=run_utils.get_vbatch_gemm_run_fn(BATCH_SIZE),
-                               prep_code_mode=prep_code_mode, binds=binds, hoist_loads=True)
+                               prep_code_mode=prep_code_mode, binds=binds,
+                               hoist_loads=not args.no_hoist_loads)
 
 # A, W, O  = out
 # for i in range(BATCH_SIZE):

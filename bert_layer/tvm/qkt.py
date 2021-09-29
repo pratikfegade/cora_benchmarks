@@ -15,6 +15,7 @@ parser.add_argument('--nt', dest='nt', default=8, type=int)
 parser.add_argument('--kt', dest='kt', default=4, type=int)
 parser.add_argument('--sched', dest='sched', default=1, type=int)
 parser.add_argument('--masked-mha', dest='masked_mha', default=False, action='store_true')
+parser.add_argument('--no-hoist-loads', dest='no_hoist_loads', default=False, action='store_true')
 args = parser.parse_args()
 
 BS_VAR = te.var('bs')
@@ -242,7 +243,8 @@ def size_fn(l_inputs):
     }
 
 name = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0]
-out, batches = run_utils.lower_or_build(name, s, inputs, args, size_fn=size_fn, pad_sum=64, hoist_loads=True,
+out, batches = run_utils.lower_or_build(name, s, inputs, args, size_fn=size_fn, pad_sum=64,
+                                        hoist_loads=not args.no_hoist_loads,
                                         run_function=run_utils.get_bert_layer_run_fn(BS_VAR))
 
 

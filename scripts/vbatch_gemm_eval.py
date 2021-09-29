@@ -43,6 +43,7 @@ def run_tvm(b_sizes, n_batch, data_file_path, err_file, args):
            ['--max-batches', str(n_batch), '--data-file', data_file_path])
     if args.prep_overhead:
         cmd += ['--only-prep-code']
+    print(' '.join(cmd))
     out, err = run_cmd(cmd)
     if err: print(err, file = err_file)
 
@@ -57,7 +58,7 @@ parser.add_argument('--stdout', dest='stdout', default=False, action='store_true
 parser.add_argument('--append', dest='append', default=False, action='store_true')
 args = parser.parse_args()
 
-batch_sizes = [1, 2, 4, 8, 16, 32, 64, 128, 256, 512]
+b_sizes = [1, 2, 4, 8, 16, 32, 64, 128, 256, 512]
 # batch_sizes = [256, 512]
 targets = [args.target] if args.target else ['cuda']
 
@@ -66,8 +67,8 @@ if args.prep_overhead:
 else:
     if args.target == 'cuda':
         framework_funs = {
-            'cbt': lambda b_sizes, *args: com.batchify(b_sizes, run_cbt, *args),
-            'cublas': lambda b_sizes, *args: com.batchify(b_sizes, run_cublas, *args),
+            # 'cbt': lambda b_sizes, *args: com.batchify(b_sizes, run_cbt, *args),
+            # 'cublas': lambda b_sizes, *args: com.batchify(b_sizes, run_cublas, *args),
             'cora': run_tvm
         }
     else:
@@ -85,11 +86,11 @@ print(header, file = results_out)
 for target in targets:
     exe_times = {}
     for framework, func in framework_funs.items():
-        log(args, 'Running %s %s %d' % (target, framework, b_size))
+        log(args, 'Running %s %s' % (target, framework))
         exe_times[framework] = func(b_sizes, args.max_batches, DATA_FILE_PATH, results_err, args)
         print(exe_times[framework])
 
-    for b_size in batch_sizes:
+    for b_size in b_sizes:
         out_str = '%s,%d' % (target, b_size)
         for framework, framework_exe_time in exe_times.items():
             out_str += ',%g' % framework_exe_time[b_size]
