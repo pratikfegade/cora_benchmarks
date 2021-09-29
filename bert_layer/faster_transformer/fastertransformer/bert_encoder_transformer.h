@@ -775,7 +775,7 @@ public:
 #ifdef OP_TIMES
 	  START_OPTIME_MEASUREMENT
 #endif
-	    add_bias_act_kernelLauncher<DataType_>(inter_matmul_buf_, param_.ffn.intermediate_weight.bias, m, n, ActivationType::GELU, param_.stream);
+	    add_bias_act_kernelLauncher<DataType_>(inter_matmul_buf_, param_.ffn.intermediate_weight.bias, m, n, ActivationType::RELU, param_.stream);
 #ifdef OP_TIMES
 	  END_OPTIME_MEASUREMENT("FF1BiasAct")
 #endif
