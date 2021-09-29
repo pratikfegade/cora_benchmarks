@@ -169,7 +169,7 @@ inputs = [[lens], [BATCH_SIZE, Q, K, bO]]
 binds = {O1:bO, O2:bO, O3:bO, O4:bO}
 
 name = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0]
-out, batches = run_utils.lower_or_build(name, s, inputs, args, size_fn=size_fn, binds=binds,
+out, batches = run_utils.lower_or_build(name, s, inputs, args, size_fn=size_fn, binds=binds, hoist_loads=True,
                                         run_function=run_utils.get_bert_layer_run_fn(BATCH_SIZE))
 # _, Q, K, O = out
 # for i in range(BATCH_SIZE):

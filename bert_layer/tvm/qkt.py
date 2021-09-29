@@ -34,7 +34,7 @@ s2 = Dim('s2')
 hd = Dim('hd')
 
 def len_ufw(name, pad): return Ufw(name, "l", (pad, MAX_LEN), [bd], [lens], lambda lens: lambda b: utils.ceilmult(lens[b], pad))
-if args.sched == 1: lufw = len_ufw('s', 64)
+if args.sched == 1 or args.sched == 2: lufw = len_ufw('s', 64)
 else: lufw = len_ufw('s', 32)
 sufw = len_ufw('s', 64)
 
@@ -102,8 +102,8 @@ if args.target == "cuda":
         s[O].reorder(b, xo, yo, h, xi, yi)
         f1 = s[O].fuse(xo, yo)
         f2 = s[O].fuse(b, f1)
-        s[O].bind(f2, block_x())
-        s[O].bind(h, block_y())
+        s[O].bind(f2, block_y())
+        s[O].bind(h, block_x())
 
         xio, xii = s[O].split(xi, factor = nt)
         yio, yii = s[O].split(yi, factor = nt)
@@ -121,6 +121,20 @@ if args.target == "cuda":
         s[Ks].compute_at(s[S], ko)
         s[Ql].compute_at(s[S], ki)
         s[Kl].compute_at(s[S], ki)
+
+        # x, h, y = s[Ks].leaf_iter_vars[2], s[Ks].leaf_iter_vars[3], s[Ks].leaf_iter_vars[4]
+        # yo, yi = s[Ks].split(y, factor = 4)
+        # s[Ks].vectorize(yi)
+        # fio, fii = s[Ks].split(x, factor = nt)
+        # s[Ks].bind(fio, thread_y())
+        # s[Ks].bind(fii, thread_x())
+
+        # x, h, y = s[Qs].leaf_iter_vars[2], s[Qs].leaf_iter_vars[3], s[Qs].leaf_iter_vars[4]
+        # yo, yi = s[Qs].split(y, factor = 4)
+        # s[Qs].vectorize(yi)
+        # fio, fii = s[Qs].split(x, factor = nt)
+        # s[Qs].bind(fio, thread_y())
+        # s[Qs].bind(fii, thread_x())
 
         x, h, y = s[Ks].leaf_iter_vars[2], s[Ks].leaf_iter_vars[3], s[Ks].leaf_iter_vars[4]
         s[Ks].reorder(h, y, x)
@@ -228,7 +242,7 @@ def size_fn(l_inputs):
     }
 
 name = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0]
-out, batches = run_utils.lower_or_build(name, s, inputs, args, size_fn=size_fn, pad_sum=64,
+out, batches = run_utils.lower_or_build(name, s, inputs, args, size_fn=size_fn, pad_sum=64, hoist_loads=True,
                                         run_function=run_utils.get_bert_layer_run_fn(BS_VAR))
 
 
