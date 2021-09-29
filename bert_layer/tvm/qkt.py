@@ -34,7 +34,7 @@ s2 = Dim('s2')
 hd = Dim('hd')
 
 def len_ufw(name, pad): return Ufw(name, "l", (pad, MAX_LEN), [bd], [lens], lambda lens: lambda b: utils.ceilmult(lens[b], pad))
-if args.sched == 1 or args.sched == 2: lufw = len_ufw('s', 64)
+if args.sched == 1: lufw = len_ufw('s', 64)
 else: lufw = len_ufw('s', 32)
 sufw = len_ufw('s', 64)
 
