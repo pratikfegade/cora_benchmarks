@@ -35,17 +35,18 @@ def run_cublas(b_size, n_batch, data_file_path, err_file, args):
     if err: print(err, file = err_file)
     return com.extract_times(out, 1)[0]
 
-def run_tvm(b_size, n_batch, data_file_path, err_file, args):
+def run_tvm(b_sizes, n_batch, data_file_path, err_file, args):
     runner = TVM_GPU_RUNNER if args.target == "cuda" else TVM_CPU_RUNNER
 
-    cmd = [PYTHON, runner, '--target', com.get_tvm_target(target), '--batch-size', str(b_size),
-           '--max-batches', str(n_batch), '--data-file', data_file_path]
+    cmd = ([PYTHON, runner, '--target', com.get_tvm_target(target), '--batch-sizes'] +
+           [str(b) for b in b_sizes] +
+           ['--max-batches', str(n_batch), '--data-file', data_file_path])
     if args.prep_overhead:
         cmd += ['--only-prep-code']
     out, err = run_cmd(cmd)
     if err: print(err, file = err_file)
 
-    return com.extract_times(out, 1)[0]
+    return com.extract_time_batches(out)
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--target', nargs='?', default=None)
@@ -65,15 +66,15 @@ if args.prep_overhead:
 else:
     if args.target == 'cuda':
         framework_funs = {
-            'cbt': run_cbt,
-            # 'cublas': run_cublas,
-            # 'cora': run_tvm,
+            'cbt': lambda b_sizes, *args: com.batchify(b_sizes, run_cbt, *args),
+            'cublas': lambda b_sizes, *args: com.batchify(b_sizes, run_cublas, *args),
+            'cora': run_tvm
         }
     else:
         framework_funs = {
-            'mkl_nopad': get_mkl_runner(False),
-            'mkl_pad': get_mkl_runner(True),
-            'cora': run_tvm,
+            'mkl_nopad': lambda b_sizes, *args: com.batchify(b_sizes, get_mkl_runner(False), *args),
+            'mkl_pad': lambda b_sizes, *args: com.batchify(b_sizes, get_mkl_runner(True), *args),
+            'cora': run_tvm
         }
 
 results_out, results_err = get_out_files(args, 'vbatch_gemm', 'a' if args.append else 'w')
@@ -83,15 +84,15 @@ print(header, file = results_out)
 
 for target in targets:
     exe_times = {}
-    for b_size in batch_sizes:
-        for framework, func in framework_funs.items():
-            log(args, 'Running %s %s %d' % (target, framework, b_size))
-            exe_times[framework] = func(b_size, args.max_batches, DATA_FILE_PATH, results_err, args)
-            print(exe_times[framework])
+    for framework, func in framework_funs.items():
+        log(args, 'Running %s %s %d' % (target, framework, b_size))
+        exe_times[framework] = func(b_sizes, args.max_batches, DATA_FILE_PATH, results_err, args)
+        print(exe_times[framework])
 
+    for b_size in batch_sizes:
         out_str = '%s,%d' % (target, b_size)
         for framework, framework_exe_time in exe_times.items():
-            out_str += ',%g' % framework_exe_time
+            out_str += ',%g' % framework_exe_time[b_size]
         print(out_str, file = results_out)
 
 if not args.stdout:
