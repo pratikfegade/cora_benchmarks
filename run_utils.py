@@ -59,7 +59,6 @@ def get_cmd_parser(no_options=False):
         parser.add_argument('--layout-unfused', dest='layout_unfused', default=False, action='store_true')
         parser.add_argument('--dataset', nargs='?', default='random')
         parser.add_argument('--only-prep-code', dest='only_prep_code', default=False, action='store_true')
-        parser.add_argument('--gpu', nargs='?', default='v100', choices=['titanx', 'v100'])
         parser.add_argument('--no-raggedness', dest='no_raggedness', default=False, action='store_true')
     return parser
 

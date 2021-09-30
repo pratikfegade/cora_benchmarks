@@ -12,6 +12,7 @@ import utils
 import run_utils
 
 parser = run_utils.get_cmd_parser()
+parser.add_argument('--no-hoist-loads', dest='no_hoist_loads', default=False, action='store_true')
 args = parser.parse_args()
 
 BS_VAR = te.var('bs')
@@ -156,6 +157,7 @@ else:
     pass
 
 def size_fn(l_inputs):
+    if args.dense_storage: return {}
     lens = l_inputs[0]
     if args.layout_unfused: out_fn = lufw1.get_fn(lens)
     else: out_fn = lufw64.get_fn(lens)
@@ -175,6 +177,7 @@ else:
 
 name = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0]
 out, batches = run_utils.lower_or_build(name, s, inputs, args, size_fn=size_fn, binds=binds, pad_sum=64,
+                                        hoist_loads=not args.no_hoist_loads,
                                         run_function=run_utils.get_bert_layer_run_fn(BS_VAR))
 
 q_size = 0
