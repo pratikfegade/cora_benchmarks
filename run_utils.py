@@ -1,3 +1,4 @@
+import gc
 import sys
 import utils
 import argparse
@@ -111,7 +112,9 @@ def get_shape(t, rmap):
 def create_ragged_array(dense_shape, flat_size, dtype, ctx):
     # print("YO1: ", flat_size)
     import tvm
-    src_np_array = np.random.normal(size=(flat_size,)).astype(dtype)
+    src_np_array = np.random.default_rng().random((flat_size,), dtype=np.float32)
+    # src_np_array = np.random.normal(size=(flat_size,))
+    # src_np_array = np.random.sample(size=(flat_size,))
     # src_np_array = np.full((flat_size,), 0.1, dtype).astype(dtype)
     tvm_array = tvm.nd.ragged_empty(dense_shape, flat_size, dtype=dtype, ctx=ctx)
     tvm_array.copyfrom(src_np_array, is_dst_ragged=True)
@@ -138,7 +141,11 @@ def create_tvm_array(t, dtype, ctx, rmap={}, lw_args=None):
     # return np.zeros(shape, dtype)
     # return tvm.nd.array(np.full(shape, 0.1, dtype), ctx)
     # print("YO3: ", shape)
-    return tvm.nd.array(np.random.normal(size=shape, loc=0, scale=4).astype(dtype), ctx)
+    np_array = np.random.default_rng().random(shape, dtype=np.float32)
+    tvm_array = tvm.nd.array(np_array, ctx)
+    del np_array
+    return tvm_array
+    # return tvm.nd.array(np.random.sample(size=shape), ctx)
 
 def get_ctx(target):
     import tvm
@@ -318,22 +325,23 @@ def get_bert_layer_run_fn(bs_var):
                 t_inputs = ([batch_size] +
                             [create_tvm_array(i, "float32", ctx, rmap=rmap, lw_args=lw_args([batch]))
                              for i in t_inputs_tensors[1:]])
-                if args.no_raggedness:
+                if args.no_raggedness or (hasattr(args, 'full_dense') and args.full_dense):
                     l_inputs = [tvm.nd.array(batch, ctx)]
                 else:
                     l_inputs = [tvm.nd.array(batch, cpu_ctx)]
                 inputs = t_inputs + l_inputs + host_i_inputs + dev_i_inputs
                 time += execute(args.target, built, inputs, ctx, args.debug)
-
+            gc.collect()
             print("RESULTS", batch_size, time / len(batches), sep=',')
             # print(host_i_inputs[0].asnumpy())
             # print(dev_i_inputs[0].asnumpy())
-            for i in range(len(t_inputs[1:])):
-                size_fn = lw_args([batch])
-                target = None
-                if t_inputs_tensors[i + 1] in size_fn:
-                    target = np.empty(size_fn[t_inputs_tensors[i + 1]], dtype='float32')
-                t_inputs[i + 1] = t_inputs[i + 1].asnumpy(target=target, is_src_ragged=is_ragged(t_inputs_tensors[i + 1]))
+            if args.debug:
+                for i in range(len(t_inputs[1:])):
+                    size_fn = lw_args([batch])
+                    target = None
+                    if t_inputs_tensors[i + 1] in size_fn:
+                        target = np.empty(size_fn[t_inputs_tensors[i + 1]], dtype='float32')
+                    t_inputs[i + 1] = t_inputs[i + 1].asnumpy(target=target, is_src_ragged=is_ragged(t_inputs_tensors[i + 1]))
         return t_inputs, batches
     return bert_layer_run
 
@@ -356,9 +364,21 @@ def get_vbatch_gemm_run_fn(bs_var, skip_m_k = False, no_scale=False):
 
             ms, ks, ns = read_and_chunk_gemm_dims(batch_size, num_batches, args.data_file)
 
-            t_inputs = [batch_size] + [create_tvm_array(i, "float32", ctx, rmap=rmap, lw_args={}) for i in t_inputs_tensors[1:]]
+            print('Yo1')
+            sys.stdout.flush()
+            if args.target == 'cuda':
+                shape = get_shape(t_inputs_tensors[1], rmap)
+                # np_array = np.random.normal(size=shape, loc=0, scale=4)
+
+            print('Yo2')
+            sys.stdout.flush()
+            # t_inputs = [batch_size] + [tvm.nd.array(np_array, ctx) for i in t_inputs_tensors[1:]]
+            t_inputs = [batch_size] + [tvm.nd.empty(shape, 'float32', ctx) for i in t_inputs_tensors[1:]]
             time = 0
             for i in range(len(ms)):
+                print('Yo')
+                sys.stdout.flush()
+                gc.collect()
                 if not no_scale:
                     mb = np.ceil(ms[i] / args.tile_size).astype('int32')
                     nb = np.ceil(ns[i] / args.tile_size).astype('int32')
@@ -373,7 +393,12 @@ def get_vbatch_gemm_run_fn(bs_var, skip_m_k = False, no_scale=False):
                 else:
                     l_inputs = [tvm.nd.array(mb, cpu_ctx), tvm.nd.array(nb, cpu_ctx), tvm.nd.array(kb, cpu_ctx)]
                 inputs = t_inputs + l_inputs + host_i_inputs + dev_i_inputs
-                time += execute(args.target, built, inputs, ctx, args.debug)
+                this_time = execute(args.target, built, inputs, ctx, args.debug)
+                time += this_time
+                print(' ', this_time)
+                sys.stdout.flush()
+                gc.collect()
+
 
             print("RESULTS", batch_size, time / len(ms), sep=',')
             for i in range(len(t_inputs) - 1):
