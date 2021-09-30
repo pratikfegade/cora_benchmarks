@@ -7,7 +7,7 @@ from tvm import tir, te
 from tvm.te import RangeDimension as Dim
 from tvm.tir import UninterpFun as Uf, UfWrapper as Ufw
 import sys
-sys.path.append(os.path.dirname(os.path.realpath(__file__)) + "/../../")
+sys.path.append(os.path.dirname(os.path.realpath(__file__)) + '/../../')
 import utils
 import run_utils
 
@@ -32,17 +32,17 @@ s1 = Dim('s1')
 id = Dim('id')
 od = Dim('od')
 
-def len_ufw(name, pad): return Ufw(name, "l", (pad, MAX_LEN), [bd], [lens], lambda lens: lambda b: utils.ceilmult(lens[b], pad))
+def len_ufw(name, pad): return Ufw(name, 'l', (pad, MAX_LEN), [bd], [lens], lambda lens: lambda b: utils.ceilmult(lens[b], pad))
 lufw1 = len_ufw('s1', 1)
 lufw64 = len_ufw('s2', 64)
 
 ls =  {
-    0: Uf.from_constant('qkv', QKV_NUM, "l"),
-    1: Uf.from_constant('bd', BATCH_SIZE, "l"),
-    2: Uf.from_constant('md', NUM_HEADS, "l"),
+    0: Uf.from_constant('qkv', QKV_NUM, 'l'),
+    1: Uf.from_constant('bd', BATCH_SIZE, 'l'),
+    2: Uf.from_constant('md', NUM_HEADS, 'l'),
     3: lufw1.get_uf(),
-    4: Uf.from_constant('id', IN_SIZE, "l"),
-    5: Uf.from_constant('od', OUT_SIZE, "l"),
+    4: Uf.from_constant('id', IN_SIZE, 'l'),
+    5: Uf.from_constant('od', OUT_SIZE, 'l'),
 }
 
 loop_ufs=[ls[1], ls[3], ls[4]]
@@ -54,7 +54,7 @@ W = te.placeholder((QKV_NUM, NUM_HEADS, OUT_SIZE, IN_SIZE), name='W')
 B = te.placeholder((QKV_NUM, NUM_HEADS, OUT_SIZE), name='B')
 
 loop_ufs=[ls[0], ls[1], ls[3], ls[2], ls[5]]
-width_ufs=None if args.dense_storage else [loop_ufs]
+width_ufs = [loop_ufs]
 k = tvm.reduce_axis((0, IN_SIZE), name = 'k')
 S = te.ragged_compute((QKV_NUM, BATCH_SIZE, MAX_LEN, NUM_HEADS, OUT_SIZE), [qkv, bd, s1, md, od], loop_ufs,
                       lambda ds: tvm.sum(W[ds[qkv], ds[md], ds[od], k] * QKV[ds[bd], ds[s1], k],
@@ -71,10 +71,11 @@ O = te.ragged_compute((QKV_NUM, BATCH_SIZE, MAX_LEN, NUM_HEADS, OUT_SIZE), [qkv,
 
 s = tvm.create_schedule([O.op])
 
-if args.target == "cuda":
-    s.fuse_tensor_dimensions(QKV, 0, 1)
+if args.target == 'cuda':
+    if not args.dense_storage:
+        s.fuse_tensor_dimensions(QKV, 0, 1)
 
-    # O_local, = s.cache_write([O], "local", storage_layout_mode='loop_layout')
+    # O_local, = s.cache_write([O], 'local', storage_layout_mode='loop_layout')
     O_local = S
     s.fuse_tensor_dimensions(O_local, 1, 2)
     q_c, b_c, l_c, n_c, h_c, k = tuple(O_local.op.axis) + tuple(O_local.op.reduce_axis)
@@ -100,28 +101,28 @@ if args.target == "cuda":
     s[O].reorder(O_q, O_looo, O_nooi, O_hooo, O_looi, O_hooi, O_loi, O_noi, O_hoi, O_li, O_ni)
     s[O].vectorize(O_ni)
 
-    QKV_sh = s.cache_read(QKV, "shared", [O_local])
+    QKV_sh = s.cache_read(QKV, 'shared', [O_local])
     s.fuse_tensor_dimensions(QKV_sh, 0, 1)
     QKV_sh_ax00, QKV_sh_ax01, QKV_sh_ax1 = tuple(QKV_sh.op.axis)
     QKV_sh_ax0 = s[QKV_sh].fuse(QKV_sh_ax00, QKV_sh_ax01)
     s[QKV_sh].compute_at(s[O_local], koo)
     s[QKV_sh].mark_no_bounds_check()
 
-    W_sh = s.cache_read(W, "shared", [O_local], vanilla = True)
+    W_sh = s.cache_read(W, 'shared', [O_local], vanilla = True)
     W_sh_ax0, W_sh_ax1, W_sh_ax2, W_sh_ax3 = tuple(W_sh.op.axis)
     s[W_sh].compute_at(s[O_local], koo)
 
-    s[O].bind(O_q, te.thread_axis("blockIdx.z"))
-    s[O].bind(O_looo, te.thread_axis("blockIdx.y"))
+    s[O].bind(O_q, te.thread_axis('blockIdx.z'))
+    s[O].bind(O_looo, te.thread_axis('blockIdx.y'))
     O_q_looo_f_nooo_f_hooo_f = s[O].fuse(O_nooi, O_hooo)
-    s[O].bind(O_q_looo_f_nooo_f_hooo_f, te.thread_axis("blockIdx.x"))
+    s[O].bind(O_q_looo_f_nooo_f_hooo_f, te.thread_axis('blockIdx.x'))
     O_qooi_looi_f_nooi_f_hooi_f = s[O].fuse(O_looi, O_hooi)
-    s[O].bind(O_qooi_looi_f_nooi_f_hooi_f, te.thread_axis("vthread"), no_unroll_vthread=args.debug_code)
+    s[O].bind(O_qooi_looi_f_nooi_f_hooi_f, te.thread_axis('vthread'), no_unroll_vthread=args.debug_code)
     O_qoi_loi_f_noi_f_hoi_f = s[O].fuse(O_loi, O_noi, O_hoi)
-    s[O].bind(O_qoi_loi_f_noi_f_hoi_f, te.thread_axis("threadIdx.x"))
+    s[O].bind(O_qoi_loi_f_noi_f_hoi_f, te.thread_axis('threadIdx.x'))
     s[O_local].compute_at(s[O], O_qoi_loi_f_noi_f_hoi_f)
 
-    B_sh = s.cache_read(B, "shared", [O], vanilla = True)
+    B_sh = s.cache_read(B, 'shared', [O], vanilla = True)
     B_sh_ax0, B_sh_ax1, B_sh_ax2 = tuple(B_sh.op.axis)
     s[B_sh].compute_at(s[O], O_qoi_loi_f_noi_f_hoi_f)
 
@@ -129,24 +130,24 @@ if args.target == "cuda":
     QKV_sh_ax0_ax1_f_o, QKV_sh_ax0_ax1_f_i = s[QKV_sh].split(QKV_sh_ax0_ax1_f, factor=4)
     s[QKV_sh].vectorize(QKV_sh_ax0_ax1_f_i)
     QKV_sh_ax0_ax1_f_o_o, QKV_sh_ax0_ax1_f_o_i = s[QKV_sh].split(QKV_sh_ax0_ax1_f_o, factor=64)
-    s[QKV_sh].bind(QKV_sh_ax0_ax1_f_o_i, te.thread_axis("threadIdx.x"))
+    s[QKV_sh].bind(QKV_sh_ax0_ax1_f_o_i, te.thread_axis('threadIdx.x'))
 
     W_sh_ax0_ax1_f_ax2_f_ax3_f = s[W_sh].fuse(W_sh_ax0, W_sh_ax1, W_sh_ax2, W_sh_ax3)
     W_sh_ax0_ax1_f_ax2_f_ax3_f_o, W_sh_ax0_ax1_f_ax2_f_ax3_f_i = s[W_sh].split(W_sh_ax0_ax1_f_ax2_f_ax3_f, factor=4)
     s[W_sh].vectorize(W_sh_ax0_ax1_f_ax2_f_ax3_f_i)
     W_sh_ax0_ax1_f_ax2_f_ax3_f_o_o, W_sh_ax0_ax1_f_ax2_f_ax3_f_o_i = s[W_sh].split(W_sh_ax0_ax1_f_ax2_f_ax3_f_o, factor=64)
-    s[W_sh].bind(W_sh_ax0_ax1_f_ax2_f_ax3_f_o_i, te.thread_axis("threadIdx.x"))
+    s[W_sh].bind(W_sh_ax0_ax1_f_ax2_f_ax3_f_o_i, te.thread_axis('threadIdx.x'))
 
     B_sh_ax0_ax1_f_ax2_f_ax3_f = s[B_sh].fuse(B_sh_ax0, B_sh_ax1, B_sh_ax2)
     B_sh_ax0_ax1_f_ax2_f_ax3_f_o_o, B_sh_ax0_ax1_f_ax2_f_ax3_f_o_i = s[B_sh].split(B_sh_ax0_ax1_f_ax2_f_ax3_f, factor=64)
-    s[B_sh].bind(B_sh_ax0_ax1_f_ax2_f_ax3_f_o_i, te.thread_axis("threadIdx.x"))
+    s[B_sh].bind(B_sh_ax0_ax1_f_ax2_f_ax3_f_o_i, te.thread_axis('threadIdx.x'))
 
     s[O_local].set_scope('local')
     s[O].mark_no_bounds_check()
 
     if not args.debug_code:
-        s[O_local].pragma(q_c, "auto_unroll_max_step", 512)
-        s[O_local].pragma(q_c, "unroll_explicit", True)
+        s[O_local].pragma(q_c, 'auto_unroll_max_step', 512)
+        s[O_local].pragma(q_c, 'unroll_explicit', True)
 
     gen_prefix = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0]
     _ = tvm.register_func(utils.get_tvm_callback_cuda_compile(256))
@@ -168,9 +169,12 @@ def size_fn(l_inputs):
                                              run_utils.prefix_sum(len(lens), lambda b: out_fn(b)))
     }
 
-bQKV = tvm.decl_buffer([BATCH_SIZE*MAX_LEN, IN_SIZE], name = "bQKV")
+if args.dense_storage:
+    bQKV = tvm.decl_buffer([BATCH_SIZE, MAX_LEN, IN_SIZE], name = 'bQKV')
+else:
+    bQKV = tvm.decl_buffer([BATCH_SIZE*MAX_LEN, IN_SIZE], name = 'bQKV')
 binds = {QKV: bQKV}
-if args.target == "cuda":
+if args.target == 'cuda':
     inputs = [[lens], [BS_VAR, bQKV, W, B, O]]
 else:
     inputs = [[lens], [BS_VAR, bQKV, W, B, S, O]]
