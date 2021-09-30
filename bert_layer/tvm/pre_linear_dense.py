@@ -151,16 +151,7 @@ else:
     pass
 
 def size_fn(l_inputs):
-    lens = l_inputs[0]
-    if args.layout_unfused: out_fn = lufw1.get_fn(lens)
-    else: out_fn = lufw64.get_fn(lens)
-
-    if args.full_dense: return {}
-    return {
-        QKV: IN_SIZE * run_utils.prefix_sum(len(lens), lambda b: lufw1.get_fn(lens)(b)),
-        O: QKV_NUM * NUM_HEADS * OUT_SIZE * (BATCH_SIZE * MAX_LEN if args.dense_storage else
-                                             run_utils.prefix_sum(len(lens), lambda b: out_fn(b)))
-    }
+    return {}
 
 if args.target == 'cuda':
     inputs = [[lens], [BS_VAR, QKV, W, B, O]]
@@ -169,7 +160,8 @@ else:
 
 name = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0]
 out, batches = run_utils.lower_or_build(name, s, inputs, args, size_fn=size_fn, pad_sum=64,
-                                        run_function=run_utils.get_bert_layer_run_fn(BS_VAR))
+                                        run_function=run_utils.get_bert_layer_run_fn(BS_VAR),
+                                        prep_code_mode='no_prep_code')
 
 # q_size = 0
 # for length in batches[0]:
