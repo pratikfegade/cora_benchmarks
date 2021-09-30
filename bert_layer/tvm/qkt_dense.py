@@ -17,6 +17,7 @@ parser.add_argument('--sched', dest='sched', default=1, type=int)
 parser.add_argument('--masked-mha', dest='masked_mha', default=False, action='store_true')
 parser.add_argument('--no-hoist-loads', dest='no_hoist_loads', default=False, action='store_true')
 args = parser.parse_args()
+args.full_dense = True
 
 BS_VAR = te.var('bs')
 BATCH_SIZE = BS_VAR
@@ -234,11 +235,11 @@ else:
 def size_fn(l_inputs):
     lens = l_inputs[0]
     return {
-        Q: 3 * NUM_HEADS * HEAD_SIZE * run_utils.prefix_sum(len(lens), lambda b: (sufw.get_fn(lens)(b))),
-        K: 3 * NUM_HEADS * HEAD_SIZE * run_utils.prefix_sum(len(lens), lambda b: (sufw.get_fn(lens)(b))),
-        O: NUM_HEADS * run_utils.prefix_sum(len(lens),
-                                            lambda b: (sufw.get_fn(lens)(b) *
-                                                       sufw.get_fn(lens)(b)))
+        # Q: 3 * NUM_HEADS * HEAD_SIZE * run_utils.prefix_sum(len(lens), lambda b: (sufw.get_fn(lens)(b))),
+        # K: 3 * NUM_HEADS * HEAD_SIZE * run_utils.prefix_sum(len(lens), lambda b: (sufw.get_fn(lens)(b))),
+        # O: NUM_HEADS * run_utils.prefix_sum(len(lens),
+                                            # lambda b: (sufw.get_fn(lens)(b) *
+                                                       # sufw.get_fn(lens)(b)))
     }
 
 name = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0]

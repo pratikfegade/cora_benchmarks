@@ -13,6 +13,7 @@ import run_utils
 
 parser = run_utils.get_cmd_parser()
 args = parser.parse_args()
+args.full_dense = True
 
 BS_VAR = te.var('bs')
 BATCH_SIZE = BS_VAR
@@ -161,12 +162,12 @@ def size_fn(l_inputs):
     lens = l_inputs[0]
 
     return {
-        A: NUM_HEADS * HEAD_SIZE * run_utils.prefix_sum(
-            len(lens), lambda b: (lufw1 if args.layout_unfused else lufw64).get_fn(lens)(b)),
-        A2: OUT_SIZE * (BATCH_SIZE * MAX_LEN if args.dense_storage else
-                        run_utils.prefix_sum(len(lens), lambda b: lufw1.get_fn(lens)(b))),
-        O: OUT_SIZE * (BATCH_SIZE * MAX_LEN if args.dense_storage else
-                       run_utils.prefix_sum(len(lens), lambda b: lufw1.get_fn(lens)(b)))
+        # A: NUM_HEADS * HEAD_SIZE * run_utils.prefix_sum(
+            # len(lens), lambda b: (lufw1 if args.layout_unfused else lufw64).get_fn(lens)(b)),
+        # A2: OUT_SIZE * (BATCH_SIZE * MAX_LEN if args.dense_storage else
+                        # run_utils.prefix_sum(len(lens), lambda b: lufw1.get_fn(lens)(b))),
+        # O: OUT_SIZE * (BATCH_SIZE * MAX_LEN if args.dense_storage else
+                       # run_utils.prefix_sum(len(lens), lambda b: lufw1.get_fn(lens)(b)))
     }
 
 name = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0]
