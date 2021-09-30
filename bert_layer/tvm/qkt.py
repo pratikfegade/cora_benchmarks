@@ -15,6 +15,7 @@ parser.add_argument('--nt', dest='nt', default=8, type=int)
 parser.add_argument('--kt', dest='kt', default=4, type=int)
 parser.add_argument('--sched', dest='sched', default=1, type=int)
 parser.add_argument('--masked-mha', dest='masked_mha', default=False, action='store_true')
+parser.add_argument('--no-hoist-loads', dest='no_hoist_loads', default=False, action='store_true')
 args = parser.parse_args()
 
 BS_VAR = te.var('bs')
@@ -34,7 +35,7 @@ s2 = Dim('s2')
 hd = Dim('hd')
 
 def len_ufw(name, pad): return Ufw(name, "l", (pad, MAX_LEN), [bd], [lens], lambda lens: lambda b: utils.ceilmult(lens[b], pad))
-if args.sched == 1 or args.sched == 2: lufw = len_ufw('s', 64)
+if args.sched == 1: lufw = len_ufw('s', 64)
 else: lufw = len_ufw('s', 32)
 sufw = len_ufw('s', 64)
 
@@ -167,7 +168,7 @@ if args.target == "cuda":
         Ql = s.cache_read(Qs, "local", [S], layouts='dense')
         Kl = s.cache_read(Ks, "local", [S], layouts='dense')
 
-        tile, ktile = 32, 8
+        tile, ktile = 32, 4
 
         b, x, h, y = s[O].leaf_iter_vars[0:4]
         xo, xi = s[O].split(x, factor = tile)
@@ -242,7 +243,8 @@ def size_fn(l_inputs):
     }
 
 name = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0]
-out, batches = run_utils.lower_or_build(name, s, inputs, args, size_fn=size_fn, pad_sum=64, hoist_loads=True,
+out, batches = run_utils.lower_or_build(name, s, inputs, args, size_fn=size_fn, pad_sum=64,
+                                        hoist_loads=not args.no_hoist_loads,
                                         run_function=run_utils.get_bert_layer_run_fn(BS_VAR))
 
 
