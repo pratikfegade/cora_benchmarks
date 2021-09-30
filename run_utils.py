@@ -114,7 +114,6 @@ def create_ragged_array(dense_shape, flat_size, dtype, ctx):
     import tvm
     src_np_array = np.random.default_rng().random((flat_size,), dtype=np.float32)
     # src_np_array = np.random.normal(size=(flat_size,))
-    # src_np_array = np.random.sample(size=(flat_size,))
     # src_np_array = np.full((flat_size,), 0.1, dtype).astype(dtype)
     tvm_array = tvm.nd.ragged_empty(dense_shape, flat_size, dtype=dtype, ctx=ctx)
     tvm_array.copyfrom(src_np_array, is_dst_ragged=True)
