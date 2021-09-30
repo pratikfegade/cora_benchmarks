@@ -92,11 +92,10 @@ if args.target == 'cuda':
         Wl = s.cache_read(Ws, 'local', [S], vanilla=True)
 
         b, l, h = s[O].leaf_iter_vars
-        y = s[O].fuse(b, l)
-        x = h
-        yo, yi = s[O].split(y, factor = tile)
-        xo, xi = s[O].split(x, factor = tile)
-        s[O].bind(yo, block_y())
+        yo, yi = s[O].split(l, factor = tile)
+        f = s[O].fuse(b, yo)
+        s[O].bind(f, block_y())
+        xo, xi = s[O].split(h, factor = tile)
         s[O].bind(xo, block_x())
 
         yio, yii = s[O].split(yi, factor = nt)
@@ -128,18 +127,7 @@ if args.target == 'cuda':
         s[As].mark_no_bounds_check()
         if not args.debug_functions: s[As].vectorize(fiii)
 
-        s.fuse_tensor_dimensions(As, 0, 1)
-
         s[S].set_scope('local')
-
-        # x, y = s[Ws].leaf_iter_vars
-        # f = s[Ws].fuse(x, y)
-        # fo, fi = s[Ws].split(f, factor = nt * nt * 4)
-        # fio, fii = s[Ws].split(fi, factor = nt * 4)
-        # fiio, fiii = s[Ws].split(fii, factor = 4)
-        # s[Ws].bind(fio, thread_y())
-        # s[Ws].bind(fiio, thread_x())
-        # if not args.debug_functions: s[Ws].vectorize(fiii)
 
         x, y = s[Ws].leaf_iter_vars
         s[Ws].bind(x, thread_y())
