@@ -12,7 +12,6 @@ import run_utils
 
 parser = run_utils.get_cmd_parser()
 parser.add_argument('--kt', dest='kt', default=8, type=int)
-parser.add_argument('--no-hoist-loads', dest='no_hoist_loads', default=False, action='store_true')
 args = parser.parse_args()
 
 BS_VAR = te.var('bs')
@@ -157,7 +156,6 @@ inputs = [[lens], [BS_VAR, V, A, O]]
 name = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0]
 out, batches = run_utils.lower_or_build(name, s, inputs, args, size_fn=size_fn, pad_sum=64,
                                         run_function=run_utils.get_bert_layer_run_fn(BS_VAR),
-                                        hoist_loads=not args.no_hoist_loads,
                                         prep_code_mode=prep_code_mode)
 
 # _, V, A, O  = out

@@ -8,7 +8,7 @@ SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 PRE_LINEAR_RUNNER = SCRIPT_DIR + '/../bert_layer/tvm/pre_linear.py'
 QKT_RUNNER = SCRIPT_DIR + '/../bert_layer/tvm/qkt.py'
 SOFTMAX_RUNNER = SCRIPT_DIR + '/../bert_layer/tvm/softmax.py'
-ATTN_V_RUNNER = SCRIPT_DIR + '/../bert_layer/tvm/attn_v.py'
+ATTN_V_RUNNER = SCRIPT_DIR + '/../bert_layer/tvm/attn_v_hoist_default.py'
 POST_LINEAR_RUNNER = SCRIPT_DIR + '/../bert_layer/tvm/post_linear.py'
 
 PRE_LINEAR_DENSE_RUNNER = SCRIPT_DIR + '/../bert_layer/tvm/pre_linear_dense.py'
@@ -62,7 +62,8 @@ parser.add_argument('--append', dest='append', default=False, action='store_true
 args = parser.parse_args()
 
 # ops = ['pre_linear', 'qkt', 'softmax', 'attn_v', 'post_linear']
-ops = ['attn_v', 'pre_linear']
+# ops = ['attn_v', 'pre_linear']
+ops = ['pre_linear']
 # b_sizes = [32, 64, 128]
 b_sizes = [64]
 
