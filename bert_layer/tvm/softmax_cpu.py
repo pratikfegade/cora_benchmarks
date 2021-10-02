@@ -33,7 +33,7 @@ if args.no_raggedness:
 else:
     def len_ufw(name, pad): return Ufw(name, "l", (pad, MAX_LEN), [bd], [lens], lambda lens: lambda b: utils.ceilmult(lens[b], pad))
 lufw1 = len_ufw('s1_1', 1)
-lufw32 = len_ufw('s2_32', 16)
+lufw32 = len_ufw('s2_32', 8)
 lufw64 = len_ufw('s64', 64)
 
 ls =  {
@@ -44,10 +44,12 @@ ls =  {
 }
 
 loop_ufs=[ls[0], ls[2], ls[1], ls[3]]
-if args.layout_unfused:
-    width_ufs=[ls[0], lufw32.get_uf(), ls[1], lufw32.get_uf()]
-else:
-    width_ufs=[ls[0], lufw64.get_uf(), ls[1], lufw64.get_uf()]
+if args.dense_storage: width_ufs=None
+else: width_ufs=[ls[0], lufw64.get_uf(), ls[1], lufw64.get_uf()]
+# if args.layout_unfused:
+    # width_ufs=[ls[0], lufw32.get_uf(), ls[1], lufw32.get_uf()]
+# else:
+    # width_ufs=[ls[0], lufw64.get_uf(), ls[1], lufw64.get_uf()]
 A = te.ragged_placeholder((BATCH_SIZE, MAX_LEN, NUM_HEADS, MAX_LEN), [bd, s1, md, s2], loop_ufs,
                           name='A', width_ufs=width_ufs)
 
@@ -76,8 +78,8 @@ s = tvm.create_schedule([O.op])
 
 if True:
     b, l1, h, l2 = s[O].leaf_iter_vars
-    f = s[O].fuse(b, l1, padding=16)
-    fo, fi = s[O].split(f, factor=16)
+    f = s[O].fuse(b, l1, padding=32)
+    fo, fi = s[O].split(f, factor=32)
     s[O].parallel(fi)
 
     vo, vi = s[O].split(l2, factor=8)
@@ -107,7 +109,7 @@ else:
 
 
 def size_fn(l_inputs):
-    if args.no_raggedness: return {}
+    if args.no_raggedness or args.dense_storage: return {}
     else:
         lens = l_inputs[0]
         if args.layout_unfused: fn = lufw32.get_fn(lens)
@@ -119,7 +121,7 @@ def size_fn(l_inputs):
 
 prep_code_mode = 'no_prep_code' if args.no_raggedness else 'with_prep_code'
 name = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0]
-out, batches = run_utils.lower_or_build(name, s, inputs, args, size_fn=size_fn, pad_sum=16,
+out, batches = run_utils.lower_or_build(name, s, inputs, args, size_fn=size_fn, pad_sum=32,
                                         run_function=run_utils.get_bert_layer_run_fn(BS_VAR),
                                         prep_code_mode=prep_code_mode)
 

@@ -69,11 +69,11 @@ if not only_mha:
     ]
 else:
     ops = {
-        'pre_linear': Op('pre_linear', 'pre_linear_cpu', BATCH_SIZE, [], cpu_ctx, dev_ctx),
+        'pre_linear': Op('pre_linear', 'pre_linear_blasized', BATCH_SIZE, [], cpu_ctx, dev_ctx),
         'qkt': Op('qkt', qkt_module, BATCH_SIZE, [], cpu_ctx, dev_ctx),
         'softmax': Op('softmax', softmax_module, BATCH_SIZE, [], cpu_ctx, dev_ctx),
         'attn_v': Op('attn_v', attn_v_module, BATCH_SIZE, [], cpu_ctx, dev_ctx),
-        'post_linear': Op('post_linear', 'post_linear_cpu', BATCH_SIZE, [], cpu_ctx, dev_ctx),
+        'post_linear': Op('post_linear', 'post_linear_blasized', BATCH_SIZE, [], cpu_ctx, dev_ctx),
     }
 
     ops_order = [
@@ -95,9 +95,9 @@ if args.average:
         batches[i] = batches[i].astype('int32')
 batches = run_utils.append_padded_sum(batches, 64)
 
-pre_linear_in_w = run_utils.create_tvm_array((3, NUM_HEADS, HEAD_SIZE, MODEL_DIM), "float32", dev_ctx, lw_args={})
-pre_linear_in_b = run_utils.create_tvm_array((3, NUM_HEADS, HEAD_SIZE,), "float32", dev_ctx, lw_args={})
-post_linear_in_w = run_utils.create_tvm_array((MODEL_DIM, NUM_HEADS, HEAD_SIZE), "float32", dev_ctx, lw_args={})
+pre_linear_in_w = run_utils.create_tvm_array((3, NUM_HEADS * HEAD_SIZE, MODEL_DIM), "float32", dev_ctx, lw_args={})
+pre_linear_in_b = run_utils.create_tvm_array((3, NUM_HEADS * HEAD_SIZE,), "float32", dev_ctx, lw_args={})
+post_linear_in_w = run_utils.create_tvm_array((MODEL_DIM, NUM_HEADS * HEAD_SIZE), "float32", dev_ctx, lw_args={})
 post_linear_in_b = run_utils.create_tvm_array((MODEL_DIM,), "float32", dev_ctx, lw_args={})
 if not only_mha:
     norm_add1_in_b = run_utils.create_tvm_array((MODEL_DIM,), "float32", dev_ctx, lw_args={})
@@ -123,41 +123,37 @@ for batch in batches:
     sum264 = run_utils.prefix_sum(batch_size_, lambda i: utils.ceilmult(batch[i], 64) * utils.ceilmult(batch[i], 64))
 
     # t_inputs: Allocate tensors
-    memset_out_qkv = run_utils.create_ragged_array((3, batch_size_, MAX_LEN, NUM_HEADS, HEAD_SIZE),
-                                                   3*sum64*NUM_HEADS*HEAD_SIZE, "float32", dev_ctx)
+    pre_linear_in_qkv = run_utils.create_tvm_array((batch_size_ * MAX_LEN, MODEL_DIM), "float32", dev_ctx)
+    pre_linear_out = run_utils.create_tvm_array((3, batch_size_ * MAX_LEN, NUM_HEADS * HEAD_SIZE), "float32", dev_ctx)
 
-    pre_linear_in_qkv = run_utils.create_ragged_array((batch_size_, MAX_LEN, MODEL_DIM), sum1*MODEL_DIM, "float32", dev_ctx)
-    pre_linear_out = memset_out_qkv
-
-    qkt_in_q = pre_linear_out
-    qkt_in_k = pre_linear_out
-    qkt_out = run_utils.create_ragged_array((batch_size_, MAX_LEN, NUM_HEADS, MAX_LEN), NUM_HEADS*sum264, "float32", dev_ctx)
+    qkt_in_q = pre_linear_out.create_view((3, batch_size_, MAX_LEN, NUM_HEADS, HEAD_SIZE))
+    qkt_in_k = pre_linear_out.create_view((3, batch_size_, MAX_LEN, NUM_HEADS, HEAD_SIZE))
+    qkt_out = run_utils.create_tvm_array((batch_size_, MAX_LEN, NUM_HEADS, MAX_LEN), "float32", dev_ctx)
 
     softmax_in = qkt_out
-    softmax_out = run_utils.create_ragged_array((batch_size_, MAX_LEN, NUM_HEADS, MAX_LEN), NUM_HEADS*sum264, "float32", dev_ctx)
+    softmax_out = run_utils.create_tvm_array((batch_size_, MAX_LEN, NUM_HEADS, MAX_LEN), "float32", dev_ctx)
 
     attn_v_in_attn = softmax_out
-    attn_v_in_v = pre_linear_out
-    attn_v_out = run_utils.create_ragged_array((batch_size_, MAX_LEN, NUM_HEADS, HEAD_SIZE),
-                                               NUM_HEADS*HEAD_SIZE*sum64, "float32", dev_ctx)
+    attn_v_in_v = pre_linear_out.create_view((3, batch_size_, MAX_LEN, NUM_HEADS, HEAD_SIZE))
+    attn_v_out = run_utils.create_tvm_array((batch_size_, MAX_LEN, NUM_HEADS, HEAD_SIZE), "float32", dev_ctx)
 
-    post_linear_in_a = attn_v_out
+    post_linear_in_a = attn_v_out.create_view((batch_size_ * MAX_LEN, NUM_HEADS * HEAD_SIZE))
     post_linear_in_a2 = pre_linear_in_qkv.create_view((batch_size_, MAX_LEN, MODEL_DIM))
-    post_linear_out = run_utils.create_ragged_array((batch_size_, MAX_LEN, MODEL_DIM), MODEL_DIM*sum1, "float32", dev_ctx)
+    post_linear_out = run_utils.create_tvm_array((batch_size_ * MAX_LEN, MODEL_DIM), "float32", dev_ctx)
 
     if not only_mha:
         norm_add1_in_a = post_linear_out
-        norm_add1_out = run_utils.create_ragged_array((batch_size_, MAX_LEN, MODEL_DIM), MODEL_DIM*sum1, "float32", dev_ctx)
+        norm_add1_out = run_utils.create_tvm_array((batch_size_, MAX_LEN, MODEL_DIM), "float32", dev_ctx)
 
         ff1_in_a = norm_add1_out
-        ff1_out = run_utils.create_ragged_array((batch_size_, MAX_LEN, FF_DIM), FF_DIM*sum1, "float32", dev_ctx)
+        ff1_out = run_utils.create_tvm_array((batch_size_, MAX_LEN, FF_DIM), "float32", dev_ctx)
 
         ff2_in_a = ff1_out
         ff2_in_a2 = norm_add1_out
-        ff2_out = run_utils.create_ragged_array((batch_size_, MAX_LEN, MODEL_DIM), MODEL_DIM*sum1, "float32", dev_ctx)
+        ff2_out = run_utils.create_tvm_array((batch_size_, MAX_LEN, MODEL_DIM), "float32", dev_ctx)
 
         norm_add2_in_a = ff2_out
-        norm_add2_out = run_utils.create_ragged_array((batch_size_, MAX_LEN, MODEL_DIM), MODEL_DIM*sum1, "float32", dev_ctx)
+        norm_add2_out = run_utils.create_tvm_array((batch_size_, MAX_LEN, MODEL_DIM), "float32", dev_ctx)
 
 
     ops['pre_linear'].tensor_inputs = [pre_linear_in_qkv, pre_linear_in_w, pre_linear_in_b, pre_linear_out]
@@ -184,6 +180,8 @@ for batch in batches:
         times.append(this_time)
     else:
         for op in ops_order: op.set_inputs_and_variant(l_inputs, 0)
+        ops_order[0].set_inputs_and_variant(l_inputs, 0, int(sum(batch))//64)
+        ops_order[-1].set_inputs_and_variant(l_inputs, 0, int(sum(batch))//64)
         for i in range(args.witers):
             for op in ops_order: op.execute()
         dev_ctx.sync()

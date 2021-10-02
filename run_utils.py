@@ -130,8 +130,8 @@ def create_tvm_array(t, dtype, ctx, rmap={}, lw_args=None):
     import tvm
     shape = get_shape(t, rmap)
 
-    assert (lw_args is not None)
-    if t in lw_args:
+    # assert (lw_args is not None)
+    if lw_args is not None and t in lw_args:
         flat_size = lw_args[t]
         # print(t, flat_size, shape)
         return create_ragged_array(shape, flat_size, dtype, ctx)
@@ -175,8 +175,8 @@ def execute(target, built, inputs, ctx, debug = False):
             return -100000000
             evaluator = built.time_evaluator('default_function', ctx, 1, repeat=10)
         else:
-            # evaluator = built.time_evaluator(built.entry_name, ctx, repeat=5, number=20)
-            evaluator = built.time_evaluator(built.entry_name, ctx, repeat=5, number=100)
+            evaluator = built.time_evaluator(built.entry_name, ctx, repeat=5, number=20)
+            # evaluator = built.time_evaluator(built.entry_name, ctx, repeat=5, number=100)
         eval_result = evaluator(*inputs)
         return mean(list(eval_result.results)[1:]) * 1000
         # return mean(list(eval_result.results)) * 1000
@@ -299,10 +299,11 @@ def run2(built, i_inputs_tensors, t_inputs_tensors, lw_args, args, pad_sum=None)
     return t_inputs, batches
 
 
-def get_bert_layer_run_fn(bs_var):
+def get_bert_layer_run_fn(bs_var, sum_var=None, sum_factor=None):
     import tvm
     print('BS_VAR', bs_var)
     def bert_layer_run(built, i_inputs_tensors, t_inputs_tensors, lw_args, args, pad_sum=None):
+        print('Running now')
         ctx = get_ctx(args.target)
         cpu_ctx = get_ctx("llvm")
 
@@ -322,9 +323,17 @@ def get_bert_layer_run_fn(bs_var):
 
             time = 0
             for batch in batches:
-                t_inputs = ([batch_size] +
-                            [create_tvm_array(i, "float32", ctx, rmap=rmap, lw_args=lw_args([batch]))
-                             for i in t_inputs_tensors[1:]])
+                print(sum_var, int(sum(batch)))
+                if sum_var is not None:
+                    rmap[sum_var] = int(sum(batch)) // sum_factor
+                if sum_var is not None:
+                    t_inputs = ([rmap[sum_var]] +
+                                [create_tvm_array(i, "float32", ctx, rmap=rmap, lw_args=lw_args([batch]))
+                                 for i in t_inputs_tensors[1:]])
+                else:
+                    t_inputs = ([batch_size] +
+                                [create_tvm_array(i, "float32", ctx, rmap=rmap, lw_args=lw_args([batch]))
+                                 for i in t_inputs_tensors[1:]])
                 if args.no_raggedness or (hasattr(args, 'full_dense') and args.full_dense):
                     l_inputs = [tvm.nd.array(batch, ctx)]
                 else:

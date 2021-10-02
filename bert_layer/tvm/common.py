@@ -77,8 +77,11 @@ class Op:
         self.inputs = None
         self.optimal_module = None
 
-    def set_inputs_and_variant(self, l_inputs, variant):
-        self.inputs = [self.batch_size] + self.tensor_inputs + l_inputs + self.host_ibufs[variant] + self.dev_ibufs[variant]
+    def set_inputs_and_variant(self, l_inputs, variant, f_sum=None):
+        if f_sum is not None:
+            self.inputs = [f_sum] + self.tensor_inputs + l_inputs + self.host_ibufs[variant] + self.dev_ibufs[variant]
+        else:
+            self.inputs = [self.batch_size] + self.tensor_inputs + l_inputs + self.host_ibufs[variant] + self.dev_ibufs[variant]
         self.optimal_module = self.modules[variant]
         self.optimal_module_entry_func = self.modules[variant].entry_func
 
@@ -88,6 +91,8 @@ class Op:
         self.optimal_module_entry_func = None
 
     def execute(self):
+        # print(self.name, self.inputs[0])
+        # sys.stdout.flush()
         # self.optimal_module(*self.inputs)
         self.optimal_module_entry_func(*self.inputs)
 
@@ -107,7 +112,7 @@ class Op:
         means = []
         for i in range(len(self.modules)):
             inputs = [self.batch_size] + self.tensor_inputs + l_inputs + self.host_ibufs[i] + self.dev_ibufs[i]
-            evaluator = self.modules[i].time_evaluator(self.modules[i].entry_name, ctx, number=5, repeat=100)
+            evaluator = self.modules[i].time_evaluator(self.modules[i].entry_name, ctx, number=5, repeat=10)
             eval_result = evaluator(*inputs)
             means.append(mean(list(eval_result.results)[1:]))
         return min(means)

@@ -160,6 +160,7 @@ inputs = [[lens], [BS_VAR, Q, K, O]]
 
 def size_fn(l_inputs):
     lens = l_inputs[0]
+    if args.dense_storage: return {}
     return {
         Q: 3 * NUM_HEADS * HEAD_SIZE * run_utils.prefix_sum(len(lens), lambda b: (sufw.get_fn(lens)(b))),
         K: 3 * NUM_HEADS * HEAD_SIZE * run_utils.prefix_sum(len(lens), lambda b: (sufw.get_fn(lens)(b))),

@@ -114,14 +114,16 @@ args = parser.parse_args()
 # batch_sizes = [2]
 batch_sizes = [32, 64, 128]
 targets = [args.target] if args.target else ['cuda']
-datasets = com.cluster_datasets_by_max_len() if args.dataset is None else {com.get_dataset_max_len(args.dataset) : [args.dataset]}
+# datasets = com.cluster_datasets_by_max_len() if args.dataset is None else {com.get_dataset_max_len(args.dataset) : [args.dataset]}
 # datasets = {512:['race', 'wiki_512'],384:['squadv2'],128:['wiki_128','mnli','xnli'],112:['mrpc'],48:['cola']}
 # datasets = {384:['squadv2'],128:['wiki_128','mnli','xnli'],112:['mrpc'],48:['cola']}
 # datasets = {512:['race', 'wiki_512']}
+datasets = {48:['cola'],112:['mrpc'],128:['wiki_128','mnli','xnli'],384:['squadv2'],512:['race', 'wiki_512']}
+
 
 if args.target == "cpu":
     framework_funs = {
-        'pytorch': lambda b_sizes, *args: com.batchify(b_sizes, run_pytorch, *args),
+        'pytorch_openblas': lambda b_sizes, *args: com.batchify(b_sizes, run_pytorch, *args),
         # 'cora': lambda b_sizes, *args: com.batchify(b_sizes, get_cora_runner(False), *args),
     }
 else:
@@ -160,7 +162,7 @@ for target in targets:
             for framework, func in framework_funs.items():
                 log(args, 'Running %s %s %s %s' % (target, dataset, framework, batch_sizes))
                 exe_times[framework] = func(batch_sizes, dataset, args.max_batches, results_err, args)
-                # print(exe_times[framework])
+                print(exe_times[framework])
 
             for b_size in batch_sizes:
                 out_str = '%s,%s,%d' % (target, dataset, b_size)

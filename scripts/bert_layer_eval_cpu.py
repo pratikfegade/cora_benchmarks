@@ -157,7 +157,7 @@ print(header, file = results_out)
 
 for target in targets:
     for _, dataset_list in datasets.items():
-        # if args.gen_libs: generate_tvm_libs(dataset_list[0], target, args);
+        if args.gen_libs: generate_tvm_libs(dataset_list[0], target, args);
         for dataset in dataset_list:
             exe_times = {}
             for framework, func in framework_funs.items():

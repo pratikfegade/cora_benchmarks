@@ -52,12 +52,12 @@ ls = {
 }
 
 loop_ufs=[ls[0], ls[2], ls[1], ls[2]]
-width_ufs=[ls[0], sufwp.get_uf(), ls[1], sufwp.get_uf()]
+width_ufs=None if args.dense_storage else [ls[0], sufwp.get_uf(), ls[1], sufwp.get_uf()]
 A = te.ragged_placeholder((BATCH_SIZE, MAX_LEN, NUM_HEADS, MAX_LEN), [bd, s2, md, s1], loop_ufs,
                           name='A', width_ufs=width_ufs)
 
 loop_ufs=[ls[4], ls[0], ls[2], ls[1], ls[3]]
-width_ufs=[ls[4], ls[0], sufwp.get_uf(), ls[1], ls[3]]
+width_ufs=None if args.dense_storage else [ls[4], ls[0], sufwp.get_uf(), ls[1], ls[3]]
 V = te.ragged_placeholder((3, BATCH_SIZE, MAX_LEN, NUM_HEADS, HEAD_SIZE), [qk, bd, s1, md, hd], loop_ufs,
                           name='V', width_ufs=width_ufs)
 
@@ -145,7 +145,7 @@ else:
     s.reorder_tensor_dimensions(Al, 3, 4)
 
 def size_fn(l_inputs):
-    if args.no_raggedness: return {}
+    if args.no_raggedness or args.dense_storage: return {}
     else:
         lens = l_inputs[0]
         return {
@@ -160,7 +160,7 @@ inputs = [[lens], [BS_VAR, V, A, O]]
 name = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0]
 out, batches = run_utils.lower_or_build(name, s, inputs, args, size_fn=size_fn, pad_sum=64,
                                         run_function=run_utils.get_bert_layer_run_fn(BS_VAR),
-                                        prep_code_mode=prep_code_mode)
+                                        prep_code_mode=prep_code_mode, hoist_loads=True)
 
 # _, V, A, O  = out
 # ctr = 0

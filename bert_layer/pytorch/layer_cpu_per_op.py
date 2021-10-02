@@ -100,7 +100,7 @@ batch_size = args.batch_size
 
 batches = run_utils.get_nlp_batches(batch_size, args.max_batches, args.dataset)
 
-iters = 1 if args.mem or args.debug else 20
+iters = 1 if args.debug else 10
 
 callable_to_profile = None
 torch.set_num_threads(8)
@@ -113,6 +113,7 @@ op_times = {
 }
 def run_for_batches():
     for batch in batches:
+        print('B', sep=' ')
         max_len = int(np.amax(batch))
 
         attn_mask = np.full((batch_size, max_len, max_len), 0.0, dtype='float32')
@@ -125,15 +126,12 @@ def run_for_batches():
                     # for k in range(j + 1, max_len):
                         # attn_mask[i][j][k] = -float('inf')
         attn_mask = torch.from_numpy(attn_mask).to(device)
-        encoder = MaskedMHA(device, max_len, batch_size, num_heads, head_size, model_size)
-        traced_encoder = torch.jit.script(encoder)
-        inp = get_np_tensor((args.batch_size * max_len, model_size), device, True)
 
-        inp_t = get_np_tensor((args.batch_size * max_len, model_size), device, True)
+        inp = get_np_tensor((args.batch_size * max_len, model_size), device, True)
         qkv = get_np_tensor((3, num_heads, batch_size, max_len, head_size), device, True)
         q, k, v = torch.split(qkv, 1, 0)
         attn = get_np_tensor((1, num_heads, batch_size, max_len, max_len), device, True)
-        post_lin_in = get_np_tensor((1, num_heads, batch_size, max_len, head_size), device, True)
+        post_lin_in = get_np_tensor((batch_size, max_len, num_heads * head_size), device, True)
 
         ops = {
             'pre_linear': (PreLinear(device, max_len, batch_size, num_heads, head_size, model_size), [inp]),
@@ -146,7 +144,7 @@ def run_for_batches():
         for k, v in ops.items():
             ops[k] = (torch.jit.script(v[0]), v[1])
 
-        for k, v in ops:
+        for k, v in ops.items():
             timer = benchmark.Timer(stmt='f(*inps)',
                                     globals={'inps': v[1], 'f': v[0]},
                                     num_threads=8)
@@ -156,5 +154,5 @@ def run_for_batches():
 
 with torch.no_grad():
     op_times = run_for_batches()
-    for ops in op_times:
+    for op in op_times:
         print('RESULTS', op, mean(op_times[op]), sep=',')
