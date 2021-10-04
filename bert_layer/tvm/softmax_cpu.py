@@ -32,8 +32,11 @@ if args.no_raggedness:
     def len_ufw(name, pad): return Ufw(name, "l", (pad, MAX_LEN), [], [], lambda : lambda : MAX_LEN)
 else:
     def len_ufw(name, pad): return Ufw(name, "l", (pad, MAX_LEN), [bd], [lens], lambda lens: lambda b: utils.ceilmult(lens[b], pad))
+if dataset in ['mrpc', 'cola']: ufactor=16
+else: ufactor=32
+assert ufactor >= 16 and ufactor <= 64
 lufw1 = len_ufw('s1_1', 1)
-lufw32 = len_ufw('s2_32', 8)
+lufw32 = len_ufw('s2_32', ufactor)
 lufw64 = len_ufw('s64', 64)
 
 ls =  {
@@ -82,20 +85,20 @@ if True:
     fo, fi = s[O].split(f, factor=32)
     s[O].parallel(fi)
 
-    vo, vi = s[O].split(l2, factor=8)
+    vo, vi = s[O].split(l2, factor=ufactor)
     s[O].vectorize(vi)
 
     Al = s.cache_read(A, 'local', [Amax, Aexp])
-    vo, vi = s[Al].split(s[Al].leaf_iter_vars[3], factor=8)
+    vo, vi = s[Al].split(s[Al].leaf_iter_vars[3], factor=ufactor)
     s[Al].vectorize(vi)
 
-    vo, vi = s[Aexp].split(s[Aexp].leaf_iter_vars[3], factor=8)
+    vo, vi = s[Aexp].split(s[Aexp].leaf_iter_vars[3], factor=ufactor)
     s[Aexp].vectorize(vi)
 
-    vo, vi = s[Amax].split(s[Amax].leaf_iter_vars[3], factor=8)
+    vo, vi = s[Amax].split(s[Amax].leaf_iter_vars[3], factor=ufactor)
     s[Amax].unroll(vi)
 
-    vo, vi = s[Asum].split(s[Asum].leaf_iter_vars[3], factor=8)
+    vo, vi = s[Asum].split(s[Asum].leaf_iter_vars[3], factor=ufactor)
     s[Asum].unroll(vi)
 
     s[Al].compute_at(s[O], fi)
