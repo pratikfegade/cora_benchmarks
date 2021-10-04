@@ -115,7 +115,7 @@ def intrin_gemv(m, n, r):
                                         False,
                                         True,
                                         1.0,
-                                        1.0))
+                                        0.0))
             return ib.get()
 
         def _reduce_reset():
@@ -198,11 +198,8 @@ q_size = 0
 for length in batches[0]:
     q_size += utils.ceilmult(length, 64) * NUM_HEADS * OUT_SIZE
 
-# ctr = 0
-# _, QKV, W, B, O  = out
-# O = O.flatten()
-# for length in batches[0]:
-#     this_extent = length * NUM_HEADS * OUT_SIZE
-#     print(length, np.mean(O[ctr:ctr + this_extent]), np.mean(O[ctr+q_size:ctr+q_size + this_extent]),
-#           np.mean(O[ctr+2*q_size:ctr+2*q_size + this_extent]))
-#     ctr += utils.ceilmult(length, 64) * NUM_HEADS * OUT_SIZE
+ctr = 0
+_, QKV, W, B, O  = out
+for length in batches[0]:
+    print(length, np.mean(O[0, ctr:ctr+length, :]), np.mean(O[1, ctr:ctr+length, :]), np.mean(O[2, ctr:ctr+length, :]))
+    ctr += length

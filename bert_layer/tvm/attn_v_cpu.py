@@ -37,9 +37,7 @@ if args.no_raggedness:
 else:
     def len_ufw(name, pad): return Ufw(name, "l", (pad, MAX_LEN), [bd], [lens], lambda lens: lambda b: utils.ceilmult(lens[b], pad))
 lufw1 = len_ufw('s', 16)
-
-if args.dataset in ['mprc', 'cola']: lufwp = len_ufw('s', 32)
-else: lufwp = len_ufw('s', 64)
+lufwp = len_ufw('s', 64)
 sufwp = len_ufw('s', 64)
 
 lbduf = Uf.from_constant('bd', BS_VAR, "l")
@@ -127,6 +125,7 @@ else:
     f2 = s[O].fuse(b, f1)
     s[O].parallel(f2)
 
+    s[O_local].unroll(O_local_k_i)
     s[O_local].unroll(O_local_m_c_i)
     s[O_local].unroll(O_local_n_c_i)
     # s[O_local].peel(O_local_k_o)

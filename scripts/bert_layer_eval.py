@@ -7,8 +7,9 @@ import argparse
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 PYTORCH_RUNNER_CPU = SCRIPT_DIR + '/../bert_layer/pytorch/layer_cpu.py'
 PYTORCH_RUNNER_GPU = SCRIPT_DIR + '/../bert_layer/pytorch/layer.py'
+TF_RUNNER = SCRIPT_DIR + '/../bert_layer/tf/layer.py'
 TVM_GPU_EXE_RUNNER = SCRIPT_DIR + '/../bert_layer/tvm/masked_mha.py'
-TVM_CPU_EXE_RUNNER = SCRIPT_DIR + '/../bert_layer/tvm/masked_mha_cpu.py'
+TVM_CPU_EXE_RUNNER = SCRIPT_DIR + '/../bert_layer/tvm/masked_mha_blasized.py'
 TVM_MEM_RUNNER = SCRIPT_DIR + '/../bert_layer/tvm/training_memory.py'
 TVM_GPU_LIB_RUNNER = SCRIPT_DIR + '/../bert_layer/tvm/gen_libs.sh'
 TVM_CPU_LIB_RUNNER = SCRIPT_DIR + '/../bert_layer/tvm/gen_libs_cpu.sh'
@@ -44,6 +45,19 @@ def run_pytorch(b_size, dataset, n_batch, err_file, args):
 
     if args.mem: return com.extract_mem(out)
     else: return com.extract_times(out, 1)[0]
+
+def run_tf(b_size, dataset, n_batch, err_file, args):
+    print(args.target, args.target == "cpu")
+    runner = TF_RUNNER
+
+    log(args, ' Batch size %d' % (b_size))
+    cmd = [PYTHON, runner, '--batch-size', str(b_size), '--max-batches', str(n_batch), '--dataset', dataset]
+
+    print(' '.join(cmd))
+    out, err = run_cmd(cmd)
+    if err: print(err, file = err_file)
+
+    return com.extract_times(out, 1)[0]
 
 def get_ftrans_runner(no_pad):
     def run_ftrans(b_size, dataset, n_batch, err_file, args):
@@ -123,7 +137,8 @@ datasets = {48:['cola'],112:['mrpc'],128:['wiki_128','mnli','xnli'],384:['squadv
 
 if args.target == "cpu":
     framework_funs = {
-        'pytorch_openblas': lambda b_sizes, *args: com.batchify(b_sizes, run_pytorch, *args),
+        # 'pytorch': lambda b_sizes, *args: com.batchify(b_sizes, run_pytorch, *args),
+        'tf': lambda b_sizes, *args: com.batchify(b_sizes, run_tf, *args),
         # 'cora': lambda b_sizes, *args: com.batchify(b_sizes, get_cora_runner(False), *args),
     }
 else:

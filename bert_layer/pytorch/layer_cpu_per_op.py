@@ -30,7 +30,6 @@ def get_np_tensor(size, device, random, fill_value = None):
         return torch.randn(size, device = device, requires_grad = False, dtype = torch.float32)
     else:
         if fill_value == None: raise ValueError("No fill value provided " + str(fill_value))
-        np_array = np.full(size, 0.1, 'float32').astype('float32')
     return torch.from_numpy(np_array).to(device)
 
 class PreLinear(nn.Module):
@@ -54,9 +53,14 @@ class PreLinear(nn.Module):
 class QKt(nn.Module):
     def __init__(self, device, max_len, batch_size, num_heads, head_size, model_size):
         super(QKt, self).__init__()
+        self.batch_size = batch_size
+        self.num_heads = num_heads
+        self.head_size = head_size
+        self.max_len = max_len
 
     def forward(self, q, k, attn_mask):
-        attn = torch.matmul(q, k.permute(0, 1, 2, 4, 3))
+        attn = torch.matmul(q, torch.clone(k.permute(0, 1, 2, 4, 3)))
+        attn = torch.reshape(attn, (self.num_heads, self.batch_size, self.max_len, self.max_len))
         attn += attn_mask
         return attn
 
@@ -100,7 +104,7 @@ batch_size = args.batch_size
 
 batches = run_utils.get_nlp_batches(batch_size, args.max_batches, args.dataset)
 
-iters = 1 if args.debug else 10
+iters = 20
 
 callable_to_profile = None
 torch.set_num_threads(8)
@@ -128,8 +132,9 @@ def run_for_batches():
         attn_mask = torch.from_numpy(attn_mask).to(device)
 
         inp = get_np_tensor((args.batch_size * max_len, model_size), device, True)
-        qkv = get_np_tensor((3, num_heads, batch_size, max_len, head_size), device, True)
-        q, k, v = torch.split(qkv, 1, 0)
+        q = get_np_tensor((1, num_heads, batch_size, max_len, head_size), device, True)
+        k = get_np_tensor((1, num_heads, batch_size, head_size, max_len), device, True)
+        v = get_np_tensor((1, num_heads, batch_size, max_len, head_size), device, True)
         attn = get_np_tensor((1, num_heads, batch_size, max_len, max_len), device, True)
         post_lin_in = get_np_tensor((batch_size, max_len, num_heads * head_size), device, True)
 

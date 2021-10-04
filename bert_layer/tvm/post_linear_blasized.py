@@ -125,7 +125,7 @@ def intrin_gemv(m, n, r):
                                         False,
                                         True,
                                         1.0,
-                                        1.0))
+                                        0.0))
             return ib.get()
 
         def _reduce_reset():
@@ -203,11 +203,12 @@ def size_fn(l_inputs):
 
 bA = tvm.decl_buffer((f_ext*64, NUM_HEADS*HEAD_SIZE), name="bA")
 bW = tvm.decl_buffer((OUT_SIZE, NUM_HEADS*HEAD_SIZE), name="bW")
+bO = tvm.decl_buffer((f_ext*64, OUT_SIZE), name="bO")
 if args.skip_residual:
-    inputs = [[lens], [f_ext, bA, bW, B, O]]
+    inputs = [[lens], [f_ext, bA, bW, B, bO]]
 else:
-    inputs = [[lens], [f_ext, bA, A2, bW, B, O]]
-binds = {A:bA, W:bW}
+    inputs = [[lens], [f_ext, bA, A2, bW, B, bO]]
+binds = {A:bA, W:bW, O:bO}
 
 name = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0]
 out, batches = run_utils.lower_or_build(name, s, inputs, args, size_fn=size_fn, binds=binds, pad_sum=64,
@@ -216,8 +217,9 @@ out, batches = run_utils.lower_or_build(name, s, inputs, args, size_fn=size_fn, 
 
 # _, A, W, B, O = out
 # ctr = 0
-# O = O.flatten()
+# print(np.mean(W))
+# i = 0
 # for length in batches[0]:
-#     this_extent = length * OUT_SIZE
-#     print(length, np.mean(O[ctr:ctr + this_extent]))
-#     ctr += this_extent
+#     print(length, np.mean(O[ctr:ctr+length, :]), np.mean(A[ctr:ctr+length, :]))
+#     ctr += length
+#     i += 1

@@ -108,10 +108,13 @@ class Op:
             print(self.name, means)
             return min(range(len(means)), key=means.__getitem__)
 
-    def execute_multiple(self, l_inputs, ctx):
+    def execute_multiple(self, l_inputs, ctx, f_sum=None):
         means = []
         for i in range(len(self.modules)):
-            inputs = [self.batch_size] + self.tensor_inputs + l_inputs + self.host_ibufs[i] + self.dev_ibufs[i]
+            if f_sum is not None:
+                inputs = [f_sum] + self.tensor_inputs + l_inputs + self.host_ibufs[i] + self.dev_ibufs[i]
+            else:
+                inputs = [self.batch_size] + self.tensor_inputs + l_inputs + self.host_ibufs[i] + self.dev_ibufs[i]
             evaluator = self.modules[i].time_evaluator(self.modules[i].entry_name, ctx, number=5, repeat=10)
             eval_result = evaluator(*inputs)
             means.append(mean(list(eval_result.results)[1:]))

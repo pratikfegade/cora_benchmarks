@@ -28,12 +28,6 @@ args = parser.parse_args()
 np.random.seed(0)
 VAL=0.1
 def get_np_tensor(size, device, random, fill_value = None):
-    # if random:
-    #     return torch.randn(size, device = device, requires_grad = False, dtype = torch.float32)
-    # else:
-    #     if fill_value == None: raise ValueError("No fill value provided " + str(fill_value))
-    #     return torch.full(size, fill_value = fill_value, device = device, requires_grad = False, dtype = torch.float32)
-
     if random:
         np_array = np.random.normal(size=size).astype('float32')
         return torch.randn(size, device = device, requires_grad = False, dtype = torch.float32)
@@ -107,10 +101,11 @@ class MaskedMHA(nn.Module):
         qkv += self.pre_linear_b
         qkv = qkv.view(3, self.num_heads, self.batch_size, self.max_len, self.head_size)
         q, k, v = torch.split(qkv, 1, 0)
-        attn = torch.matmul(q, k.permute(0, 1, 2, 4, 3))
+        attn = torch.matmul(q, torch.clone(k.permute(0, 1, 2, 4, 3)))
         attn += attn_mask
         attn = f.softmax(attn, dim = 4)
-        attn = torch.reshape(torch.matmul(attn, v).permute(0, 2, 3, 1, 4), (self.batch_size, self.max_len, self.model_size))
+        attn = torch.reshape(torch.clone(torch.matmul(attn, v).permute(0, 2, 3, 1, 4)),
+                             (self.batch_size, self.max_len, self.model_size))
         sa_out = torch.matmul(attn, self.post_linear_w)
         sa_out += self.post_linear_b
         return sa_out
@@ -135,14 +130,14 @@ def run_for_batches():
 
         attn_mask = np.full((batch_size, max_len, max_len), 0.0, dtype='float32')
         if args.masked_mha:
-            for i in range(batch_size):
-                for j in range(max_len):
-                    if j >= batch[i]:
-                        for k in range(0, max_len):
-                            attn_mask[i][j][k] = -float('inf')
-                    else:
-                        for k in range(j + 1, max_len):
-                            attn_mask[i][j][k] = -float('inf')
+            # for i in range(batch_size):
+            #     for j in range(max_len):
+            #         if j >= batch[i]:
+            #             for k in range(0, max_len):
+            #                 attn_mask[i][j][k] = -float('inf')
+            #         else:
+            #             for k in range(j + 1, max_len):
+            #                 attn_mask[i][j][k] = -float('inf')
             attn_mask = torch.from_numpy(attn_mask).to(device)
             encoder = MaskedMHA(device, max_len, batch_size, num_heads, head_size, model_size)
             traced_encoder = torch.jit.script(encoder)

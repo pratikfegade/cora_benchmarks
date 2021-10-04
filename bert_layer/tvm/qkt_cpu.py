@@ -14,6 +14,7 @@ parser = run_utils.get_cmd_parser()
 parser.add_argument('--nt', dest='nt', default=8, type=int)
 parser.add_argument('--kt', dest='kt', default=4, type=int)
 parser.add_argument('--masked-mha', dest='masked_mha', default=False, action='store_true')
+parser.add_argument('--sched', dest='sched', default=1, type=int)
 args = parser.parse_args()
 
 args.target = run_utils.get_arm_target()
@@ -81,38 +82,7 @@ O = te.ragged_compute((BATCH_SIZE, MAX_LEN, NUM_HEADS, MAX_LEN), [bd, s1, md, s2
 
 s = tvm.create_schedule([O.op])
 
-if False:
-    Qs = s.cache_read(Q, "shared", [S], layouts='dense')
-    Ks = s.cache_read(K, "shared", [S], layouts='dense')
-
-    O_local = S
-    O_local_b_c, O_local_m_c, O_local_h_c, O_local_n_c, O_local_k = tuple(O_local.op.axis) + tuple(O_local.op.reduce_axis)
-    O_local_m_c_o_i, O_local_m_c_i = s[O_local].split(O_local_m_c, factor=4)
-    O_local_n_c_o_i, O_local_n_c_i = s[O_local].split(O_local_n_c, factor=64)
-    O_local_k_o, O_local_k_i = s[O_local].split(O_local_k, factor=32)
-    s[O_local].reorder(O_local_b_c, O_local_h_c, O_local_m_c_o_i, O_local_n_c_o_i, O_local_k_o, O_local_k_i, O_local_m_c_i, O_local_n_c_i)
-
-    b, x, h, y = s[O].leaf_iter_vars[0:4]
-    xo, xi = s[O].split(x, factor = 64)
-    yo, yi = s[O].split(y, factor = 64)
-    s[O].reorder(b, xo, yo, h, xi, yi)
-    f1 = s[O].fuse(xo, yo)
-    f2 = s[O].fuse(b, f1)
-    s[O].parallel(f2)
-
-    O_m, O_n = xi, yi
-    O_m_o_i, O_m_i = s[O].split(O_m, factor=4)
-
-    O_n_o_i, O_n_i = s[O].split(O_n, factor=64)
-    O_n_o_o, O_n_o_i = s[O].split(O_n_o_i, factor=1)
-    s[O].reorder(O_m_o_i, O_n_o_o, O_n_o_i, O_m_i, O_n_i)
-    s[O_local].compute_at(s[O], O_n_o_i)
-    s[Qs].compute_at(s[O], O_n_o_i)
-    s[Ks].compute_at(s[O], O_n_o_i)
-
-    s[O_local].vectorize(O_local_n_c_i)
-    s[O].vectorize(O_n_i)
-else:
+if args.sched == 1:
     O_local = S
 
     Ks = s.cache_read(K, "shared", [S], layouts='dense')
@@ -127,8 +97,10 @@ else:
     O_local_n_c_o_o_i, O_local_n_c_o_i = s[O_local].split(O_local_n_c_o_i, factor=1)
 
     O_local_k_o, O_local_k_i = s[O_local].split(O_local_k, factor=64)
-    s[O_local].reorder(O_local_b_c, O_local_m_c_o_o_o, O_local_n_c_o_o_i, O_local_m_c_o_o_i, O_local_k_o, O_local_m_c_o_i, O_local_n_c_o_i, O_local_k_i, O_local_m_c_i, O_local_n_c_i)
+    O_local_k_i_o, O_local_k_i_i = s[O_local].split(O_local_k_i, factor=16)
+    s[O_local].reorder(O_local_b_c, O_local_m_c_o_o_o, O_local_n_c_o_o_i, O_local_m_c_o_o_i, O_local_k_o, O_local_m_c_o_i, O_local_n_c_o_i, O_local_k_i_o, O_local_k_i_i, O_local_m_c_i, O_local_n_c_i)
 
+    s[O_local].unroll(O_local_k_i_i)
     s[O_local].unroll(O_local_n_c_i)
     s[O_local].unroll(O_local_m_c_i)
 
@@ -155,6 +127,34 @@ else:
 
     s.reorder_tensor_dimensions(Ks, 2, 3)
     s.reorder_tensor_dimensions(Ks, 3, 4)
+else:
+    Ks = s.cache_read(K, "local", [S], layouts='dense')
+    Qs = s.cache_read(Q, "local", [S], layouts='dense')
+    S_b_c, S_l1_c, S_n_c, S_l2_c, S_k = tuple(S.op.axis) + tuple(S.op.reduce_axis)
+
+    S_l1_c_o_o_i, S_l1_c_o_i = s[S].split(S_l1_c, factor=8)
+    S_l2_c_o_i, S_l2_c_i = s[S].split(S_l2_c, factor=8)
+    s[S].reorder(S_b_c, S_n_c, S_l2_c_o_i, S_l1_c_o_o_i, S_k, S_l1_c_o_i, S_l2_c_i)
+    s[Ks].compute_at(s[S], S_k)
+    s[Qs].compute_at(s[S], S_k)
+
+    O_b, O_l1, O_n, O_l2 = tuple(O.op.axis) + tuple(O.op.reduce_axis)
+
+    O_l1_o_i, O_l1_i = s[O].split(O_l1, factor=8)
+    O_l1_o_o, O_l1_o_i = s[O].split(O_l1_o_i, factor=8)
+
+    O_l2_o_i, O_l2_i = s[O].split(O_l2, factor=8)
+    O_l2_o_o, O_l2_o_i = s[O].split(O_l2_o_i, factor=1)
+
+    s[O].reorder(O_b, O_l1_o_o, O_n, O_l2_o_o, O_l1_o_i, O_l2_o_i, O_l1_i, O_l2_i)
+    s[S].compute_at(s[O], O_l2_o_i)
+    O_b_o_o_l1_o_o_fused_n_o_o_fused = s[O].fuse(O_b, O_l1_o_o, O_n)
+    s[O].parallel(O_b_o_o_l1_o_o_fused_n_o_o_fused)
+
+    s[S].pragma(S_b_c, "auto_unroll_max_step", 512)
+    s[S].pragma(S_b_c, "unroll_explicit", True)
+    s[S].vectorize(S_l2_c_i)
+    s[O].vectorize(O_l2_i)
 
 inputs = [[lens], [BS_VAR, Q, K, O]]
 
