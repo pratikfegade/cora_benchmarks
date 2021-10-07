@@ -359,6 +359,8 @@ Stats run(std::vector<int> lens, std::vector<Allocator*> allocators) {
   std::vector<int*> allocated_raw_mems;
   std::vector<int*> allocated_raw_device_mems;
   std::vector<int> allocated_mem_sizes;
+  int* lens_device_mem;
+  cudaMalloc((void **) &lens_device_mem, batch_size * sizeof(int));
 
   for (Allocator* allocator: allocators) {
     std::vector<int> allocs_needed = allocator->get_needed_allocs(batch_size, lens);
@@ -374,7 +376,7 @@ Stats run(std::vector<int> lens, std::vector<Allocator*> allocators) {
     allocated_mems.push_back(allocated_mem);
     allocated_mem_sizes.push_back(total_mem_needed);
     int* device_raw_mem;
-    cudaMalloc((void **) &device_raw_mem, total_mem_needed);
+    cudaMalloc((void **) &device_raw_mem, total_mem_needed * sizeof(int));
     allocated_raw_device_mems.push_back(device_raw_mem);
     if (allocator->is_fusion_alloc()) {
       fusion_mem += sum(allocs_needed);
@@ -402,6 +404,7 @@ Stats run(std::vector<int> lens, std::vector<Allocator*> allocators) {
       cudaEventCreate(&end);
       cudaEventRecord(start);
       cudaMemcpy(allocated_raw_device_mems[i], allocated_raw_mems[i], allocated_mem_sizes[i] * sizeof(int), cudaMemcpyHostToDevice);
+      cudaMemcpy(&lens_device_mem, lens.data(), batch_size * sizeof(int), cudaMemcpyHostToDevice);
       cudaEventRecord(end);
       cudaEventSynchronize(end);
       float this_copy_time = 0;
