@@ -11,6 +11,14 @@ using namespace std::chrono;
 
 #define ceil(a, b) ((a + b - 1) / b)
 
+#define CUDA_ERR {                                                                                    \
+  cudaError_t err;                                                                                    \
+  if ((err = cudaGetLastError()) != cudaSuccess) {                                                    \
+    printf("CUDA error: %d : %s : %s, line %d\n", err, cudaGetErrorString(err), __FILE__, __LINE__);  \
+    exit(1);                                                                                          \
+  }                                                                                                   \
+}
+
 template<class T>
 class Triple {
 public:
@@ -347,6 +355,7 @@ void free_allocs(std::vector<int*> allocs) {
 void free_device_allocs(std::vector<int*> allocs) {
   for (auto alloc: allocs) {
     cudaFree(alloc);
+    CUDA_ERR;
   }
 }
 
@@ -361,6 +370,7 @@ Stats run(std::vector<int> lens, std::vector<Allocator*> allocators) {
   std::vector<int> allocated_mem_sizes;
   int* lens_device_mem;
   cudaMalloc((void **) &lens_device_mem, batch_size * sizeof(int));
+  CUDA_ERR;
 
   for (Allocator* allocator: allocators) {
     std::vector<int> allocs_needed = allocator->get_needed_allocs(batch_size, lens);
@@ -377,6 +387,7 @@ Stats run(std::vector<int> lens, std::vector<Allocator*> allocators) {
     allocated_mem_sizes.push_back(total_mem_needed);
     int* device_raw_mem;
     cudaMalloc((void **) &device_raw_mem, total_mem_needed * sizeof(int));
+    CUDA_ERR;
     allocated_raw_device_mems.push_back(device_raw_mem);
     if (allocator->is_fusion_alloc()) {
       fusion_mem += sum(allocs_needed);
@@ -404,7 +415,9 @@ Stats run(std::vector<int> lens, std::vector<Allocator*> allocators) {
       cudaEventCreate(&end);
       cudaEventRecord(start);
       cudaMemcpy(allocated_raw_device_mems[i], allocated_raw_mems[i], allocated_mem_sizes[i] * sizeof(int), cudaMemcpyHostToDevice);
-      cudaMemcpy(&lens_device_mem, lens.data(), batch_size * sizeof(int), cudaMemcpyHostToDevice);
+      CUDA_ERR;
+      cudaMemcpy(lens_device_mem, lens.data(), batch_size * sizeof(int), cudaMemcpyHostToDevice);
+      CUDA_ERR;
       cudaEventRecord(end);
       cudaEventSynchronize(end);
       float this_copy_time = 0;
@@ -421,6 +434,8 @@ Stats run(std::vector<int> lens, std::vector<Allocator*> allocators) {
 
   free_allocs(allocated_raw_mems);
   free_device_allocs(allocated_raw_device_mems);
+  cudaFree(lens_device_mem);
+  CUDA_ERR;
 
   fusion_mem *= sizeof(int);
   tensor_mem *= sizeof(int);
