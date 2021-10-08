@@ -410,15 +410,16 @@ Stats run(std::vector<int> lens, std::vector<Allocator*> allocators) {
       } else {
 	tensor_time += duration_cast<nanoseconds>(endt - startt).count();
       }
-
-      startt = system_clock::now();
-      cudaMemcpy(allocated_raw_device_mems[i], allocated_raw_mems[i], allocated_mem_sizes[i] * sizeof(int), cudaMemcpyHostToDevice);
-      cudaMemcpy(lens_device_mem, lens.data(), batch_size * sizeof(int), cudaMemcpyHostToDevice);
-      cudaDeviceSynchronize();
-      CUDA_ERR;
-      endt = system_clock::now();
-      copy_time += duration_cast<nanoseconds>(endt - startt).count();
     }
+    startt = system_clock::now();
+    for (size_t i = 0; i < allocators.size(); ++i) {
+      cudaMemcpy(allocated_raw_device_mems[i], allocated_raw_mems[i], allocated_mem_sizes[i] * sizeof(int), cudaMemcpyHostToDevice);
+      // cudaMemcpy(lens_device_mem, lens.data(), batch_size * sizeof(int), cudaMemcpyHostToDevice);
+    }
+    cudaDeviceSynchronize();
+    CUDA_ERR;
+    endt = system_clock::now();
+    copy_time += duration_cast<nanoseconds>(endt - startt).count();
     return Triple<double>({fusion_time, tensor_time, copy_time});
   };
 
