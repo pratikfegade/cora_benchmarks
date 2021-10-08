@@ -205,8 +205,8 @@ int main(int argc, char* argv[]) {
   auto Bt = B.getTacoTensorT();
   auto Ct = C.getTacoTensorT();
 
-  int witers = 100;
-  int iters = 100;
+  int witers = 250;
+  int iters = 250;
   float alpha = 0.9;
   // Warm up
   compute(Ct, Bt, At, m, bs, alpha, witers);

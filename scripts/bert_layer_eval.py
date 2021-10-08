@@ -140,7 +140,6 @@ else:
             'ftrans_pad': lambda b_sizes, *args: com.batchify(b_sizes, get_ftrans_runner(False), *args),
             'ftrans_nopad': lambda b_sizes, *args: com.batchify(b_sizes, get_ftrans_runner(True), *args),
             'cora': lambda b_sizes, *args: com.batchify(b_sizes, get_cora_runner(False), *args),
-            # 'cora_lb': lambda b_sizes, *args: com.batchify(b_sizes, get_cora_runner(True), *args),
         }
 
 out_prefix = 'bert_layer'
@@ -160,7 +159,7 @@ for target in targets:
             for framework, func in framework_funs.items():
                 log(args, 'Running %s %s %s %s' % (target, dataset, framework, batch_sizes))
                 exe_times[framework] = func(batch_sizes, dataset, args.max_batches, results_err, args)
-                # print(exe_times[framework])
+                print(exe_times[framework])
 
             for b_size in batch_sizes:
                 out_str = '%s,%s,%d' % (target, dataset, b_size)

@@ -16,14 +16,14 @@ PYTHON = 'python3'
 def get_mkl_runner(pad):
     pad_arg = '1' if pad else '0'
     def run_mkl(b_size, n_batch, data_file_path, err_file, args):
-        cmd = [MKL_RUNNER, str(b_size), str(n_batch), pad_arg, data_file_path, str(100), str(1)]
+        cmd = [MKL_RUNNER, str(b_size), str(n_batch), pad_arg, data_file_path, str(250), str(1)]
         out, err = run_cmd(cmd)
         if err: print(err, file = err_file)
         return com.extract_times(out, 1)[0]
     return run_mkl
 
 def run_cbt(b_size, n_batch, data_file_path, err_file, args):
-    cmd = [CBT_RUNNER, str(b_size), str(n_batch), data_file_path, str(100), str(1), 'gemm']
+    cmd = [CBT_RUNNER, str(b_size), str(n_batch), data_file_path, str(250), str(1), 'gemm']
     # print(' '.join(cmd))
     out, err = run_cmd(cmd)
     if err: print(err, file = err_file)
@@ -58,7 +58,7 @@ parser.add_argument('--stdout', dest='stdout', default=False, action='store_true
 parser.add_argument('--append', dest='append', default=False, action='store_true')
 args = parser.parse_args()
 
-b_sizes = [1, 2, 4, 8, 16, 32, 64, 128, 256, 512]
+b_sizes = [2, 4, 8, 16, 32, 64, 128, 256, 512]
 # batch_sizes = [256, 512]
 targets = [args.target] if args.target else ['cuda']
 
@@ -67,8 +67,8 @@ if args.prep_overhead:
 else:
     if args.target == 'cuda':
         framework_funs = {
-            # 'cbt': lambda b_sizes, *args: com.batchify(b_sizes, run_cbt, *args),
-            # 'cublas': lambda b_sizes, *args: com.batchify(b_sizes, run_cublas, *args),
+            'cbt': lambda b_sizes, *args: com.batchify(b_sizes, run_cbt, *args),
+            'cublas': lambda b_sizes, *args: com.batchify(b_sizes, run_cublas, *args),
             'cora': run_tvm
         }
     else:

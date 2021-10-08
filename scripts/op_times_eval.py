@@ -45,7 +45,7 @@ parser.add_argument('--stdout', dest='stdout', default=False, action='store_true
 parser.add_argument('--append', dest='append', default=False, action='store_true')
 args = parser.parse_args()
 
-data_points = [('race', 128), ('cola', 128)]
+data_points = [('race', 128), ('cola', 32)]
 # data_points = [('race', 128)]
 # data_points = [('cola', 128)]
 target = 'cuda'

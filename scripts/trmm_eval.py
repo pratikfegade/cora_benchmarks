@@ -12,7 +12,7 @@ PYTHON = 'python3'
 
 def get_cublas_runner(pad):
     def run_cublas(m_size, n_size, err_file, args):
-        cmd = [CUBLAS_RUNNER, str(m_size), str(n_size), '1' if pad else'0', str(100), str(1)]
+        cmd = [CUBLAS_RUNNER, str(m_size), str(n_size), '1' if pad else'0', str(250), str(1)]
         out, err = run_cmd(cmd)
         if err: print(err, file = err_file)
         return com.extract_times(out, 1)[0]
@@ -43,11 +43,9 @@ parser.add_argument('--stdout', dest='stdout', default=False, action='store_true
 parser.add_argument('--append', dest='append', default=False, action='store_true')
 args = parser.parse_args()
 
-# ops = ['Sq', 'Th']
 ops = ['Sq']
 op_m_sizes = {
     'Sq': [128, 256, 512, 1024, 2048, 4096, 8192],
-    # 'Th': [128, 256, 512, 1024, 2048, 4096, 8192, 8192*2, 8192*4],
 }
 
 def get_op_n_size(op, m):
@@ -58,12 +56,12 @@ targets = [args.target] if args.target else ['cuda']
 
 if args.target == 'cuda':
     framework_funs = {
-        # 'cublas_nopad': get_cublas_runner(False),
-        # 'cublas_pad': get_cublas_runner(True),
-        # 'cora_unsplit': get_tvm_runner(False, False),
-        # 'cora_unbalanced': get_tvm_runner(False, True),
-        # 'cora_balanced': get_tvm_runner(True, True),
-        'taco': taco_runner,
+        'cublas_nopad': get_cublas_runner(False),
+        'cublas_pad': get_cublas_runner(True),
+        'cora_unsplit': get_tvm_runner(False, False),
+        'cora_unbalanced': get_tvm_runner(False, True),
+        'cora_balanced': get_tvm_runner(True, True),
+        # 'taco': taco_runner,
     }
 
 results_out, results_err = get_out_files(args, 'trmm', 'a' if args.append else 'w')

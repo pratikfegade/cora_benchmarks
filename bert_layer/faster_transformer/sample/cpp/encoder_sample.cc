@@ -85,7 +85,7 @@ int main(int argc, char* argv[])
   std::cout << "RemP " << is_remove_padding << std::endl;
   std::cout << "Int8 " << int8_mode << std::endl;
 
-  int ite = 2;
+  int ite = 10;
 
   if(is_fp16 != 0 && is_fp16 != 1) {
     printf("[ERROR] is_fp16 should be 0 (use float) or 1 (use half). \n");

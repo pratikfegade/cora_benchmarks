@@ -63,7 +63,7 @@ args = parser.parse_args()
 
 # ops = ['pre_linear', 'qkt', 'softmax', 'attn_v', 'post_linear']
 # ops = ['attn_v', 'pre_linear']
-ops = ['pre_linear']
+ops = ['qkt', 'softmax', 'attn_v', 'post_linear']
 # b_sizes = [32, 64, 128]
 b_sizes = [64]
 

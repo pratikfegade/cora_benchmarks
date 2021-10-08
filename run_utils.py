@@ -123,8 +123,8 @@ def create_numpy_array(t, dtype, rmap={}, lw_args=None):
     shape = get_shape(t, rmap)
     # print("YO2: ", shape)
     # return np.zeros(shape, dtype)
-    return np.full(shape, 0.1, dtype)
-    # return np.random.normal(size=shape, loc=0, scale=4).astype(dtype)
+    # return np.full(shape, 0.1, dtype)
+    return np.random.normal(size=shape, loc=0, scale=1).astype(dtype)
 
 def create_tvm_array(t, dtype, ctx, rmap={}, lw_args=None):
     import tvm
