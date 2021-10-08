@@ -12,6 +12,7 @@ import run_utils
 
 parser = run_utils.get_cmd_parser()
 parser.add_argument('--hfuse', dest='hfuse', default=False, action='store_true')
+parser.add_argument('--no-split', dest='no_split', default=False, action='store_true')
 args = parser.parse_args()
 
 BATCH_SIZE = te.var('bs')
@@ -35,9 +36,14 @@ qk = Dim('qk')
 def lbw(name): return Ufw(name, "l", (0, MAX_LEN), [bd], [lens], lambda lens: lambda b: utils.floormult(lens[b], 64))
 def ubw(name): return Ufw(name, "l", (32, MAX_LEN), [bd], [lens], lambda lens: lambda b: utils.ceilmult(lens[b], 32))
 def nbw(name): return Ufw(name, "l", (64, MAX_LEN), [bd], [lens], lambda lens: lambda b: utils.ceilmult(lens[b], 64))
-lbufw = lbw('lb')
-ubufw = ubw('ub')
-nbufw = nbw('ub')
+if args.no_split:
+    lbufw = lbw('lb')
+    ubufw = nbw('ub')
+    nbufw = nbw('ub')
+else:
+    lbufw = lbw('lb')
+    ubufw = ubw('ub')
+    nbufw = nbw('ub')
 
 qk_uf = Uf.from_constant('qk', 3, "l")
 bd_uf = Uf.from_constant('bd', BATCH_SIZE, "l")
@@ -47,18 +53,18 @@ ub_uf = ubufw.get_uf()
 nb_uf = nbufw.get_uf()
 hd_uf = Uf.from_constant('hd', HEAD_SIZE, "l")
 
-loop_ufs=[qk_uf, bd_uf, ub_uf, md_uf, hd_uf]
-width_ufs = None if args.dense_storage else loop_ufs
+loop_ufs=[qk_uf, bd_uf, nb_uf, md_uf, hd_uf]
+width_ufs = None if args.dense_storage else [qk_uf, bd_uf, nb_uf, md_uf, hd_uf]
 Q = te.ragged_placeholder((3, BATCH_SIZE, MAX_LEN, NUM_HEADS, HEAD_SIZE), [qk, bd, s1, md, hd], loop_ufs,
                           name='Q', width_ufs=width_ufs)
 
-loop_ufs=[qk_uf, bd_uf, ub_uf, md_uf, hd_uf]
-width_ufs = None if args.dense_storage else loop_ufs
+loop_ufs=[qk_uf, bd_uf, nb_uf, md_uf, hd_uf]
+width_ufs = None if args.dense_storage else [qk_uf, bd_uf, nb_uf, md_uf, hd_uf]
 K = te.ragged_placeholder((3, BATCH_SIZE, MAX_LEN, NUM_HEADS, HEAD_SIZE), [qk, bd, s2, md, hd], loop_ufs,
                           name='K', width_ufs=width_ufs)
 
 loop_ufs=[bd_uf, ub_uf, md_uf, nb_uf]
-width_ufs = None if args.dense_storage else [loop_ufs]
+width_ufs = None if args.dense_storage else [[bd_uf, nb_uf, md_uf, nb_uf]]
 k = tvm.reduce_axis((0, HEAD_SIZE), name = 'k')
 S = te.ragged_compute((BATCH_SIZE, MAX_LEN, NUM_HEADS, MAX_LEN), [bd, s1, md, s2], loop_ufs,
                       lambda ds: tvm.sum(Q[0, ds[bd], ds[s1], ds[md], k] * K[1, ds[bd], ds[s2], ds[md], k],
@@ -135,7 +141,7 @@ def schedule_op(S, O, tile_x, tile_y, suffix):
     s[K_shared].vectorize(K_shared_ax0_ax1_f_ax2_f_i)
     K_shared_ax0_ax1_f_ax2_f_o_o, K_shared_ax0_ax1_f_ax2_f_o_i = s[K_shared].split(K_shared_ax0_ax1_f_ax2_f_o, factor=128)
     s[K_shared].bind(K_shared_ax0_ax1_f_ax2_f_o_i, te.thread_axis("threadIdx.x"))
-
+    s[S].mark_no_bounds_check()
     s[S].set_scope('local')
 
 # G1, G2, G3, G4 = s.split_for_bin_packing([S], O, {O.op.axis[1]: lb_uf, O.op.axis[3]: lb_uf}, include_inputs=True)
@@ -153,15 +159,19 @@ def schedule_op(S, O, tile_x, tile_y, suffix):
 #     s.hfuse([(s[O1].op, s[O1].leaf_iter_vars[0]), (s[O2].op, s[O2].leaf_iter_vars[0]),
 #              (s[O3].op, s[O3].leaf_iter_vars[0]), (s[O4].op, s[O4].leaf_iter_vars[0])])
 
-G1, G2 = s.split_for_bin_packing([S], O, {O.op.axis[1]: lb_uf}, include_inputs=True)
-S1, O1 = G1
-S2, O2 = G2
-if args.target == "cuda":
-    schedule_op(S1, O1, 64, 64, '1')
-    schedule_op(S2, O2, 32, 64, '2')
+if args.no_split:
+    if args.target == "cuda":
+        schedule_op(S, O, 64, 64, '1')
+else:
+    G1, G2 = s.split_for_bin_packing([S], O, {O.op.axis[1]: lb_uf}, include_inputs=True)
+    S1, O1 = G1
+    S2, O2 = G2
+    if args.target == "cuda":
+        schedule_op(S1, O1, 64, 64, '1')
+        schedule_op(S2, O2, 32, 64, '2')
 
-if args.hfuse:
-    s.hfuse([(s[O1].op, s[O1].leaf_iter_vars[0]), (s[O2].op, s[O2].leaf_iter_vars[0])])
+    if args.hfuse:
+        s.hfuse([(s[O1].op, s[O1].leaf_iter_vars[0]), (s[O2].op, s[O2].leaf_iter_vars[0])])
 
 gen_prefix = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0]
 _ = tvm.register_func(utils.get_tvm_callback_cuda_compile(256))
@@ -171,11 +181,11 @@ _ = tvm.register_func(
 def size_fn(l_inputs):
     lens = l_inputs[0]
     return {
-        Q: 3 * NUM_HEADS * HEAD_SIZE * run_utils.prefix_sum(len(lens), lambda b: (ubufw.get_fn(lens)(b))),
-        K: 3 * NUM_HEADS * HEAD_SIZE * run_utils.prefix_sum(len(lens), lambda b: (ubufw.get_fn(lens)(b))),
+        Q: 3 * NUM_HEADS * HEAD_SIZE * run_utils.prefix_sum(len(lens), lambda b: (nbufw.get_fn(lens)(b))),
+        K: 3 * NUM_HEADS * HEAD_SIZE * run_utils.prefix_sum(len(lens), lambda b: (nbufw.get_fn(lens)(b))),
         O: NUM_HEADS * run_utils.prefix_sum(len(lens),
-                                            lambda b: (ubufw.get_fn(lens)(b) *
-                                                       ubufw.get_fn(lens)(b)))
+                                            lambda b: (nbufw.get_fn(lens)(b) *
+                                                       nbufw.get_fn(lens)(b)))
     }
 
 bO = tvm.tir.decl_buffer(output_layout, name="bO")
@@ -183,7 +193,8 @@ if args.target == "cuda":
     inputs = [[lens], [BATCH_SIZE, Q, K, bO]]
 else:
     inputs = [[lens], [BATCH_SIZE, Q, K, S1, S2, S3, S4, bO]]
-binds = {O1:bO, O2:bO}
+if args.no_split: binds = {O:bO}
+else: binds = {O1:bO, O2:bO}
 
 name = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0]
 out, batches = run_utils.lower_or_build(name, s, inputs, args, size_fn=size_fn, binds=binds, hoist_loads=True,

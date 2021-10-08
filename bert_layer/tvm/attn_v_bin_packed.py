@@ -35,6 +35,7 @@ def lbw(name): return Ufw(name, "l", (0, MAX_LEN), [bd], [lens], lambda lens: la
 ubufw32 = ubpw('ub', 32)
 ubufwrt = ubpw('ub', red_tile)
 lbufw = lbw('lb')
+ubufw64 = ubpw('ub', 64)
 
 def ub_pad(name, pad): return Uf(name, 'l', (pad, MAX_LEN), [bd], lambda b: utils.ceilmult(lens[b], pad))
 def lb(name): return Uf(name, 'l', (0, MAX_LEN), [bd], lambda b: utils.floormult(lens[b], 64))
@@ -46,24 +47,26 @@ lb_uf = lbufw.get_uf()
 ub_uf = ubufw32.get_uf()
 hd_uf = Uf.from_constant('hd', HEAD_SIZE, 'l')
 s1_uf = ubufwrt.get_uf()
+suf = ubufw64.get_uf()
 
 loop_ufs=[bd_uf, ub_uf, md_uf, s1_uf]
-width_ufs=loop_ufs
+width_ufs=[bd_uf, suf, md_uf, suf]
 A = te.ragged_placeholder((BATCH_SIZE, MAX_LEN, NUM_HEADS, MAX_LEN), [bd, s2, md, s1], loop_ufs,
                           name='A', width_ufs=width_ufs)
 
 loop_ufs=[qk_uf, bd_uf, s1_uf, md_uf, hd_uf]
-width_ufs=loop_ufs
+width_ufs=[qk_uf, bd_uf, suf, md_uf, hd_uf]
 V = te.ragged_placeholder((3, BATCH_SIZE, MAX_LEN, NUM_HEADS, HEAD_SIZE), [qk, bd, s1, md, hd], loop_ufs,
                           name='V', width_ufs=width_ufs)
 
 loop_ufs=[bd_uf, ub_uf, md_uf, hd_uf]
-width_ufs=[loop_ufs]
+width_ufs=[[bd_uf, suf, md_uf, hd_uf]]
 O = te.ragged_compute((BATCH_SIZE, MAX_LEN, NUM_HEADS, HEAD_SIZE), [bd, s2, md, hd], loop_ufs,
                       lambda ds, rds: tvm.sum(A[ds[bd], ds[s2], ds[md], rds['k']] *
                                               V(2, ds[bd], rds['k'], ds[md], ds[hd]),
                                               axis=rds['k'], dimensions=[s1]),
-                      name = 'O', reduce_axis_ufs = [('k', ubpw('ub', 1).get_uf())],
+                      # name = 'O', reduce_axis_ufs = [('k', ubpw('ub', 1).get_uf())],
+                      name = 'O', reduce_axis_ufs = [('k', ubpw('ub', red_tile).get_uf())],
                       width_uf_lists=width_ufs)
 
 output_layout = O.op.output_layout(0)
@@ -108,27 +111,24 @@ def schedule_op(O, tile, suffix):
     s[Vs].compute_at(s[Ol], ko)
     s[Al].compute_at(s[Ol], ki)
     s[Vl].compute_at(s[Ol], ki)
-    s[Ol].peel(ko)
 
     _, x, h, y = s[As].leaf_iter_vars
     s[As].reorder(h, x, y)
     f = s[As].fuse(x, y)
-    fo, fi = s[As].split(f, factor = ntx * nty * 2)
-    fio, fii = s[As].split(fi, factor = ntx * 2)
-    fiio, fiii = s[As].split(fii, factor = 2)
+    fo, fi = s[As].split(f, factor = ntx * nty * 4)
+    fio, fii = s[As].split(fi, factor = ntx * 4)
+    fiio, fiii = s[As].split(fii, factor = 4)
     s[As].bind(fio, thread_y())
     s[As].bind(fiio, thread_x())
     if not args.debug_functions: s[As].vectorize(fiii)
 
     _, _, x, h, y = s[Vs].leaf_iter_vars
     s[Vs].reorder(h, x, y)
-    f = s[Vs].fuse(x, y)
-    fo, fi = s[Vs].split(f, factor = ntx * nty * 2)
-    fio, fii = s[Vs].split(fi, factor = ntx * 2)
-    fiio, fiii = s[Vs].split(fii, factor = 2)
-    s[Vs].bind(fio, thread_y())
-    s[Vs].bind(fiio, thread_x())
-    if not args.debug_functions: s[Vs].vectorize(fiii)
+    s[Vs].bind(x, thread_y())
+    fo, fi = s[Vs].split(y, factor = ntx * 4)
+    fio, fii = s[Vs].split(fi, factor = 4)
+    s[Vs].bind(fio, thread_x())
+    if not args.debug_functions: s[Vs].vectorize(fii)
 
 G1, G2 = s.split_for_bin_packing([O], O, {O.op.axis[1]: lb_uf}, include_inputs=True)
 O1, O2 = G1[0], G2[0]
@@ -147,10 +147,10 @@ _ = tvm.register_func(
 def size_fn(l_inputs):
     lens = l_inputs[0]
     return {
-        V: 3 * NUM_HEADS * HEAD_SIZE * run_utils.prefix_sum(len(lens), lambda b: (ubufwrt.get_fn(lens)(b))),
-        A: NUM_HEADS * run_utils.prefix_sum(len(lens), lambda b: (ubufwrt.get_fn(lens)(b) *
-                                                                  ubufw32.get_fn(lens)(b))),
-        O: NUM_HEADS * HEAD_SIZE * run_utils.prefix_sum(len(lens), lambda b: ubufw32.get_fn(lens)(b))
+        V: 3 * NUM_HEADS * HEAD_SIZE * run_utils.prefix_sum(len(lens), lambda b: (ubufw64.get_fn(lens)(b))),
+        A: NUM_HEADS * run_utils.prefix_sum(len(lens), lambda b: (ubufw64.get_fn(lens)(b) *
+                                                                  ubufw64.get_fn(lens)(b))),
+        O: NUM_HEADS * HEAD_SIZE * run_utils.prefix_sum(len(lens), lambda b: ubufw64.get_fn(lens)(b))
     }
 
 bO = tvm.tir.decl_buffer(output_layout, name="bO")
@@ -161,14 +161,14 @@ else:
     inputs = [[lens], [BATCH_SIZE, V, A, bO]]
 
 name = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0]
-out, batches = run_utils.lower_or_build(name, s, inputs, args, size_fn=size_fn, binds=binds,
+out, batches = run_utils.lower_or_build(name, s, inputs, args, size_fn=size_fn, binds=binds, hoist_loads=True,
                                         run_function=run_utils.get_bert_layer_run_fn(BATCH_SIZE))
 
-_, V, A, O  = out
-ctr = 0
-O = O.flatten()
-for length in batches[0]:
-    rounded64 = utils.ceilmult(length, 32)
-    this_extent = rounded64 * NUM_HEADS * HEAD_SIZE
-    print(length, np.mean(O[ctr:ctr + this_extent]))
-    ctr += this_extent
+# _, V, A, O  = out
+# ctr = 0
+# O = O.flatten()
+# for length in batches[0]:
+#     rounded64 = utils.ceilmult(length, 32)
+#     this_extent = rounded64 * NUM_HEADS * HEAD_SIZE
+#     print(length, np.mean(O[ctr:ctr + this_extent]))
+#     ctr += this_extent
