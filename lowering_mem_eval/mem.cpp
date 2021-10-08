@@ -284,7 +284,7 @@ class CoRaAttnVFusionAllocator: public FusionAllocator {
   std::vector<int> get_needed_allocs(int batch_size, std::vector<int> lens) override {
     int ctr = 0;
     for (int o = 0; o < batch_size; ++o) {
-      ctr += ceil(lens[o], 64);
+      ctr += ceil(lens[o], 32);
     }
 
     return {ctr, ctr, batch_size + 1};
@@ -298,7 +298,7 @@ class CoRaAttnVFusionAllocator: public FusionAllocator {
     int ctr = 0;
     for (int o = 0; o < batch_size; ++o) {
       oif[o] = ctr;
-      for (int i = 0; i < ceil(lens[o], 64); ++i) {
+      for (int i = 0; i < ceil(lens[o], 32); ++i) {
 	fo[ctr] = o;
 	fi[ctr] = i;
 	ctr++;
@@ -399,32 +399,27 @@ Stats run(std::vector<int> lens, std::vector<Allocator*> allocators) {
   auto runner = [&]() {
     double fusion_time = 0;
     double tensor_time = 0;
-    float copy_time = 0;
+    double copy_time = 0;
+    time_point<system_clock> startt, endt;
     for (size_t i = 0; i < allocators.size(); ++i) {
-      time_point<system_clock> startt = system_clock::now();
+      startt = system_clock::now();
       allocators[i]->construct(allocated_mems[i], batch_size, lens);
-      time_point<system_clock> endt = system_clock::now();
+      endt = system_clock::now();
       if (allocators[i]->is_fusion_alloc()) {
 	fusion_time += duration_cast<nanoseconds>(endt - startt).count();
       } else {
 	tensor_time += duration_cast<nanoseconds>(endt - startt).count();
       }
 
-      cudaEvent_t start, end;
-      cudaEventCreate(&start);
-      cudaEventCreate(&end);
-      cudaEventRecord(start);
+      startt = system_clock::now();
       cudaMemcpy(allocated_raw_device_mems[i], allocated_raw_mems[i], allocated_mem_sizes[i] * sizeof(int), cudaMemcpyHostToDevice);
-      CUDA_ERR;
       cudaMemcpy(lens_device_mem, lens.data(), batch_size * sizeof(int), cudaMemcpyHostToDevice);
+      cudaDeviceSynchronize();
       CUDA_ERR;
-      cudaEventRecord(end);
-      cudaEventSynchronize(end);
-      float this_copy_time = 0;
-      cudaEventElapsedTime(&copy_time, start, end);
-      copy_time += this_copy_time;
+      endt = system_clock::now();
+      copy_time += duration_cast<nanoseconds>(endt - startt).count();
     }
-    return Triple<double>({fusion_time, tensor_time, static_cast<double>(copy_time) * 1000 * 1000});
+    return Triple<double>({fusion_time, tensor_time, copy_time});
   };
 
   auto time_triple = measure_time(runner);
@@ -526,55 +521,53 @@ int main(int argc, char** argv) {
 
     // LayerNorm2
   } else if (mode == "cora_vanilla") {
-    // Add all fusion allocators
-    allocators.push_back(new CoRaPreLinearFusionAllocator());
-    allocators.push_back(new CoRaQKtFusionAllocator());
-    allocators.push_back(new CoRaSoftmaxFusionAllocator());
-    allocators.push_back(new CoRaAttnVFusionAllocator());
-    allocators.push_back(new CoRaPostLinearFusionAllocator());
-    allocators.push_back(new CoRaLayerNorm1FusionAllocator());
-    allocators.push_back(new CoRaFF1FusionAllocator());
-    allocators.push_back(new CoRaFF2FusionAllocator());
-    allocators.push_back(new CoRaLayerNorm2FusionAllocator());
-
     // Add all storage allocators repeating as needed per op
     // PreLinear
+    allocators.push_back(new CoRaPreLinearFusionAllocator());
     allocators.push_back(new CoRaInputAllocator());        // Input
     allocators.push_back(new CoRaPreLinearOutAllocator());
 
     // QKt
+    allocators.push_back(new CoRaQKtFusionAllocator());
     allocators.push_back(new CoRaPreLinearOutAllocator()); // Q
     allocators.push_back(new CoRaPreLinearOutAllocator()); // K
     allocators.push_back(new CoRaQKtOutAllocator());       // Output
 
     // Softmax
+    allocators.push_back(new CoRaSoftmaxFusionAllocator());
     allocators.push_back(new CoRaQKtOutAllocator());       // Attn
     allocators.push_back(new CoRaSoftmaxOutAllocator());   // Output
 
     // Attn
+    allocators.push_back(new CoRaAttnVFusionAllocator());
     allocators.push_back(new CoRaSoftmaxOutAllocator());   // Attn
     allocators.push_back(new CoRaPreLinearOutAllocator()); // V
     allocators.push_back(new CoRaAttnVOutAllocator());     // Output
 
     // PostLinear
+    allocators.push_back(new CoRaPostLinearFusionAllocator());
     allocators.push_back(new CoRaAttnVOutAllocator());     // A
     allocators.push_back(new CoRaInputAllocator());        // A2
     allocators.push_back(new CoRaPostLinearOutAllocator());// Output
 
     // LayerNorm1
+    allocators.push_back(new CoRaLayerNorm1FusionAllocator());
     allocators.push_back(new CoRaPostLinearOutAllocator());// A
     allocators.push_back(new CoRaLayerNormOutAllocator()); // Output
 
     // FF1
+    allocators.push_back(new CoRaFF1FusionAllocator());
     allocators.push_back(new CoRaLayerNormOutAllocator()); // A
     allocators.push_back(new CoRaFF1OutAllocator());       // Output
 
     // FF2
+    allocators.push_back(new CoRaFF2FusionAllocator());
     allocators.push_back(new CoRaFF1OutAllocator());       // A
     allocators.push_back(new CoRaLayerNormOutAllocator()); // A2
     allocators.push_back(new CoRaFF2OutAllocator());       // Output
 
     // LayerNorm2
+    allocators.push_back(new CoRaLayerNorm2FusionAllocator());
     allocators.push_back(new CoRaFF2OutAllocator());       // A
     allocators.push_back(new CoRaLayerNormOutAllocator()); // Output
   } else if (mode == "cora_opt") {
