@@ -1,4 +1,4 @@
-FLAGS=-O3 --use_fast_math
+FLAGS=-O3
 # FLAGS=-lineinfo
 
 all: taco_csr_trmm taco_csr_tradd taco_csr_trmul taco_bcsr_trmm taco_bcsr_trmul
