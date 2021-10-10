@@ -40,11 +40,11 @@ def flops_for_dataset_batch(dataset, batch_size, max_batches):
 
         psum1 = run_utils.prefix_sum(batch_size + 1, lambda i: padded_batch[i])
         psum2 = run_utils.prefix_sum(batch_size + 1, lambda i: padded_batch[i] * padded_batch[i])
-        psum264 = run_utils.prefix_sum(batch_size,
+        psum264 = run_utils.prefix_sum(batch_size + 1,
                                        lambda i: utils.ceilmult(padded_batch[i], 64) * utils.ceilmult(padded_batch[i], 64))
-        psum21664 = run_utils.prefix_sum(batch_size,
+        psum21664 = run_utils.prefix_sum(batch_size + 1,
                                          lambda i: utils.ceilmult(padded_batch[i], 16) * utils.ceilmult(padded_batch[i], 64))
-        psum2132 = run_utils.prefix_sum(batch_size,
+        psum2132 = run_utils.prefix_sum(batch_size + 1,
                                         lambda i: padded_batch[i] * utils.ceilmult(padded_batch[i], 32))
 
         # print(sum2, psum264, psum2132, psum21664, batch)
@@ -64,9 +64,9 @@ def flops_for_dataset_batch(dataset, batch_size, max_batches):
             return dense_flops, real_flops, ragged_flops
 
         def get_softmax_flops():
-            dense_flops = batch_size * NUM_HEADS * batch_max_len * batch_max_len * HEAD_SIZE * 5 # (max + max_sub + exp + sum + exp_div)
-            real_flops = NUM_HEADS * psum2132 * HEAD_SIZE * 5
-            ragged_flops = NUM_HEADS * sum2 * HEAD_SIZE * 5
+            dense_flops = batch_size * NUM_HEADS * batch_max_len * batch_max_len * 5 # (max + max_sub + exp + sum + exp_div)
+            real_flops = NUM_HEADS * psum2132 * 5
+            ragged_flops = NUM_HEADS * sum2 * 5
             return dense_flops, real_flops, ragged_flops
 
         def get_attn_v_flops():
@@ -103,9 +103,12 @@ def flops_for_dataset_batch(dataset, batch_size, max_batches):
             return dense_flops, real_flops, ragged_flops
 
         def get_ff2_flops():
-            dense_flops = batch_size * batch_max_len * FF_DIM * MODEL_DIM              # Relu
-            real_flops = psum1 * FF_DIM * MODEL_DIM
-            ragged_flops = sum1 * FF_DIM * MODEL_DIM
+            dense_flops = (batch_size * batch_max_len * FF_DIM * MODEL_DIM +              # MM
+                           batch_size * batch_max_len * MODEL_DIM)                        # Bias
+            real_flops = (psum1 * FF_DIM * MODEL_DIM +
+                          psum1 * MODEL_DIM)
+            ragged_flops = (sum1 * FF_DIM * MODEL_DIM +
+                            sum1 * MODEL_DIM)
             return dense_flops, real_flops, ragged_flops
 
         def get_norm_add2_flops():
