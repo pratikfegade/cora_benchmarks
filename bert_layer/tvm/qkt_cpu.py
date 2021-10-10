@@ -170,7 +170,7 @@ def size_fn(l_inputs):
     }
 
 name = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0]
-out, batches = run_utils.lower_or_build(name, s, inputs, args, size_fn=size_fn, pad_sum=64,
+out, batches = run_utils.lower_or_build(name, s, inputs, args, size_fn=size_fn, pad_sum=64, hoist_loads=True,
                                         run_function=run_utils.get_bert_layer_run_fn(BS_VAR))
 
 

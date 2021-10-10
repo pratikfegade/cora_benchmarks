@@ -18,8 +18,8 @@ session = tf.compat.v1.Session(config=config)
 parser = argparse.ArgumentParser()
 parser.add_argument("--xla", help="Whether to run with TensorFlowXLA optimizations", action="store_true")
 parser.add_argument("--print_tensorboard", help="Name of folder to output the tensorboard information")
-parser.add_argument("--iterations", help="How many iterations to average for timing (default 5000)", type=int, default=50)
-parser.add_argument("--discard-iter", help="How many iterations to not time during warm up (default 1000)", type=int, default=50)
+parser.add_argument("--iterations", help="How many iterations to average for timing (default 5000)", type=int, default=100)
+parser.add_argument("--discard-iter", help="How many iterations to not time during warm up (default 1000)", type=int, default=100)
 parser.add_argument('--max-batches', dest='max_batches', default=10, type=int)
 parser.add_argument('--batch-size', dest='batch_size', default=32, type=int)
 parser.add_argument('--dataset', nargs='?', default='random_384_512')
@@ -71,8 +71,15 @@ op_times = {
 for batch in batches:
     max_len = int(np.amax(batch))
 
+    mask = np.full((1,batch_size,max_len,max_len), 0.0, dtype='float32')
+    for i in range(batch_size):
+        for j in range(max_len):
+            if j >= batch[i]:
+                mask[0][i][j] = np.full((max_len,), -float('inf'), dtype='float32')
+            else:
+                mask[0][i][j][j+1:] = np.full((max_len - j - 1,), -float('inf'), dtype='float32')
     input = tf.constant(np.random.random_sample((batch_size*max_len,model_dim)).astype(np.float32))
-    mask = tf.constant(np.random.random_sample((1,batch_size,max_len,max_len)).astype(np.float32))
+    mask = tf.constant(mask.astype(np.float32))
     q = tf.constant(np.random.random_sample((1,num_heads,batch_size,max_len,head_size)).astype(np.float32))
     k = tf.constant(np.random.random_sample((1,num_heads,batch_size,max_len,head_size)).astype(np.float32))
     v = tf.constant(np.random.random_sample((1,num_heads,batch_size,max_len,head_size)).astype(np.float32))

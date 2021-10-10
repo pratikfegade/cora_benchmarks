@@ -104,7 +104,7 @@ batch_size = args.batch_size
 
 batches = run_utils.get_nlp_batches(batch_size, args.max_batches, args.dataset)
 
-iters = 20
+iters = 200
 
 callable_to_profile = None
 torch.set_num_threads(8)
@@ -121,19 +121,17 @@ def run_for_batches():
         max_len = int(np.amax(batch))
 
         attn_mask = np.full((batch_size, max_len, max_len), 0.0, dtype='float32')
-        # for i in range(batch_size):
-            # for j in range(max_len):
-                # if j >= batch[i]:
-                    # for k in range(0, max_len):
-                        # attn_mask[i][j][k] = -float('inf')
-                # else:
-                    # for k in range(j + 1, max_len):
-                        # attn_mask[i][j][k] = -float('inf')
+        for i in range(batch_size):
+            for j in range(max_len):
+                if j >= batch[i]:
+                    attn_mask[i][j] = np.full((max_len,), -float('inf'), dtype='float32')
+                else:
+                    attn_mask[i][j][j+1:] = np.full((max_len - j - 1,), -float('inf'), dtype='float32')
         attn_mask = torch.from_numpy(attn_mask).to(device)
 
         inp = get_np_tensor((args.batch_size * max_len, model_size), device, True)
         q = get_np_tensor((1, num_heads, batch_size, max_len, head_size), device, True)
-        k = get_np_tensor((1, num_heads, batch_size, head_size, max_len), device, True)
+        k = get_np_tensor((1, num_heads, batch_size, max_len, head_size), device, True)
         v = get_np_tensor((1, num_heads, batch_size, max_len, head_size), device, True)
         attn = get_np_tensor((1, num_heads, batch_size, max_len, max_len), device, True)
         post_lin_in = get_np_tensor((batch_size, max_len, num_heads * head_size), device, True)

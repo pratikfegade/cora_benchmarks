@@ -23,8 +23,8 @@ def get_tvm_callback_cuda_postproc(args, path, dirname = 'perf', fileprefix = 'd
 def get_tvm_callback_cuda_compile(threads, grid_sync = False):
     import tvm
     from tvm.contrib import nvcc, cublas, cblas
-    tvm.target.set_cuda_grid_sync_on(grid_sync)
-    tvm.runtime.module.set_cuda_grid_sync_on(grid_sync)
+    # tvm.target.set_cuda_grid_sync_on(grid_sync)
+    # tvm.runtime.module.set_cuda_grid_sync_on(grid_sync)
     def tvm_callback_cuda_compile(code):
         print('Using NVCC')
         # options = ["--ptxas-options='-v -warn-lmem-usage -warn-spills' --nvlink-options='-v'", '-rdc=true']

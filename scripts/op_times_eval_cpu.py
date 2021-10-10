@@ -59,7 +59,7 @@ parser.add_argument('--stdout', dest='stdout', default=False, action='store_true
 parser.add_argument('--append', dest='append', default=False, action='store_true')
 args = parser.parse_args()
 
-data_points = [('race', 128), ('wiki_128', 32)]
+data_points = [('race', 128), ('wiki_128', 32), ('mnli', 128)]
 # data_points = [('race', 128)]
 # data_points = [('wiki_128', 32)]
 target = 'cpu'
@@ -74,17 +74,17 @@ print(header, file = results_out)
 for dataset, b_size in data_points:
     if args.gen_libs: generate_tvm_libs(dataset, args);
 
-    # cora_times = run_cora(b_size, dataset, args.max_batches, results_err, args)
-    # for op, time in cora_times.items():
-    #     out_str = '%s,%d,%s,%s,%g' % (dataset, b_size, 'cora', op, time)
-    #     print(out_str, file = results_out)
-    # results_out.flush()
+    cora_times = run_cora(b_size, dataset, args.max_batches, results_err, args)
+    for op, time in cora_times.items():
+        out_str = '%s,%d,%s,%s,%g' % (dataset, b_size, 'cora', op, time)
+        print(out_str, file = results_out)
+    results_out.flush()
 
-    # pt_times = run_pytorch(b_size, dataset, args.max_batches, results_err, args)
-    # for op, time in pt_times.items():
-        # out_str = '%s,%d,%s,%s,%g' % (dataset, b_size, 'pytorch', op, time)
-        # print(out_str, file = results_out)
-    # results_out.flush()
+    pt_times = run_pytorch(b_size, dataset, args.max_batches, results_err, args)
+    for op, time in pt_times.items():
+        out_str = '%s,%d,%s,%s,%g' % (dataset, b_size, 'pytorch', op, time)
+        print(out_str, file = results_out)
+    results_out.flush()
 
     tf_times = run_tf(b_size, dataset, args.max_batches, results_err, args)
     for op, time in tf_times.items():

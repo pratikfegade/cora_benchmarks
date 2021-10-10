@@ -32,7 +32,7 @@ if args.no_raggedness:
     def len_ufw(name, pad): return Ufw(name, "l", (pad, MAX_LEN), [], [], lambda : lambda : MAX_LEN)
 else:
     def len_ufw(name, pad): return Ufw(name, "l", (pad, MAX_LEN), [bd], [lens], lambda lens: lambda b: utils.ceilmult(lens[b], pad))
-if dataset in ['mrpc', 'cola']: ufactor=16
+if args.dataset in ['mrpc', 'cola']: ufactor=16
 else: ufactor=32
 assert ufactor >= 16 and ufactor <= 64
 lufw1 = len_ufw('s1_1', 1)

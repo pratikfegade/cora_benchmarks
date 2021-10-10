@@ -123,8 +123,8 @@ def create_numpy_array(t, dtype, rmap={}, lw_args=None):
     shape = get_shape(t, rmap)
     # print("YO2: ", shape)
     # return np.zeros(shape, dtype)
-    return np.full(shape, 0.1, dtype)
-    # return np.random.normal(size=shape, loc=0, scale=4).astype(dtype)
+    # return np.full(shape, 0.1, dtype)
+    return np.random.normal(size=shape, loc=0, scale=4).astype(dtype)
 
 def create_tvm_array(t, dtype, ctx, rmap={}, lw_args=None):
     import tvm
@@ -136,8 +136,6 @@ def create_tvm_array(t, dtype, ctx, rmap={}, lw_args=None):
         # print(t, flat_size, shape)
         return create_ragged_array(shape, flat_size, dtype, ctx)
 
-    # return np.zeros(shape, dtype)
-    # return tvm.nd.array(np.full(shape, 0.1, dtype), ctx)
     # print("YO3: ", shape)
     # np_array = np.random.default_rng().random(shape, dtype=np.float32)
     np_array = np.random.normal(size=shape).astype(dtype)
@@ -175,7 +173,7 @@ def execute(target, built, inputs, ctx, debug = False):
             return -100000000
             evaluator = built.time_evaluator('default_function', ctx, 1, repeat=10)
         else:
-            evaluator = built.time_evaluator(built.entry_name, ctx, repeat=5, number=20)
+            evaluator = built.time_evaluator(built.entry_name, ctx, repeat=5, number=10)
             # evaluator = built.time_evaluator(built.entry_name, ctx, repeat=5, number=100)
         eval_result = evaluator(*inputs)
         return mean(list(eval_result.results)[1:]) * 1000
@@ -301,7 +299,7 @@ def run2(built, i_inputs_tensors, t_inputs_tensors, lw_args, args, pad_sum=None)
 
 def get_bert_layer_run_fn(bs_var, sum_var=None, sum_factor=None):
     import tvm
-    print('BS_VAR', bs_var)
+    # print('BS_VAR', bs_var)
     def bert_layer_run(built, i_inputs_tensors, t_inputs_tensors, lw_args, args, pad_sum=None):
         print('Running now')
         ctx = get_ctx(args.target)
@@ -323,7 +321,7 @@ def get_bert_layer_run_fn(bs_var, sum_var=None, sum_factor=None):
 
             time = 0
             for batch in batches:
-                print(sum_var, int(sum(batch)))
+                # print(sum_var, int(sum(batch)))
                 if sum_var is not None:
                     rmap[sum_var] = int(sum(batch)) // sum_factor
                 if sum_var is not None:
@@ -444,13 +442,15 @@ def run_trmm(built, i_inputs_tensors, t_inputs_tensors, lw_args, args, pad_sum=N
     return t_inputs
 
 def lower_or_build(name, s, inputs, args, prep_code_mode='with_prep_code', binds=None,
-                   size_fn={}, pad_sum=None, substitutes=None, run_function=run2, hoist_loads=False):
+                   size_fn={}, pad_sum=None, substitutes=None, run_function=run2, hoist_loads=False,
+                   hoist_lets_above_parallel_loop = True):
     import tvm
     prep_code_mode = 'only_prep_code' if args.only_prep_code else prep_code_mode
     with tvm.build_config(prep_code_mode=prep_code_mode,
                           fill_in_function_bodies=not args.debug_functions,
                           hoist_loads=hoist_loads,
-                          disable_assert=args.disable_assert if hasattr(args, 'disable_assert') else False):
+                          disable_assert=args.disable_assert if hasattr(args, 'disable_assert') else False,
+                          hoist_lets_above_parallel_loop=hoist_lets_above_parallel_loop):
         if args.gen_lib:
             fadd, i_bufs = tvm.build(s, inputs, args.target, binds=binds)
             variant = ''
@@ -478,5 +478,5 @@ def lower_or_build(name, s, inputs, args, prep_code_mode='with_prep_code', binds
             else:
                 assert args.debug_code is None
                 fadd, i_bufs = tvm.build(s, inputs, args.target, binds=binds, substitutes=substitutes)
-                # fadd = tvm.runtime.module.load_module('/home/ppf/rnn_compilers/ragged_tensors/incubator-tvm/build/attn_v.so')
+                # fadd = tvm.runtime.module.load_module('/home/ppf/cora/benchmarks/bert_layer/tvm/qkt_cpu_bin_packed.so')
                 return run_function(fadd, i_bufs, inputs[1], size_fn, args, pad_sum=pad_sum)
