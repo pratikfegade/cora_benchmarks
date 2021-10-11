@@ -45,7 +45,7 @@ args = parser.parse_args()
 
 ops = ['Sq']
 op_m_sizes = {
-    'Sq': [128, 256, 512, 1024, 2048, 4096, 8192],
+    'Sq': [512, 1024, 2048, 4096, 8192],
 }
 
 def get_op_n_size(op, m):

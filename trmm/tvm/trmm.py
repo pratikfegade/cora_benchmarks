@@ -108,6 +108,8 @@ def schedule_op(O, suffix, cache_write_tensor=None):
     O_o_o_o_o, O_o_o_o_i = s[O].split(O_o_o_o_i, factor=2)
 
     s[O].reorder(O_l_o_i, O_o_o_o_o, O_o_o_o_i, O_o_o_i, O_l_i)
+    vo, vi = s[O].split(O_l_i, factor=4)
+    s[O].vectorize(vi)
     s[S].compute_at(s[O], O_o_o_i)
 
     A_shared = s.cache_read(A, "shared", [S], suffix=suffix)
@@ -135,36 +137,44 @@ def schedule_op(O, suffix, cache_write_tensor=None):
     B_shared_ax0_ax1_fused_o_o, B_shared_ax0_ax1_fused_o_i = s[B_shared].split(B_shared_ax0_ax1_fused_o, factor=tx)
     s[B_shared].bind(B_shared_ax0_ax1_fused_o_i, te.thread_axis("threadIdx.x"))
 
-    # s[S].pragma(S_l_o_o_o_o, "auto_unroll_max_step", 512)
-    # s[S].pragma(S_l_o_o_o_o, "unroll_explicit", True)
+    # s[S].pragma(S_l_o_o_i, "auto_unroll_max_step", 128)
+    # s[S].pragma(S_l_o_o_i, "unroll_explicit", True)
 
+    if cache_write_tensor is None: return [O.op, S.op, A_shared.op, B_shared.op]
+    else: return []
+
+substitute_ops = []
 if args.target == "cuda":
     if args.op_split:
-        schedule_op(O1, '1')
-        schedule_op(O2, '2', O2i)
+        substitute_ops += schedule_op(O1, '1')
+        substitute_ops += schedule_op(O2, '2', O2i)
     else:
-        schedule_op(O, '', S)
+        substitute_ops += schedule_op(O, '', S)
 
 gen_prefix = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0]
 _ = tvm.register_func(utils.get_tvm_callback_cuda_compile(256))
 _ = tvm.register_func(
     utils.get_tvm_callback_cuda_postproc(args, os.path.realpath(__file__), fileprefix=gen_prefix))
 
+bO = tvm.decl_buffer((M, N), dtype='float32', name='bO')
 if args.target == "cuda":
-    if args.op_split: inputs = [[], [A, B, O1, O2]]
-    else: inputs = [[], [A, B, O]]
+    if args.op_split: inputs, binds = [[], [A, B, bO]], {O1:bO, O2: bO}
+    else: inputs, binds = [[], [A, B, bO]], {O:bO}
 else:
-    if args.op_split: inputs = [[], [A, B, O2i, O1, O2]]
-    else: inputs = [[], [A, B, S, O]]
+    if args.op_split: inputs, binds = [[], [A, B, O2i, bO]], {O1:bO, O2: bO}
+    else: inputs, binds = [[], [A, B, S, bO]], {O:bO}
 
 substitutes=None
 if args.load_balance and args.target == "cuda":
     print('Load balancing')
     max_by = M//tl
-    substitutes={'blockIdx.y': Uf('sub', "", (0, max_by), [Dim('dum')], lambda b: tvm.tir.Select(b > 80, b - 80, max_by - b - 1))}
+    substitutes=[substitute_ops, {'blockIdx.y': Uf('sub', "", (0, max_by),
+                                            [Dim('dum')], lambda b:
+                                            tvm.tir.Select(b > 80, b - 80,
+                                                           max_by - b - 1))}]
 
 name = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0]
-out = run_utils.lower_or_build(name, s, inputs, args, run_function=run_utils.run_trmm,
+out = run_utils.lower_or_build(name, s, inputs, args, run_function=run_utils.run_trmm, binds=binds,
                                prep_code_mode='no_prep_code', substitutes=substitutes)
 
 # if args.op_split:
