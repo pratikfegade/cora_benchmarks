@@ -112,6 +112,9 @@ def schedule_op(O, tile, suffix):
     s[Al].compute_at(s[Ol], ki)
     s[Vl].compute_at(s[Ol], ki)
 
+    s[As].mark_no_bounds_check()
+    s[Al].mark_no_bounds_check()
+
     _, x, h, y = s[As].leaf_iter_vars
     s[As].reorder(h, x, y)
     f = s[As].fuse(x, y)
