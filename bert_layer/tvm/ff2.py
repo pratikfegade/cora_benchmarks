@@ -101,6 +101,7 @@ if args.target == "cuda":
         O_o_o_o_i, O_o_o_i = s[O].split(O_o_o_i, factor=16)
         O_o_o_o_o, O_o_o_o_i = s[O].split(O_o_o_o_i, factor=1)
         s[O].reorder(O_l_o_o_o, O_o_o_o_o, O_l_o_o_i, O_o_o_o_i, O_l_o_i, O_o_o_i, O_l_i, O_o_i)
+        s[O].vectorize(O_o_i)
 
         A_shared = s.cache_read(A, "shared", [O_local])
         A_shared_axm1, A_shared_ax0, A_shared_ax1 = tuple(A_shared.op.axis)
@@ -166,6 +167,7 @@ if args.target == "cuda":
         O_o_o_o_i, O_o_o_i = s[O].split(O_o_o_i, factor=32)
 
         s[O].reorder(O_l_o_o_i, O_o_o_o_i, O_l_o_i, O_o_o_i, O_l_i, O_o_i)
+        s[O].vectorize(O_o_i)
 
         A_shared = s.cache_read(A, "shared", [S])
         A_shared_axm1, A_shared_ax0, A_shared_ax1 = tuple(A_shared.op.axis)
@@ -222,6 +224,7 @@ if args.target == "cuda":
         O_o_o_o_i, O_o_o_i = s[O].split(O_o_o_i, factor=16)
 
         s[O].reorder(O_l_o_o_o, O_o_o_o_i, O_l_o_o_i, O_l_o_i, O_o_o_i, O_o_i)
+        s[O].vectorize(O_o_i)
 
         A_shared = s.cache_read(A, "shared", [S])
         A_shared_axm1, A_shared_ax0, A_shared_ax1 = tuple(A_shared.op.axis)
@@ -284,6 +287,7 @@ if args.target == "cuda":
         O_o_o_i, O_o_i = s[O].split(O_o, factor=2)
         O_o_o_o_i, O_o_o_i = s[O].split(O_o_o_i, factor=16)
         s[O].reorder(O_l_o_o_o, O_o_o_o_i, O_l_o_o_i, O_l_o_i, O_o_o_i, O_l_i, O_o_i)
+        s[O].vectorize(O_o_i)
 
         A_shared = s.cache_read(A, "shared", [S])
         A_shared_axm1, A_shared_ax0, A_shared_ax1 = tuple(A_shared.op.axis)
@@ -353,6 +357,7 @@ if args.target == "cuda":
         O_o_o_o_i, O_o_o_i = s[O].split(O_o_o_i, factor=16)
         O_o_o_o_o, O_o_o_o_i = s[O].split(O_o_o_o_i, factor=2)
         s[O].reorder(O_l_o_o_i, O_o_o_o_o, O_o_o_o_i, O_l_o_i, O_o_o_i, O_l_i, O_o_i)
+        s[O].vectorize(O_o_i)
 
         A_shared = s.cache_read(A, "shared", [S])
         A_shared_axm1, A_shared_ax0, A_shared_ax1 = tuple(A_shared.op.axis)

@@ -6,7 +6,7 @@ from tvm import tir, te
 from tvm.te import RangeDimension as Dim
 from tvm.tir import UninterpFun as Uf, UfWrapper as Ufw
 import sys
-sys.path.append(os.path.dirname(os.path.realpath(__file__)) + "/../../")
+sys.path.append(os.path.dirname(os.path.realpath(__file__)) + '/../../')
 import utils
 import run_utils
 
@@ -17,9 +17,10 @@ parser.add_argument('--sched', dest='sched', default=1, type=int)
 parser.add_argument('--masked-mha', dest='masked_mha', default=False, action='store_true')
 parser.add_argument('--no-hoist-loads', dest='no_hoist_loads', default=False, action='store_true')
 args = parser.parse_args()
+args.full_dense = True
 
 BS_VAR = te.var('bs')
-BATCH_SIZE = BS_VAR + 1
+BATCH_SIZE = BS_VAR
 NUM_HEADS = 8
 HEAD_SIZE = 64
 TILE=64
@@ -34,33 +35,32 @@ s1 = Dim('s1')
 s2 = Dim('s2')
 hd = Dim('hd')
 
-def len_ufw(name, pad): return Ufw(name, "l", (pad, MAX_LEN), [bd], [lens], lambda lens: lambda b: utils.ceilmult(lens[b], pad))
-if args.sched == 1: lufw = len_ufw('s', 64)
-else: lufw = len_ufw('s', 32)
-sufw = len_ufw('s', 64)
+ufw = Ufw('s', 'l', (1, MAX_LEN), [], [], lambda: lambda: MAX_LEN)
+lufw = ufw
+sufw = ufw
 
-lbduf = Uf.from_constant('bd', BS_VAR, "l")
+lbduf = Uf.from_constant('bd', BS_VAR, 'l')
 ls =  {
-    0: Uf.from_constant('bd', BATCH_SIZE, "l"),
-    1: Uf.from_constant('md', NUM_HEADS, "l"),
+    0: Uf.from_constant('bd', BATCH_SIZE, 'l'),
+    1: Uf.from_constant('md', NUM_HEADS, 'l'),
     2: lufw.get_uf(),
     3: lufw.get_uf(),
-    4: Uf.from_constant('hd', HEAD_SIZE, "l"),
-    5: Uf.from_constant('qk', 3, "l"),
+    4: Uf.from_constant('hd', HEAD_SIZE, 'l'),
+    5: Uf.from_constant('qk', 3, 'l'),
 }
 
 loop_ufs=[ls[5], ls[0], ls[2], ls[1], ls[4]]
-width_ufs = None if args.dense_storage else [ls[5], ls[0], sufw.get_uf(), ls[1], ls[4]]
+width_ufs = None # if args.dense_storage else [ls[5], ls[0], sufw.get_uf(), ls[1], ls[4]]
 Q = te.ragged_placeholder((3, BATCH_SIZE, MAX_LEN, NUM_HEADS, HEAD_SIZE), [qk, bd, s1, md, hd], loop_ufs,
                           name='Q', width_ufs=width_ufs)
 
 loop_ufs=[ls[5], ls[0], ls[3], ls[1], ls[4]]
-width_ufs = None if args.dense_storage else [ls[5], ls[0], sufw.get_uf(), ls[1], ls[4]]
+width_ufs = None # if args.dense_storage else [ls[5], ls[0], sufw.get_uf(), ls[1], ls[4]]
 K = te.ragged_placeholder((3, BATCH_SIZE, MAX_LEN, NUM_HEADS, HEAD_SIZE), [qk, bd, s2, md, hd], loop_ufs,
                           name='K', width_ufs=width_ufs)
 
 loop_ufs=[lbduf, ls[2], ls[1], ls[3]]
-width_ufs = None if args.dense_storage else [[ls[0], sufw.get_uf(), ls[1], sufw.get_uf()]]
+width_ufs = None # if args.dense_storage else [[ls[0], sufw.get_uf(), ls[1], sufw.get_uf()]]
 k = tvm.reduce_axis((0, HEAD_SIZE), name = 'k')
 S = te.ragged_compute((BATCH_SIZE, MAX_LEN, NUM_HEADS, MAX_LEN), [bd, s1, md, s2], loop_ufs,
                       lambda ds: tvm.sum(Q[0, ds[bd], ds[s1], ds[md], k] * K[1, ds[bd], ds[s2], ds[md], k],
@@ -79,20 +79,20 @@ O = te.ragged_compute((BATCH_SIZE, MAX_LEN, NUM_HEADS, MAX_LEN), [bd, s1, md, s2
 
 s = tvm.create_schedule([O.op])
 
-if args.target == "cuda":
-    thread_x = lambda: tvm.thread_axis("threadIdx.x")
-    thread_y = lambda: tvm.thread_axis("threadIdx.y")
-    block_x = lambda: tvm.thread_axis("blockIdx.x")
-    block_y = lambda: tvm.thread_axis("blockIdx.y")
+if args.target == 'cuda':
+    thread_x = lambda: tvm.thread_axis('threadIdx.x')
+    thread_y = lambda: tvm.thread_axis('threadIdx.y')
+    block_x = lambda: tvm.thread_axis('blockIdx.x')
+    block_y = lambda: tvm.thread_axis('blockIdx.y')
 
     if args.sched == 1:
         nt = 8
 
-        Qs = s.cache_read(Q, "shared", [S], layouts='dense')
-        Ks = s.cache_read(K, "shared", [S], layouts='dense')
+        Qs = s.cache_read(Q, 'shared', [S], layouts='dense')
+        Ks = s.cache_read(K, 'shared', [S], layouts='dense')
 
-        Ql = s.cache_read(Qs, "local", [S], layouts='dense')
-        Kl = s.cache_read(Ks, "local", [S], layouts='dense')
+        Ql = s.cache_read(Qs, 'local', [S], layouts='dense')
+        Kl = s.cache_read(Ks, 'local', [S], layouts='dense')
 
         tile, ktile = 64, 8
 
@@ -110,8 +110,8 @@ if args.target == "cuda":
         yio, yii = s[O].split(yi, factor = nt)
         s[O].bind(xii, thread_y())
         s[O].bind(yii, thread_x())
-        s[O].bind(yio, tvm.thread_axis("vthread", name="vth1"))
-        s[O].bind(xio, tvm.thread_axis("vthread", name="vth2"))
+        s[O].bind(yio, tvm.thread_axis('vthread', name='vth1'))
+        s[O].bind(xio, tvm.thread_axis('vthread', name='vth2'))
         s[O].reorder(xio, yii, yio, xii)
         s[S].compute_at(s[O], xii)
 
@@ -162,11 +162,11 @@ if args.target == "cuda":
     else:
         nt = 8
 
-        Qs = s.cache_read(Q, "shared", [S], layouts='dense')
-        Ks = s.cache_read(K, "shared", [S], layouts='dense')
+        Qs = s.cache_read(Q, 'shared', [S], layouts='dense')
+        Ks = s.cache_read(K, 'shared', [S], layouts='dense')
 
-        Ql = s.cache_read(Qs, "local", [S], layouts='dense')
-        Kl = s.cache_read(Ks, "local", [S], layouts='dense')
+        Ql = s.cache_read(Qs, 'local', [S], layouts='dense')
+        Kl = s.cache_read(Ks, 'local', [S], layouts='dense')
 
         tile, ktile = 32, 4
 
@@ -184,8 +184,8 @@ if args.target == "cuda":
         yio, yii = s[O].split(yi, factor = nt)
         s[O].bind(xii, thread_y())
         s[O].bind(yii, thread_x())
-        s[O].bind(yio, tvm.thread_axis("vthread", name="vth1"))
-        s[O].bind(xio, tvm.thread_axis("vthread", name="vth2"))
+        s[O].bind(yio, tvm.thread_axis('vthread', name='vth1'))
+        s[O].bind(xio, tvm.thread_axis('vthread', name='vth2'))
         s[O].reorder(xio, yii, yio, xii)
         s[S].compute_at(s[O], xii)
 
@@ -235,16 +235,16 @@ else:
 def size_fn(l_inputs):
     lens = l_inputs[0]
     return {
-        Q: 3 * NUM_HEADS * HEAD_SIZE * run_utils.prefix_sum(len(lens), lambda b: (sufw.get_fn(lens)(b))),
-        K: 3 * NUM_HEADS * HEAD_SIZE * run_utils.prefix_sum(len(lens), lambda b: (sufw.get_fn(lens)(b))),
-        O: NUM_HEADS * run_utils.prefix_sum(len(lens),
-                                            lambda b: (sufw.get_fn(lens)(b) *
-                                                       sufw.get_fn(lens)(b)))
+        # Q: 3 * NUM_HEADS * HEAD_SIZE * run_utils.prefix_sum(len(lens), lambda b: (sufw.get_fn(lens)(b))),
+        # K: 3 * NUM_HEADS * HEAD_SIZE * run_utils.prefix_sum(len(lens), lambda b: (sufw.get_fn(lens)(b))),
+        # O: NUM_HEADS * run_utils.prefix_sum(len(lens),
+                                            # lambda b: (sufw.get_fn(lens)(b) *
+                                                       # sufw.get_fn(lens)(b)))
     }
 
 name = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0]
 out, batches = run_utils.lower_or_build(name, s, inputs, args, size_fn=size_fn, pad_sum=64,
-                                        hoist_loads=not args.no_hoist_loads,
+                                        hoist_loads=not args.no_hoist_loads, prep_code_mode='no_prep_code',
                                         run_function=run_utils.get_bert_layer_run_fn(BS_VAR))
 
 

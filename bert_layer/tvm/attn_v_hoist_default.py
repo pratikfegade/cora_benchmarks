@@ -12,6 +12,7 @@ import run_utils
 
 parser = run_utils.get_cmd_parser()
 parser.add_argument('--kt', dest='kt', default=8, type=int)
+parser.add_argument('--no-hoist-loads', dest='no_hoist_loads', default=False, action='store_true')
 args = parser.parse_args()
 
 BS_VAR = te.var('bs')
@@ -114,25 +115,27 @@ if args.target == "cuda":
 
     if nt == 16: vtile = 1
     else: vtile = 4
+    vtile=1
     _, x, h, y = s[As].leaf_iter_vars
     s[As].reorder(h, x, y)
     f = s[As].fuse(x, y)
     fo, fi = s[As].split(f, factor = nt * nt * vtile)
     fio, fii = s[As].split(fi, factor = nt * vtile)
     fiio, fiii = s[As].split(fii, factor = vtile)
-    s[As].bind(fio, thread_y())
-    s[As].bind(fiio, thread_x())
+    s[As].bind(fio, thread_x())
+    s[As].bind(fiio, thread_y())
     s[As].vectorize(fiii)
 
     if nt == 16: vtile = 2
     else: vtile = 4
+    vtile=1
     _, _, x, h, y = s[Vs].leaf_iter_vars
     s[Vs].reorder(h, x, y)
-    s[Vs].bind(x, thread_y())
+    s[Vs].bind(x, thread_x())
     fio, fii = s[Vs].split(y, factor = nt * vtile)
     fiio, fiii = s[Vs].split(fii, factor = vtile)
-    s[Vs].bind(fiio, thread_x())
-    s[Vs].vectorize(fiii)
+    s[Vs].bind(fiio, thread_y())
+    # s[Vs].vectorize(fiii)
 
     gen_prefix = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0]
     _ = tvm.register_func(utils.get_tvm_callback_cuda_compile(256))
@@ -156,13 +159,14 @@ inputs = [[lens], [BS_VAR, V, A, O]]
 name = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0]
 out, batches = run_utils.lower_or_build(name, s, inputs, args, size_fn=size_fn, pad_sum=64,
                                         run_function=run_utils.get_bert_layer_run_fn(BS_VAR),
+                                        hoist_loads=not args.no_hoist_loads,
                                         prep_code_mode=prep_code_mode)
 
-# _, V, A, O  = out
-# ctr = 0
-# O = O.flatten()
-# for length in batches[0]:
-#     rounded64 = utils.ceilmult(length, 64)
-#     this_extent = rounded64 * NUM_HEADS * HEAD_SIZE
-#     print(length, run_utils.stats(O[ctr:ctr + this_extent]))
-#     ctr += this_extent
+_, V, A, O  = out
+ctr = 0
+O = O.flatten()
+for length in batches[0]:
+    rounded64 = utils.ceilmult(length, 64)
+    this_extent = rounded64 * NUM_HEADS * HEAD_SIZE
+    print(length, run_utils.stats(O[ctr:ctr + this_extent]))
+    ctr += this_extent

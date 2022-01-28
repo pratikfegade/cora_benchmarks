@@ -116,7 +116,7 @@ def schedule_op(S, O, tile_x, tile_y, suffix):
     s[O].bind(O_b_l_o_o_o_fused_o_o_o_o_fused, te.thread_axis("blockIdx.x"))
     s[O].bind(O_h, te.thread_axis("blockIdx.y"))
     O_l_o_o_i_fused_o_o_o_i_fused = s[O].fuse(O_l_o_o_i, O_o_o_o_i)
-    s[O].bind(O_l_o_o_i_fused_o_o_o_i_fused, te.thread_axis("vthread"), no_unroll_vthread=True)
+    s[O].bind(O_l_o_o_i_fused_o_o_o_i_fused, te.thread_axis("vthread"))
     O_l_o_i_fused_o_o_i_fused = s[O].fuse(O_l_o_i, O_o_o_i)
     s[O].bind(O_l_o_i_fused_o_o_i_fused, te.thread_axis("threadIdx.x"))
     s[S].compute_at(s[O], O_l_o_i_fused_o_o_i_fused)
@@ -140,10 +140,11 @@ S1, O1 = G1
 S2, O2 = G2
 S3, O3 = G3
 S4, O4 = G4
-schedule_op(S1, O1, 64, 64, '1')
-schedule_op(S2, O2, 32, 64, '2')
-schedule_op(S3, O3, 64, 32, '3')
-schedule_op(S4, O4, 32, 32, '4')
+if args.target == "cuda":
+    schedule_op(S1, O1, 64, 64, '1')
+    schedule_op(S2, O2, 32, 64, '2')
+    schedule_op(S3, O3, 64, 32, '3')
+    schedule_op(S4, O4, 32, 32, '4')
 
 if args.hfuse:
     s.hfuse([(s[O1].op, s[O1].leaf_iter_vars[0]), (s[O2].op, s[O2].leaf_iter_vars[0]),
@@ -165,11 +166,14 @@ def size_fn(l_inputs):
     }
 
 bO = tvm.tir.decl_buffer(output_layout, name="bO")
-inputs = [[lens], [BATCH_SIZE, Q, K, bO]]
+if args.target == "cuda":
+    inputs = [[lens], [BATCH_SIZE, Q, K, bO]]
+else:
+    inputs = [[lens], [BATCH_SIZE, Q, K, S1, S2, S3, S4, bO]]
 binds = {O1:bO, O2:bO, O3:bO, O4:bO}
 
 name = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0]
-out, batches = run_utils.lower_or_build(name, s, inputs, args, size_fn=size_fn, binds=binds,
+out, batches = run_utils.lower_or_build(name, s, inputs, args, size_fn=size_fn, binds=binds, hoist_loads=True,
                                         run_function=run_utils.get_bert_layer_run_fn(BATCH_SIZE))
 # _, Q, K, O = out
 # for i in range(BATCH_SIZE):
@@ -177,12 +181,12 @@ out, batches = run_utils.lower_or_build(name, s, inputs, args, size_fn=size_fn, 
 #     rounded = utils.ceilmult(length, TILE)
 #     print(rounded, np.mean(O[i,0:rounded,:,0:rounded]))
 
-# _, Q, K, O = out
-# O = O.flatten()
-# ctr = 0
-# for length in batches[0]:
-#     rounded = utils.ceilmult(length, 32)
-#     this_extent = rounded
-#     this_storage_extent = rounded * rounded * NUM_HEADS
-#     print(rounded, np.mean(O[ctr:ctr+this_storage_extent]))
-#     ctr += this_storage_extent
+O = out[-1]
+O = O.flatten()
+ctr = 0
+for length in batches[0]:
+    rounded = utils.ceilmult(length, 32)
+    this_extent = rounded
+    this_storage_extent = rounded * rounded * NUM_HEADS
+    print(rounded, np.mean(O[ctr:ctr+length]))
+    ctr += this_storage_extent

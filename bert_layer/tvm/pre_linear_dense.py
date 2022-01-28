@@ -12,8 +12,8 @@ import utils
 import run_utils
 
 parser = run_utils.get_cmd_parser()
-parser.add_argument('--no-hoist-loads', dest='no_hoist_loads', default=False, action='store_true')
 args = parser.parse_args()
+args.full_dense = True
 
 BS_VAR = te.var('bs')
 BATCH_SIZE = BS_VAR + 1
@@ -32,9 +32,9 @@ s1 = Dim('s1')
 id = Dim('id')
 od = Dim('od')
 
-def len_ufw(name, pad): return Ufw(name, 'l', (pad, MAX_LEN), [bd], [lens], lambda lens: lambda b: utils.ceilmult(lens[b], pad))
-lufw1 = len_ufw('s1', 1)
-lufw64 = len_ufw('s2', 64)
+ufw = Ufw('s', 'l', (MAX_LEN, MAX_LEN), [], [], lambda: lambda: MAX_LEN)
+lufw1 = ufw
+lufw64 = ufw
 
 ls =  {
     0: Uf.from_constant('qkv', QKV_NUM, 'l'),
@@ -46,7 +46,7 @@ ls =  {
 }
 
 loop_ufs=[ls[1], ls[3], ls[4]]
-width_ufs=[ls[1], ls[3], ls[4]]
+width_ufs=None
 QKV = te.ragged_placeholder((BATCH_SIZE, MAX_LEN, IN_SIZE), [bd, s1, id], loop_ufs,
                             name='QKV', width_ufs=width_ufs)
 
@@ -54,17 +54,14 @@ W = te.placeholder((QKV_NUM, NUM_HEADS, OUT_SIZE, IN_SIZE), name='W')
 B = te.placeholder((QKV_NUM, NUM_HEADS, OUT_SIZE), name='B')
 
 loop_ufs=[ls[0], ls[1], ls[3], ls[2], ls[5]]
-width_ufs = [loop_ufs]
+width_ufs=None
 k = tvm.reduce_axis((0, IN_SIZE), name = 'k')
 S = te.ragged_compute((QKV_NUM, BATCH_SIZE, MAX_LEN, NUM_HEADS, OUT_SIZE), [qkv, bd, s1, md, od], loop_ufs,
                       lambda ds: tvm.sum(W[ds[qkv], ds[md], ds[od], k] * QKV[ds[bd], ds[s1], k],
                                          axis = k, dimensions = [id]),
                       name = 'S', width_uf_lists=width_ufs)
 
-if args.layout_unfused:
-    width_ufs=None if args.dense_storage else [[ls[0], ls[1], lufw1.get_uf(), ls[2], ls[5]]]
-else:
-    width_ufs=None if args.dense_storage else [[ls[0], ls[1], lufw64.get_uf(), ls[2], ls[5]]]
+width_ufs=None
 O = te.ragged_compute((QKV_NUM, BATCH_SIZE, MAX_LEN, NUM_HEADS, OUT_SIZE), [qkv, bd, s1, md, od], loop_ufs,
                       lambda ds: S[ds[qkv], ds[bd], ds[s1], ds[md], ds[od]] + B[ds[qkv], ds[md], ds[od]],
                       name = 'O', width_uf_lists=width_ufs)
@@ -72,12 +69,9 @@ O = te.ragged_compute((QKV_NUM, BATCH_SIZE, MAX_LEN, NUM_HEADS, OUT_SIZE), [qkv,
 s = tvm.create_schedule([O.op])
 
 if args.target == 'cuda':
-    if not args.dense_storage:
-        s.fuse_tensor_dimensions(QKV, 0, 1)
+    # s.fuse_tensor_dimensions(QKV, 0, 1)
 
-    # O_local, = s.cache_write([O], 'local', storage_layout_mode='loop_layout')
     O_local = S
-    s.fuse_tensor_dimensions(O_local, 1, 2)
     q_c, b_c, l_c, n_c, h_c, k = tuple(O_local.op.axis) + tuple(O_local.op.reduce_axis)
     l_c = s[O_local].fuse(b_c, l_c)
     l_coi, l_ci = s[O_local].split(l_c, factor=2)
@@ -86,7 +80,6 @@ if args.target == 'cuda':
     s[O_local].mark_no_bounds_check()
 
     O_q, O_b, O_l, O_n, O_h = tuple(O.op.axis) + tuple(O.op.reduce_axis)
-    O_l = s[O].fuse(O_b, O_l, padding = 64)
 
     O_loi, O_li = s[O].split(O_l, factor=8)
     O_looi, O_loi = s[O].split(O_loi, factor=4)
@@ -102,7 +95,6 @@ if args.target == 'cuda':
     s[O].vectorize(O_ni)
 
     QKV_sh = s.cache_read(QKV, 'shared', [O_local])
-    s.fuse_tensor_dimensions(QKV_sh, 0, 1)
     QKV_sh_ax00, QKV_sh_ax01, QKV_sh_ax1 = tuple(QKV_sh.op.axis)
     QKV_sh_ax0 = s[QKV_sh].fuse(QKV_sh_ax00, QKV_sh_ax01)
     s[QKV_sh].compute_at(s[O_local], koo)
@@ -113,6 +105,7 @@ if args.target == 'cuda':
     s[W_sh].compute_at(s[O_local], koo)
 
     s[O].bind(O_q, te.thread_axis('blockIdx.z'))
+    O_looo = s[O].fuse(O_b, O_looo)
     s[O].bind(O_looo, te.thread_axis('blockIdx.y'))
     O_q_looo_f_nooo_f_hooo_f = s[O].fuse(O_nooi, O_hooo)
     s[O].bind(O_q_looo_f_nooo_f_hooo_f, te.thread_axis('blockIdx.x'))
@@ -158,35 +151,21 @@ else:
     pass
 
 def size_fn(l_inputs):
-    if args.dense_storage: return {}
-    lens = l_inputs[0]
-    if args.layout_unfused: out_fn = lufw1.get_fn(lens)
-    else: out_fn = lufw64.get_fn(lens)
+    return {}
 
-    return {
-        QKV: IN_SIZE * run_utils.prefix_sum(len(lens), lambda b: lufw1.get_fn(lens)(b)),
-        O: QKV_NUM * NUM_HEADS * OUT_SIZE * (BATCH_SIZE * MAX_LEN if args.dense_storage else
-                                             run_utils.prefix_sum(len(lens), lambda b: out_fn(b)))
-    }
-
-if args.dense_storage:
-    bQKV = tvm.decl_buffer([BATCH_SIZE, MAX_LEN, IN_SIZE], name = 'bQKV')
-else:
-    bQKV = tvm.decl_buffer([BATCH_SIZE*MAX_LEN, IN_SIZE], name = 'bQKV')
-binds = {QKV: bQKV}
 if args.target == 'cuda':
-    inputs = [[lens], [BS_VAR, bQKV, W, B, O]]
+    inputs = [[lens], [BS_VAR, QKV, W, B, O]]
 else:
-    inputs = [[lens], [BS_VAR, bQKV, W, B, S, O]]
+    inputs = [[lens], [BS_VAR, QKV, W, B, S, O]]
 
 name = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0]
-out, batches = run_utils.lower_or_build(name, s, inputs, args, size_fn=size_fn, binds=binds, pad_sum=64,
-                                        hoist_loads=not args.no_hoist_loads,
-                                        run_function=run_utils.get_bert_layer_run_fn(BS_VAR))
+out, batches = run_utils.lower_or_build(name, s, inputs, args, size_fn=size_fn, pad_sum=64,
+                                        run_function=run_utils.get_bert_layer_run_fn(BS_VAR),
+                                        prep_code_mode='no_prep_code')
 
-q_size = 0
-for length in batches[0]:
-    q_size += utils.ceilmult(length, 64) * NUM_HEADS * OUT_SIZE
+# q_size = 0
+# for length in batches[0]:
+#     q_size += utils.ceilmult(length, 64) * NUM_HEADS * OUT_SIZE
 
 # ctr = 0
 # O  = out[-1]
@@ -196,3 +175,13 @@ for length in batches[0]:
 #     print(length, np.mean(O[ctr:ctr + this_extent]), np.mean(O[ctr+q_size:ctr+q_size + this_extent]),
 #           np.mean(O[ctr+2*q_size:ctr+2*q_size + this_extent]))
 #     ctr += utils.ceilmult(length, 64) * NUM_HEADS * OUT_SIZE
+
+
+
+
+# floordiv(
+#     floormod(
+#         blockIdx.y*64 + floordiv(vthread.s, 2)*32 + floordiv(threadIdx.x, 16)*8,
+#         512) + 7,
+#     512) +
+# 1

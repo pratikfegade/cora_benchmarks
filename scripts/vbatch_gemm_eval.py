@@ -16,8 +16,10 @@ PYTHON = 'python3'
 def get_mkl_runner(pad):
     pad_arg = '1' if pad else '0'
     def run_mkl(b_size, n_batch, data_file_path, err_file, args):
-        cmd = [MKL_RUNNER, str(b_size), str(n_batch), pad_arg, data_file_path, str(100), str(1)]
+        log(args, '  Running %d' % (b_size,))
+        cmd = [MKL_RUNNER, str(b_size), str(n_batch), pad_arg, data_file_path, str(250), str(1)]
         out, err = run_cmd(cmd)
+        print(out)
         if err: print(err, file = err_file)
         return com.extract_times(out, 1)[0]
     return run_mkl
@@ -35,14 +37,15 @@ def run_cublas(b_size, n_batch, data_file_path, err_file, args):
     if err: print(err, file = err_file)
     return com.extract_times(out, 1)[0]
 
-def run_tvm(b_size, n_batch, data_file_path, err_file, args):
+def run_tvm(b_sizes, n_batch, data_file_path, err_file, args):
     runner = TVM_GPU_RUNNER if args.target == "cuda" else TVM_CPU_RUNNER
 
     cmd = ([PYTHON, runner, '--target', com.get_tvm_target(target), '--batch-sizes'] +
-           [str(i) for i in b_sizes] +
+           [str(b) for b in b_sizes] +
            ['--max-batches', str(n_batch), '--data-file', data_file_path])
     if args.prep_overhead:
         cmd += ['--only-prep-code']
+    print(' '.join(cmd))
     out, err = run_cmd(cmd)
     if err: print(err, file = err_file)
 
@@ -57,8 +60,8 @@ parser.add_argument('--stdout', dest='stdout', default=False, action='store_true
 parser.add_argument('--append', dest='append', default=False, action='store_true')
 args = parser.parse_args()
 
-batch_sizes = [1, 2, 4, 8, 16, 32, 64, 128, 256, 512]
-# batch_sizes = [256, 512]
+# b_sizes = [2, 4, 8, 16, 32, 64, 128, 256, 512]
+b_sizes = [2, 4, 8, 16, 32, 64]
 targets = [args.target] if args.target else ['cuda']
 
 if args.prep_overhead:
@@ -66,16 +69,15 @@ if args.prep_overhead:
 else:
     if args.target == 'cuda':
         framework_funs = {
-            'cbt': lambda b_sizes, *args: com.batchify(run_cbt, *args),
-            # 'cublas': lambda b_sizes, *args: com.batchify(run_cublas, *args),
-            # 'cora': get_tvm_runner(False),
+            # 'cbt': lambda b_sizes, *args: com.batchify(b_sizes, run_cbt, *args),
+            # 'cublas': lambda b_sizes, *args: com.batchify(b_sizes, run_cublas, *args),
+            'cora': run_tvm
         }
     else:
         framework_funs = {
-            # 'mkl_nopad': lambda b_sizes, *args: com.batchify(get_mkl_runner(False), *args),
-            # 'mkl_pad': lambda b_sizes, *args: com.batchify(get_mkl_runner(True), *args),
-            # 'cora': get_tvm_runner(False),
-            'cora_mkl': get_tvm_runner(True),
+            # 'mkl_nopad': lambda b_sizes, *args: com.batchify(b_sizes, get_mkl_runner(False), *args),
+            'mkl_pad': lambda b_sizes, *args: com.batchify(b_sizes, get_mkl_runner(True), *args),
+            # 'cora': run_tvm
         }
 
 results_out, results_err = get_out_files(args, 'vbatch_gemm', 'a' if args.append else 'w')
@@ -87,10 +89,10 @@ for target in targets:
     exe_times = {}
     for framework, func in framework_funs.items():
         log(args, 'Running %s %s' % (target, framework))
-        exe_times[framework] = func(batch_sizes, args.max_batches, DATA_FILE_PATH, results_err, args)
+        exe_times[framework] = func(b_sizes, args.max_batches, DATA_FILE_PATH, results_err, args)
         print(exe_times[framework])
 
-    for b_size in batch_sizes:
+    for b_size in b_sizes:
         out_str = '%s,%d' % (target, b_size)
         for framework, framework_exe_time in exe_times.items():
             out_str += ',%g' % framework_exe_time[b_size]

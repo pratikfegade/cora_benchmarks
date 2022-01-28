@@ -16,8 +16,8 @@ parser.add_argument('--target', nargs='?', default='llvm')
 parser.add_argument('--dtype', dest='dtype', nargs='?', default='float32')
 parser.add_argument('--max-batches', dest='max_batches', default=1, type=int)
 parser.add_argument('--batch-sizes', dest='batch_sizes', nargs='+', default=[32], type=int)
-# parser.add_argument('--batch-size', dest='batch_size', default=2, type=int)
 parser.add_argument('--tile-size', dest='tile_size', default=128, type=int)
+parser.add_argument('--no-hoist-loads', dest='no_hoist_loads', default=False, action='store_true')
 parser.add_argument('--debug', dest='debug', default=False, action='store_true')
 parser.add_argument('--debug-code', dest='debug_code', default=None, type=str)
 parser.add_argument('--debug-functions', dest='debug_functions', default=False, action='store_true')
@@ -37,7 +37,6 @@ parser.add_argument('--fs', dest='fs', default=3, type=int)
 args = parser.parse_args()
 
 BATCH_SIZE = te.var('bs')
-# BATCH_SIZE = args.batch_size
 
 ms = te.placeholder((BATCH_SIZE,), name = 'ms', dtype = 'int32')
 ns = te.placeholder((BATCH_SIZE,), name = 'ns', dtype = 'int32')
@@ -106,6 +105,8 @@ if args.target == "cuda":
     O_n_o_o_o, O_n_o_o_i = s[O].split(O_n_o_o_i, factor=2)
 
     s[O].reorder(O_b, O_m_o_o_o, O_n_o_o_o, O_m_o_o_i, O_n_o_o_i, O_m_o_i, O_n_o_i, O_m_i, O_n_i)
+    s[O].vectorize(O_n_i)
+
 
     B_s = s.cache_read(B, "shared", [O_local])
     B_s_ax0, B_s_ax1, B_s_ax2 = tuple(B_s.op.axis)
@@ -214,11 +215,13 @@ bO = tvm.tir.decl_buffer((BATCH_SIZE, MAX_DIM, MAX_DIM), name="bO")
 binds = {Op: bO, O: bO}
 if args.only_prep_code: prep_code_mode = 'only_prep_code'
 inputs = [[ms, ns, ks], [BATCH_SIZE, A, B, bO]]
+# inputs = [[ms, ns, ks], [A, B, bO]]
 name = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0]
 out = run_utils.lower_or_build(name, s, inputs, args, size_fn=size_fn,
+                               # run_function=run_utils.run_vbatch_gemm2,
                                run_function=run_utils.get_vbatch_gemm_run_fn(BATCH_SIZE),
-                               # run_function=run_utils.run_vbatch_gemm,
-                               prep_code_mode=prep_code_mode, binds=binds)
+                               prep_code_mode=prep_code_mode, binds=binds,
+                               hoist_loads=not args.no_hoist_loads)
 
 # A, W, O  = out
 # for i in range(BATCH_SIZE):
