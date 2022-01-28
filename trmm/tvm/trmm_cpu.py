@@ -54,7 +54,7 @@ B = te.placeholder((M, N), name='B')
 alpha = 2
 if args.op_split:
     def len_ufw(name, pad): return Ufw(name, "l", (pad, M), [md], [], lambda: lambda m: utils.floormult(m, pad))
-    luf = len_ufw('s2k', 32).get_uf()
+    luf = len_ufw('s2k', 128).get_uf()
 
     loop_ufs=[ls[0], ls[1]]
     O1 = te.ragged_compute((M, N), [md, nd], loop_ufs,
@@ -120,12 +120,15 @@ def schedule_op(O, suffix, cache_write_tensor=None):
     s[O_local].pragma(O_local_m_c_o_o_o, "auto_unroll_max_step", 512)
     s[O_local].pragma(O_local_m_c_o_o_o, "unroll_explicit", True)
     s[O_local].vectorize(O_local_n_c_i)
+    if cache_write_tensor is None: return [O.op, O_local.op]
+    else: return []
 
+substitute_ops = []
 if args.op_split:
-    schedule_op(O1, '1')
-    schedule_op(O2, '2', O2i)
+    substitute_ops += schedule_op(O1, '1')
+    substitute_ops += schedule_op(O2, '2', O2i)
 else:
-    schedule_op(O, '', S)
+    substitute_ops += schedule_op(O, '', S)
 
 if args.op_split: inputs = [[], [A, B, O1, O2]]
 else: inputs = [[], [A, B, O]]
@@ -133,9 +136,8 @@ else: inputs = [[], [A, B, O]]
 substitutes=None
 if args.load_balance:
     print('Load balancing')
-    max_by = 256
-    # substitutes={'blockIdx.y': Uf('sub', "", (0, max_by), [Dim('dum')], lambda b: max_by - 1 - b)}
-    substitutes={'iO_0.o1.o_f': Uf('sub', "", (0, max_by), [Dim('dum')], lambda b: max_by - b - 1)}
+    max_by = (M // 256) * (M // 64)
+    substitutes=[substitute_ops, {'iO1_0.o1.o_f': Uf('sub', "", (0, max_by), [Dim('dum')], lambda b: max_by - b - 1)}]
 
 name = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0]
 out = run_utils.lower_or_build(name, s, inputs, args, run_function=run_utils.run_trmm,
