@@ -99,6 +99,9 @@ if args.per_op:
         time_dict[op.name] = []
 batch_size_ = BATCH_SIZE + 1
 optimal_variants = None
+if len(batches[-1]) != batch_size_:
+    batches.pop()
+
 for batch in batches:
     sum1 = run_utils.prefix_sum(batch_size_, lambda i: batch[i])
     sum16 = run_utils.prefix_sum(batch_size_, lambda i: utils.ceilmult(batch[i], 16))

@@ -18,20 +18,23 @@ def generate_tvm_libs(dataset, args):
     out, err = run_cmd(cmd)
     print(out, err)
 
-def run_pytorch(b_size, dataset, n_batch, err_file, args):
+def run_pytorch(b_size, dataset, n_batch, err_file, args, noub):
     log(args, ' Batch size %d' % (b_size))
     num_layers = 25
     cmd = [PYTHON, PYTORCH_EXE_RUNNER, '--target', args.target, '--dataset', dataset, '--batch-size', str(b_size),
            '--max-batches', str(n_batch)]
+    if noub: cmd += ['--no-ub']
 
+    print(' '.join(cmd))
     out, err = run_cmd(cmd)
     if err: print(err, file = err_file)
     return com.extract_time_ops(out)
 
-def run_tf(b_size, dataset, n_batch, err_file, args):
+def run_tf(b_size, dataset, n_batch, err_file, args, noub):
     log(args, ' Batch size %d' % (b_size))
     num_layers = 25
     cmd = [PYTHON, TF_EXE_RUNNER, '--dataset', dataset, '--batch-size', str(b_size), '--max-batches', str(n_batch)]
+    if noub: cmd += ['--no-ub']
     print(' '.join(cmd))
     out, err = run_cmd(cmd)
     print(out)
@@ -59,12 +62,11 @@ parser.add_argument('--stdout', dest='stdout', default=False, action='store_true
 parser.add_argument('--append', dest='append', default=False, action='store_true')
 args = parser.parse_args()
 
-data_points = [('race', 128), ('wiki_128', 32), ('mnli', 128)]
-# data_points = [('race', 128)]
-# data_points = [('wiki_128', 32)]
+# data_points = [('mnli', 128), ('cola', 32), ('wiki_128', 32), ('race', 128)]
+data_points = [('cola', 32)]
 target = 'cpu'
 
-out_prefix = 'per_op_times'
+out_prefix = 'per_op_times_new'
 if args.prep_overhead: out_prefix += '_prelude'
 
 results_out, results_err = get_out_files(args, out_prefix, 'a' if args.append else 'w')
@@ -74,21 +76,33 @@ print(header, file = results_out)
 for dataset, b_size in data_points:
     if args.gen_libs: generate_tvm_libs(dataset, args);
 
-    cora_times = run_cora(b_size, dataset, args.max_batches, results_err, args)
-    for op, time in cora_times.items():
-        out_str = '%s,%d,%s,%s,%g' % (dataset, b_size, 'cora', op, time)
-        print(out_str, file = results_out)
-    results_out.flush()
+    # cora_times = run_cora(b_size, dataset, args.max_batches, results_err, args)
+    # for op, time in cora_times.items():
+        # out_str = '%s,%d,%s,%s,%g' % (dataset, b_size, 'cora', op, time)
+        # print(out_str, file = results_out)
+    # results_out.flush()
 
-    pt_times = run_pytorch(b_size, dataset, args.max_batches, results_err, args)
-    for op, time in pt_times.items():
-        out_str = '%s,%d,%s,%s,%g' % (dataset, b_size, 'pytorch', op, time)
-        print(out_str, file = results_out)
-    results_out.flush()
+    # tf_times = run_tf(b_size, dataset, args.max_batches, results_err, args, True)
+    # for op, time in tf_times.items():
+        # out_str = '%s,%d,%s,%s,%g' % (dataset, b_size, 'tensorflow', op, time)
+        # print(out_str, file = results_out)
+    # results_out.flush()
 
-    tf_times = run_tf(b_size, dataset, args.max_batches, results_err, args)
-    for op, time in tf_times.items():
-        out_str = '%s,%d,%s,%s,%g' % (dataset, b_size, 'tensorflow', op, time)
+    # tf_ub_times = run_tf(b_size, dataset, args.max_batches, results_err, args, False)
+    # for op, time in tf_ub_times.items():
+        # out_str = '%s,%d,%s,%s,%g' % (dataset, b_size, 'tensorflow-ub', op, time)
+        # print(out_str, file = results_out)
+    # results_out.flush()
+
+    # pt_times = run_pytorch(b_size, dataset, args.max_batches, results_err, args, True)
+    # for op, time in pt_times.items():
+        # out_str = '%s,%d,%s,%s,%g' % (dataset, b_size, 'pytorch', op, time)
+        # print(out_str, file = results_out)
+    # results_out.flush()
+
+    pt_ub_times = run_pytorch(b_size, dataset, args.max_batches, results_err, args, False)
+    for op, time in pt_ub_times.items():
+        out_str = '%s,%d,%s,%s,%g' % (dataset, b_size, 'pytorch-ub', op, time)
         print(out_str, file = results_out)
     results_out.flush()
 

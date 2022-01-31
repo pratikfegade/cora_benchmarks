@@ -83,6 +83,11 @@ if True:
     b, l1, h, l2 = s[O].leaf_iter_vars
     f = s[O].fuse(b, l1, padding=32)
     fo, fi = s[O].split(f, factor=32)
+
+    # 64-core ARM
+    fi = s[O].fuse(fi, h)
+    # 64-core ARM
+
     s[O].parallel(fi)
 
     vo, vi = s[O].split(l2, factor=ufactor)

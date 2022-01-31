@@ -110,6 +110,11 @@ if args.sched == 1:
     s[O].reorder(b, xo, yo, h, xi, yi)
     f1 = s[O].fuse(xo, yo)
     f2 = s[O].fuse(b, f1)
+
+    # 64-core ARM
+    f2 = s[O].fuse(f2, h)
+    # 64-core ARM
+
     s[O].parallel(f2)
 
     O_m, O_n = xi, yi

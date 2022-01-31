@@ -18,6 +18,7 @@ parser.add_argument('--dtype', dest='dtype', nargs='?', default='float32')
 parser.add_argument('--max-batches', dest='max_batches', default=10, type=int)
 parser.add_argument('--batch-size', dest='batch_size', default=32, type=int)
 parser.add_argument('--debug', dest='debug', default=False, action='store_true')
+parser.add_argument('--no-ub', dest='no_ub', default=False, action='store_true')
 parser.add_argument('--dataset', nargs='?', default='random_384_512')
 args = parser.parse_args()
 
@@ -102,57 +103,80 @@ model_size = num_heads * head_size
 device = torch.device('cpu')
 batch_size = args.batch_size
 
+min_ubs = {
+    ('race', 128): 2, ('wiki_128', 32): 32,
+    ('cola', 32): 16, ('mnli', 128): 16
+}
+
+bs = batch_size
+if args.no_ub: ubs = bs
+else: ubs = min_ubs[(args.dataset, batch_size)]
+micro_batch_size = ubs
+
 batches = run_utils.get_nlp_batches(batch_size, args.max_batches, args.dataset)
 
-iters = 200
+iters = 40
 
 callable_to_profile = None
-torch.set_num_threads(8)
-op_times = {
-    'pre_linear': [],
-    'qkt': [],
-    'softmax': [],
-    'attn_v': [],
-    'post_linear': [],
-}
+torch.set_num_threads(64)
+
+op_order = ['pre_linear', 'qkt', 'softmax', 'attn_v', 'post_linear']
+
 def run_for_batches():
+    op_times = {}
+    for op in op_order:
+        op_times[op] = []
+
     for batch in batches:
-        print('B', sep=' ')
-        max_len = int(np.amax(batch))
+        batch = np.sort(batch)
+        op_ubs_times = {}
+        for op in op_order:
+            op_ubs_times[op] = 0.0
 
-        attn_mask = np.full((batch_size, max_len, max_len), 0.0, dtype='float32')
-        for i in range(batch_size):
-            for j in range(max_len):
-                if j >= batch[i]:
-                    attn_mask[i][j] = np.full((max_len,), -float('inf'), dtype='float32')
-                else:
-                    attn_mask[i][j][j+1:] = np.full((max_len - j - 1,), -float('inf'), dtype='float32')
-        attn_mask = torch.from_numpy(attn_mask).to(device)
+        micro_batches = np.split(batch, bs // ubs)
 
-        inp = get_np_tensor((args.batch_size * max_len, model_size), device, True)
-        q = get_np_tensor((1, num_heads, batch_size, max_len, head_size), device, True)
-        k = get_np_tensor((1, num_heads, batch_size, max_len, head_size), device, True)
-        v = get_np_tensor((1, num_heads, batch_size, max_len, head_size), device, True)
-        attn = get_np_tensor((1, num_heads, batch_size, max_len, max_len), device, True)
-        post_lin_in = get_np_tensor((batch_size, max_len, num_heads * head_size), device, True)
+        for micro_batch in micro_batches:
+            max_len = int(np.amax(micro_batch))
+            print(max_len, micro_batch_size)
+            attn_mask = np.full((micro_batch_size, max_len, max_len), 0.0, dtype='float32')
+            # for i in range(micro_batch_size):
+            #     for j in range(max_len):
+            #         if j >= micro_batch[i]:
+            #             attn_mask[i][j] = np.full((max_len,), -float('inf'), dtype='float32')
+            #         else:
+            #             attn_mask[i][j][j+1:] = np.full((max_len - j - 1,), -float('inf'), dtype='float32')
+            attn_mask = torch.from_numpy(attn_mask).to(device)
 
-        ops = {
-            'pre_linear': (PreLinear(device, max_len, batch_size, num_heads, head_size, model_size), [inp]),
-            'qkt': (QKt(device, max_len, batch_size, num_heads, head_size, model_size), [q, k, attn_mask]),
-            'softmax': (Softmax(device, max_len, batch_size, num_heads, head_size, model_size), [attn]),
-            'attn_v': (AttnV(device, max_len, batch_size, num_heads, head_size, model_size), [attn, v]),
-            'post_linear': (PostLinear(device, max_len, batch_size, num_heads, head_size, model_size), [post_lin_in]),
-        }
+            inp = get_np_tensor((micro_batch_size * max_len, model_size), device, True)
+            q = get_np_tensor((1, num_heads, micro_batch_size, max_len, head_size), device, True)
+            k = get_np_tensor((1, num_heads, micro_batch_size, max_len, head_size), device, True)
+            v = get_np_tensor((1, num_heads, micro_batch_size, max_len, head_size), device, True)
+            attn = get_np_tensor((1, num_heads, micro_batch_size, max_len, max_len), device, True)
+            post_lin_in = get_np_tensor((micro_batch_size, max_len, num_heads * head_size), device, True)
 
-        for k, v in ops.items():
-            ops[k] = (torch.jit.script(v[0]), v[1])
+            ops = {
+                'pre_linear': (PreLinear(device, max_len, micro_batch_size,
+                                         num_heads, head_size, model_size), [inp]),
+                'qkt': (QKt(device, max_len, micro_batch_size, num_heads,
+                            head_size, model_size), [q, k, attn_mask]),
+                'softmax': (Softmax(device, max_len, micro_batch_size, num_heads, head_size, model_size), [attn]),
+                'attn_v': (AttnV(device, max_len, micro_batch_size, num_heads, head_size, model_size), [attn, v]),
+                'post_linear': (PostLinear(device, max_len, micro_batch_size,
+                                           num_heads, head_size, model_size), [post_lin_in]),
+            }
 
-        for k, v in ops.items():
-            timer = benchmark.Timer(stmt='f(*inps)',
-                                    globals={'inps': v[1], 'f': v[0]},
-                                    num_threads=8)
-            op_times[k].append(timer.timeit(iters).mean * 1000.0)
+            for k, v in ops.items():
+                ops[k] = (torch.jit.script(v[0]), v[1])
 
+            for k, v in ops.items():
+                timer = benchmark.Timer(stmt='f(*inps)',
+                                        globals={'inps': v[1], 'f': v[0]},
+                                        num_threads=64)
+                timer.timeit(10).mean * 1000.0
+                op_ubs_times[k] += timer.timeit(iters).mean * 1000.0
+
+        for op in op_order:
+            op_times[op].append(op_ubs_times[op])
     return op_times
 
 with torch.no_grad():
