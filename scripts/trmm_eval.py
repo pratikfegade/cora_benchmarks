@@ -5,9 +5,8 @@ from common import run_cmd, INF, get_out_files, log, run_linearization
 import argparse
 
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
-CUBLAS_RUNNER = SCRIPT_DIR + '/../trmm/cublas/gemm_cublas'
+CUBLAS_RUNNER = SCRIPT_DIR + '/../trmm/cublas/cublas_trmm'
 TVM_RUNNER = SCRIPT_DIR + '/../trmm/tvm/trmm.py'
-TACO_RUNNER = SCRIPT_DIR + '/../taco/taco_csr_trmm'
 PYTHON = 'python3'
 
 def get_cublas_runner(pad):
@@ -28,13 +27,6 @@ def get_tvm_runner(balance, split):
         if err: print(err, file = err_file)
         return com.extract_times(out, 1)[0]
     return run_tvm
-
-def taco_runner(m_size, n_size, err_file, args):
-    runner = TACO_RUNNER
-    cmd = [runner, str(m_size), '0']
-    out, err = run_cmd(cmd)
-    if err: print(err, file = err_file)
-    return com.extract_times(out, 1)[0]
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--target', nargs='?', default=None)
@@ -61,7 +53,6 @@ if args.target == 'cuda':
         'cora_unsplit': get_tvm_runner(False, False),
         'cora_unbalanced': get_tvm_runner(False, True),
         'cora_balanced': get_tvm_runner(True, True),
-        # 'taco': taco_runner,
     }
 
 results_out, results_err = get_out_files(args, 'trmm', 'a' if args.append else 'w')

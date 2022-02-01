@@ -1,0 +1,40 @@
+GPU Evaluation
+* All paths below are relative to the root of the benchmarks repository
+
+- Section 7.1: Matrix Multiplication
+-- Variable-Sized Batched GEMM (vgemm)
+   1. Compile vbatch_gemm/cbt, vbatch_gemm/gemm_cublas by running make in those directories
+   2. Run python3 scripts/vbatch_gemm_eval.py --target cuda --max-batches 50 --out-dir results. Output will be generated in results/vbatch_gemm_results_cuda.csv.
+   3. Batch size 512 may need to run separately with CoRa as it sometimes OOMs. This can be like so:
+      python3 ./vbatch_gemm/tvm/vbatch_gemm.py --target cuda --batch-sizes 512 --max-batches 10 --data-file ./vbatch_gemm/data.txt.
+
+-- Triangular Matrix Multiplication GEMM (trmm)
+   1. Compile trmm/cublas by running make in those directories
+   2. Run python3 scripts/trmm_eval.py --target cuda --out-dir results. Output will be generated in results/trmm_results_cuda.csv.
+
+
+- Section 7.2: The Transformer Model
+-- Table 4: Main results
+-- Figure 11: MHA with and without layout change op fusion for the RACE dataset
+   1. Run python3 scripts/pad_fusion_eval.py --target cuda --stdout --max-batches 50. Output will be generated in results/pad_fusion_results_cuda.csv.
+
+-- Figure A.4: Masked Scaled Dot-Product Attention with and without padding for the attention matrix for the RACE and MNLI datasets (more discussion in Section D.3)
+   1. Run python3 scripts/pad_fusion_eval.py --target cuda --max-batches 50 --out-dir results. Output will be generated in results/bert_layer_mmha_results_cuda.csv.
+
+-- Figure A.5: Memory consumption (more discussion in Section D.5)
+   1. Run python3 scripts/bert_layer_eval.py --target cuda --stdout --max-batches 50 --mem. Output will be generated in results/bert_layer_mem_results_cuda.csv.
+
+-- Table 5: MHA evaluation on ARM CPU
+
+- Section 7.3: Operation Splitting and Horizontal Fusion (AttnV)
+- Section 7.4: CoRa Overheads
+
+- Sections 7.5 and D.4: Evaluation Against Sparse Tensor Compilers
+  1. Compile taco/{taco_bcsr_trmm, taco_bcsr_trmul, taco_csr_trmm, taco_csr_trmul, taco_csr_tradd} by running make in taco/
+  2. Run python3 scripts/taco_tr_eval.py --target cuda --stdout. Output will be generated in results/taco_results_cuda.csv
+
+- Section D.3: Masked Scaled Dot-Product Attention
+- Section D.4: Evaluation Against Sparse Tensor Compilers
+- Section D.6: Operation Splitting and Horizontal Fusion (QKt)
+- Section D.7: CORA Overheads
+- Section D.8: Discussion on Transformer Layer Evaluation

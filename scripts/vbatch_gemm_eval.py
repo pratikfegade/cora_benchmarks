@@ -24,13 +24,14 @@ def get_mkl_runner(pad):
 
 def run_cbt(b_size, n_batch, data_file_path, err_file, args):
     cmd = [CBT_RUNNER, str(b_size), str(n_batch), data_file_path, str(250), str(1), 'gemm']
-    # print(' '.join(cmd))
+    print(' '.join(cmd))
     out, err = run_cmd(cmd)
     if err: print(err, file = err_file)
     return com.extract_times(out, 1)[0]
 
 def run_cublas(b_size, n_batch, data_file_path, err_file, args):
     cmd = [CUBLAS_RUNNER, str(b_size), str(n_batch), data_file_path, 'nn', str(100), str(1)]
+    print(' '.join(cmd))
     out, err = run_cmd(cmd)
     if err: print(err, file = err_file)
     return com.extract_times(out, 1)[0]
@@ -59,7 +60,6 @@ parser.add_argument('--append', dest='append', default=False, action='store_true
 args = parser.parse_args()
 
 b_sizes = [2, 4, 8, 16, 32, 64, 128, 256, 512]
-# batch_sizes = [256, 512]
 targets = [args.target] if args.target else ['cuda']
 
 if args.prep_overhead:
@@ -86,7 +86,8 @@ print(header, file = results_out)
 for target in targets:
     exe_times = {}
     for framework, func in framework_funs.items():
-        log(args, 'Running %s %s' % (target, framework))
+        # log(args, 'Running %s %s' % (target, framework))
+        print('Running %s %s' % (target, framework))
         exe_times[framework] = func(b_sizes, args.max_batches, DATA_FILE_PATH, results_err, args)
         print(exe_times[framework])
 

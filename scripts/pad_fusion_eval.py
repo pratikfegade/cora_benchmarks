@@ -43,7 +43,8 @@ args = parser.parse_args()
 b_sizes = [32, 64, 128]
 targets = [args.target] if args.target else ['cuda']
 # datasets = com.get_all_datasets() if args.dataset is None else [args.dataset]
-datasets = ['race', 'mnli']
+# datasets = ['race', 'mnli']
+datasets = ['race']
 
 out_prefix = 'pad_fusion'
 

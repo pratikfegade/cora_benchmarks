@@ -92,7 +92,6 @@ for framework, func in framework_funs.items():
             # log(args, 'Running %s %s %s %s' % (target, dataset, framework, batch_sizes))
             print('Running %s %s %s %s' % (target, dataset, framework, batch_sizes))
             ds_exe_times[dataset] = func(batch_sizes, dataset, args.max_batches, results_err, args)
-            # print(ds_exe_times[framework])
     exe_times[framework] = ds_exe_times
 print(exe_times)
 
