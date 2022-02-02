@@ -111,6 +111,9 @@ device = torch.device('cuda')
 batch_size = args.batch_size
 
 batches = run_utils.get_nlp_batches(batch_size, args.max_batches, args.dataset)
+if len(batches[-1]) != batch_size:
+    batches.pop()
+print([len(i) for i in batches])
 
 iters = 1 if args.mem or args.debug else 100
 

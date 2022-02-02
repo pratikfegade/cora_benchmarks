@@ -15,6 +15,7 @@
  */
 
 #include "fastertransformer/bert_encoder_transformer.h"
+#include "fastertransformer/time_map.h"
 #include <cstdio>
 #include <cstdlib>
 #include <cuda_profiler_api.h>
@@ -84,6 +85,10 @@ int main(int argc, char* argv[])
   std::cout << "FP16 " << is_fp16 << std::endl;
   std::cout << "RemP " << is_remove_padding << std::endl;
   std::cout << "Int8 " << int8_mode << std::endl;
+#ifdef OP_TIMES
+  std::cout << "Profiling Op times" << std::endl;
+#endif
+
 
   int ite = 10;
 
@@ -92,13 +97,21 @@ int main(int argc, char* argv[])
     return -1;
   }
 
-  float total_time = 0.0;
+  std::vector<int> all_lengths;
   std::ifstream l_file(data_file);
+  int l;
+  while (l_file >> l) {
+    all_lengths.push_back(l);
+  }
+  num_batches = std::min(num_batches, static_cast<int>(all_lengths.size()) / batch_size);
+  std::cout << "Possible NumB " << num_batches << std::endl;
+
+  int counter = 0;
+  float total_time = 0.0;
   for (int i = 0; i < num_batches; ++i) {
     std::vector<int> batch;
     for (int j = 0; j < batch_size; ++j) {
-      int l;
-      l_file >> l;
+      int l = all_lengths[counter++];;
       batch.push_back(l);
     }
 
@@ -456,6 +469,34 @@ float encoder_sample(std::vector<int> batch,
 #ifdef OP_TIMES
   fastertransformer::TimeMap::StopProfiling();
 #endif
+
+  cudaFree(d_sequence_length);
+  cudaFree(d_from_tensor);
+  cudaFree(d_transformer_out);
+  cudaFree(d_attr_kernel_Q);
+  cudaFree(d_attr_bias_Q);
+  cudaFree(d_attr_bias_K);
+  cudaFree(d_attr_bias_V);
+  cudaFree(d_attr_output_kernel);
+  cudaFree(d_attr_output_bias);
+  cudaFree(d_attr_output_layernorm_beta);
+  cudaFree(d_attr_output_layernorm_gamma);
+  cudaFree(d_inter_kernel);
+  cudaFree(d_inter_bias);
+  cudaFree(d_output_kernel);
+  cudaFree(d_output_bias);
+  cudaFree(d_output_layernorm_beta);
+  cudaFree(d_output_layernorm_gamma);
+  cudaFree(amaxList);
+
+  if(is_remove_padding == true)
+  {
+    cudaFree(d_sequence_id_offset);
+    cudaFree(d_tmp_sequence_id_offset);
+    cudaFree(d_from_tensor_with_padding);
+    cudaFree(d_transformer_out_with_padding);
+  }
+
 
   // printf("[INFO] batch_size %d seq_len %d layer %d FT-CPP-time %.2f ms ( %d iterations) \n", batch_size, seq_len, num_layers,
   // ((end.tv_sec - start.tv_sec) * 1000 + (end.tv_usec - start.tv_usec) * 0.001) / ite, ite);

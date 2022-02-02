@@ -1,4 +1,29 @@
 GPU Evaluation
+* Environment:
+** Host (Google cloud n1-standard-8)
+*** Hardware: Intel(R) Xeon(R) CPU @ 2.30GHz, Nvidia Tesla V100 SXM2 16GB
+*** Software: Ubuntu 20.04, Nvidia driver version: 460.91.03, docker version 20.10.8
+
+** Docker container
+*** Software: Ubuntu 20.04, CUDA 11.1 (V11.1.105), cuDNN 8.2.1, PyTorch 1.9.0+cu111, FasterTransformer (modified on top of FasterTransformer v4.0 (commit dd4c071))
+    - Make sure that nvcc is on the PATH
+*** CoRa's dependencies: Z3 4.8.8.0, LLVM 9.0.0, cmake >= 3.5, G++ >= 5.0
+
+* Setting up CoRa
+  1. Set up dependencies
+     a. CoRa is built on top of TVM, which requires the following dependencies: numpy, pytest, attrs, decorator, scipy.
+     b. Building CoRa also requires CUDA and Z3 to be discoverable by cmake i.e. installed in standard locations.
+     c. One can download a prebuilt copy of LLVM-9.0.0 from the LLVM download page (https://releases.llvm.org/download.html). the pre-built version for Ubuntu 18.04 should work.
+
+  1. Clone the repo: https://github.com/pratikfegade/incubator-tvm, and switch to the ragged_tensors branch
+  2. In the repo, create a build folder, and copy the file incubator-tvm/config.cmake to the build folder
+  4. Update the variable USE_LLVM to point to the llvm-config binary in the downloaded llvm version.
+  3. Compile CoRa, either using make, or ninja:
+     a. Compile using make: In the build folder, run `cmake ..; make -j8 tvm`
+     b. Compile using ninja: In the build folder, run `cmake -G Ninja ..; ninja tvm`
+     Building CoRa should generate a shared file called libtvm.so in the build folder
+  4. Set your PYTHONPATH to include the python incubator-tvm/python directory.
+
 * All paths below are relative to the root of the benchmarks repository
 
 - Section 7.1: Matrix Multiplication
@@ -14,7 +39,36 @@ GPU Evaluation
 
 
 - Section 7.2: The Transformer Model
--- Table 4: Main results
+TODO: Subtracting prelude overheads from CUDA results
+
+-- Table 4: Transformer encoder forward execution latencies on Nvidia V100
+   1. Ensure that the line `#define OP_TIMES 1` (line 3) of the file bert_layer/faster_transformer/fastertransformer/time_map.h is commented out.
+   2. Build bert_layer/fastertransformer by running `cmake -DSM=70 -DCMAKE_BUILD_TYPE=Release ..; make` in the folder bert_layer/fastertransformer/build
+   3. Run python3 scripts/bert_layer_eval.py --target cuda --stdout --max-batches 50.  Output will be generated in results/bert_layer_results_cuda.csv.
+
+   This will execute the model and generate execution latencies for a
+   single encoder layer of the transformer model. During execution,
+   CoRa incurs some overheads (referred to as prelude overheads)
+   which, in a multi-layered model would be amortized across execution
+   of multiple layers. In the paper, we report the execution latencies
+   for a layer assuming a 6-layer model. In order to compute these
+   execution latencies, we separately measure the prelude overheads
+   and subtract 5/6th these prelude costs from the execution latencies
+   measured above. The prelude overheads can be measured like so:
+   1. Run python3 scripts/bert_layer_eval.py --target cuda --stdout --max-batches 50 --prelude-overhead. Output will be generated in results/bert_layer_prelude_results_cuda.csv.
+
+
+-- Figures 13 and A.10: Per-operator execution time breakdown for RACE dataset at batch size 128 (Figure 13) and COLA dataset at batch size 32 (Figure A.10 in Section D.8) on the V100 GPU.
+   1. Ensure that the line `#define OP_TIMES 1` (line 3) of the file bert_layer/faster_transformer/fastertransformer/time_map.h is not commented.
+   2. Build bert_layer/fastertransformer by running `cmake -DSM=70 -DCMAKE_BUILD_TYPE=Release ..; make` in the folder bert_layer/fastertransformer/build.
+   3. Run python3 scripts/op_times_eval.py --target cuda --out-dir results --max-batches 50 --gen-libs.  Output will be generated in results/per_op_times_results_cuda.csv.
+
+   Just like above, we separately measure per-operator prelude
+   overheads and subtract the appropritae amount from the per-operator
+   ltencies measured above. These per-operator prelude overheads can
+   be measured like so:
+   1. Run python3 scripts/op_times_eval.py --target cuda --out-dir results --max-batches 50 --gen-libs --prelude-overhead. Output will be generated in results/per_op_times_prelude_results_cuda.csv.
+
 -- Figure 11: MHA with and without layout change op fusion for the RACE dataset
    1. Run python3 scripts/pad_fusion_eval.py --target cuda --stdout --max-batches 50. Output will be generated in results/pad_fusion_results_cuda.csv.
 
@@ -26,15 +80,19 @@ GPU Evaluation
 
 -- Table 5: MHA evaluation on ARM CPU
 
-- Section 7.3: Operation Splitting and Horizontal Fusion (AttnV)
+- Sections 7.3 and D.6: Operation Splitting and Horizontal Fusion (AttnV in Section 7.3 and QKt in Section D.6)
+  1. Run python3 scripts/bin_packed_eval.py --target cuda --stdout --max-batches 50. Output will be generated in results/bin_packed_results_cuda.csv.
+
 - Section 7.4: CoRa Overheads
+-- Prelude overheads
+   1.
+
+-- Partial padding overheads (Figure A.8)
+   1.
+
+-- Ragged tensor overheads and load hoisting (Figure A.9)
+   1. Run python3 scripts/ragged_overheads_eval.py --target cuda --stdout --max-batches 1. Output will be generated in results/ragged_overheads_results_cuda.csv.
 
 - Sections 7.5 and D.4: Evaluation Against Sparse Tensor Compilers
   1. Compile taco/{taco_bcsr_trmm, taco_bcsr_trmul, taco_csr_trmm, taco_csr_trmul, taco_csr_tradd} by running make in taco/
   2. Run python3 scripts/taco_tr_eval.py --target cuda --stdout. Output will be generated in results/taco_results_cuda.csv
-
-- Section D.3: Masked Scaled Dot-Product Attention
-- Section D.4: Evaluation Against Sparse Tensor Compilers
-- Section D.6: Operation Splitting and Horizontal Fusion (QKt)
-- Section D.7: CORA Overheads
-- Section D.8: Discussion on Transformer Layer Evaluation

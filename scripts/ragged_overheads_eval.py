@@ -61,10 +61,7 @@ parser.add_argument('--stdout', dest='stdout', default=False, action='store_true
 parser.add_argument('--append', dest='append', default=False, action='store_true')
 args = parser.parse_args()
 
-# ops = ['pre_linear', 'qkt', 'softmax', 'attn_v', 'post_linear']
-# ops = ['attn_v', 'pre_linear']
 ops = ['qkt', 'softmax', 'attn_v', 'post_linear']
-# b_sizes = [32, 64, 128]
 b_sizes = [64]
 
 results_out, results_err = get_out_files(args, 'ragged_overheads', 'a' if args.append else 'w')

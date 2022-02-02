@@ -22,7 +22,7 @@ def generate_tvm_libs(dataset, target, args):
     cmd = [runner, dataset,
            '1' if args.bin_packed else '0',
            '0',
-           '1' if args.prep_overhead else '0']
+           '1' if args.prelude_overhead else '0']
     print(' '.join(cmd))
     out, err = run_cmd(cmd)
     print(out, err)
@@ -103,29 +103,25 @@ parser.add_argument('--out-dir', dest='out_dir', nargs='?', default='perf_result
 parser.add_argument('--dataset', nargs='?', default=None)
 parser.add_argument('--max-batches', dest='max_batches', default=1, type=int)
 parser.add_argument('--bin-packed', dest='bin_packed', default=False, action='store_true')
-parser.add_argument('--prep-overhead', dest='prep_overhead', default=False, action='store_true')
+parser.add_argument('--prelude-overhead', dest='prelude_overhead', default=False, action='store_true')
 parser.add_argument('--gen-libs', dest='gen_libs', default=False, action='store_true')
 parser.add_argument('--mem', dest='mem', default=False, action='store_true')
 parser.add_argument('--stdout', dest='stdout', default=False, action='store_true')
 parser.add_argument('--append', dest='append', default=False, action='store_true')
 args = parser.parse_args()
 
-# batch_sizes = [1, 2, 4, 8, 16, 32, 64, 128]
-# batch_sizes = [2]
-batch_sizes = [32, 64, 128]
+# batch_sizes = [32, 64, 128]
 targets = [args.target] if args.target else ['cuda']
 datasets = com.cluster_datasets_by_max_len() if args.dataset is None else {com.get_dataset_max_len(args.dataset) : [args.dataset]}
 # datasets = {512:['race', 'wiki_512'],384:['squadv2'],128:['wiki_128','mnli','xnli'],112:['mrpc'],48:['cola']}
-# datasets = {384:['squadv2'],128:['wiki_128','mnli','xnli'],112:['mrpc'],48:['cola']}
-# datasets = {512:['race', 'wiki_512']}
 
 if args.target == "cpu":
     framework_funs = {
         'pytorch': lambda b_sizes, *args: com.batchify(b_sizes, run_pytorch, *args),
-        # 'cora': lambda b_sizes, *args: com.batchify(b_sizes, get_cora_runner(False), *args),
+        'cora': lambda b_sizes, *args: com.batchify(b_sizes, get_cora_runner(False), *args),
     }
 else:
-    if args.prep_overhead:
+    if args.prelude_overhead:
         framework_funs = {
             'cora': lambda b_sizes, *args: com.batchify(b_sizes, get_cora_runner(False), *args),
         }
@@ -143,7 +139,7 @@ else:
         }
 
 out_prefix = 'bert_layer'
-if args.prep_overhead: out_prefix += '_prelude'
+if args.prelude_overhead: out_prefix += '_prelude'
 if args.mem: out_prefix += '_mem'
 
 results_out, results_err = get_out_files(args, out_prefix, 'a' if args.append else 'w')

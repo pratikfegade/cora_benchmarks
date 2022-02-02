@@ -109,11 +109,8 @@ def get_shape(t, rmap):
         assert False
 
 def create_ragged_array(dense_shape, flat_size, dtype, ctx):
-    # print("YO1: ", flat_size)
     import tvm
-    # src_np_array = np.random.default_rng().random((flat_size,), dtype=np.float32)
     src_np_array = np.random.normal(size=(flat_size,)).astype(dtype)
-    # src_np_array = np.full((flat_size,), 0.1, dtype).astype(dtype)
     tvm_array = tvm.nd.ragged_empty(dense_shape, flat_size, dtype=dtype, ctx=ctx)
     tvm_array.copyfrom(src_np_array, is_dst_ragged=True)
     del src_np_array
@@ -121,9 +118,6 @@ def create_ragged_array(dense_shape, flat_size, dtype, ctx):
 
 def create_numpy_array(t, dtype, rmap={}, lw_args=None):
     shape = get_shape(t, rmap)
-    # print("YO2: ", shape)
-    # return np.zeros(shape, dtype)
-    # return np.full(shape, 0.1, dtype)
     return np.random.normal(size=shape, loc=0, scale=1).astype(dtype)
 
 def create_tvm_array(t, dtype, ctx, rmap={}, lw_args=None):
@@ -133,19 +127,12 @@ def create_tvm_array(t, dtype, ctx, rmap={}, lw_args=None):
     assert (lw_args is not None)
     if t in lw_args:
         flat_size = lw_args[t]
-        # print(t, flat_size, shape)
         return create_ragged_array(shape, flat_size, dtype, ctx)
 
-    # return np.zeros(shape, dtype)
-    # return tvm.nd.array(np.full(shape, 0.1, dtype), ctx)
-    # print("YO3: ", shape)
-    # np_array = np.random.default_rng().random(shape, dtype=np.float32)
     np_array = np.random.normal(size=shape).astype(dtype)
-    # np_array = np.full(shape, 0.1, dtype)
     tvm_array = tvm.nd.array(np_array, ctx)
     del np_array
     return tvm_array
-    # return tvm.nd.array(np.random.sample(size=shape), ctx)
 
 def get_ctx(target):
     import tvm
@@ -223,7 +210,11 @@ def get_nlp_batches(batch_size, num_batches, dataset):
         _, avg_seq_len, max_seq_len = dataset.split("_")
         return [random_lengths(batch_size, int(avg_seq_len), int(max_seq_len)) for i in range(num_batches)]
     else:
-        return read_and_chunk_lengths(batch_size, num_batches, DATA_DIR + "/" + dataset_files[dataset])
+        batches = read_and_chunk_lengths(batch_size, num_batches, DATA_DIR + "/" + dataset_files[dataset])
+        if len(batches[-1]) != batch_size:
+            batches.pop()
+        return batches
+
 
 def run(built, i_inputs_tensors, t_inputs_tensors, batch_size, num_batches, dataset, datadir, target, debug):
     import tvm
@@ -261,7 +252,6 @@ def append_padded_sum(batches, factor):
         padding_length = utils.ceilmult(batch_sum, factor) - batch_sum
         if padding_length == 0: padding_length = factor
         padded = np.append(batch, padding_length).astype('int32')
-        # print('PADDING', padding_length, batch_sum, np.sum(padded))
         ret.append(padded)
     return ret
 
@@ -299,9 +289,35 @@ def run2(built, i_inputs_tensors, t_inputs_tensors, lw_args, args, pad_sum=None)
     return t_inputs, batches
 
 
-def get_bert_layer_run_fn(bs_var):
+def get_bp_mapping_array(batch, ctx):
     import tvm
-    print('BS_VAR', bs_var)
+    total_64_tiles = 0
+    total_32_tiles = 0
+    for length in batch:
+        total_64_tiles += (length // 64) * ((length + 63) // 64)
+        total_32_tiles += (((length + 31) // 32) - 2*(length//64)) * ((length + 63) // 64)
+
+    mapping = [0] * (4 * len(batch))
+    ctr = 0
+    ctr64 = 0
+    ctr32 = total_64_tiles
+    for length in batch:
+        this_64_tiles = (length // 64) * ((length + 63) // 64)
+        this_32_tiles = (((length + 31) // 32) - 2*(length//64)) * ((length + 63) // 64)
+        for i in range(this_64_tiles):
+            mapping[ctr] = ctr64
+            ctr64 += 1
+            ctr += 1
+        for i in range(this_32_tiles):
+            mapping[ctr] = ctr32
+            ctr32 += 1
+            ctr += 1
+
+    assert max(mapping) < total_64_tiles+total_32_tiles
+    return tvm.nd.array(np.array(mapping).astype('int32'), ctx)
+
+def get_bert_layer_run_fn(bs_var, bp_mapping=False):
+    import tvm
     def bert_layer_run(built, i_inputs_tensors, t_inputs_tensors, lw_args, args, pad_sum=None):
         ctx = get_ctx(args.target)
         cpu_ctx = get_ctx("llvm")
@@ -329,12 +345,17 @@ def get_bert_layer_run_fn(bs_var):
                     l_inputs = [tvm.nd.array(batch, ctx)]
                 else:
                     l_inputs = [tvm.nd.array(batch, cpu_ctx)]
-                inputs = t_inputs + l_inputs + host_i_inputs + dev_i_inputs
+
+                if bp_mapping:
+                    bp_mapping_arr = get_bp_mapping_array(batch, ctx)
+                    t_inputs[-1] = bp_mapping_arr
+                    inputs = t_inputs + l_inputs + host_i_inputs + dev_i_inputs
+                else:
+                    inputs = t_inputs + l_inputs + host_i_inputs + dev_i_inputs
+
                 time += execute(args.target, built, inputs, ctx, args.debug)
             gc.collect()
             print("RESULTS", batch_size, time / len(batches), sep=',')
-            # print(host_i_inputs[0].asnumpy())
-            # print(dev_i_inputs[0].asnumpy())
             if args.debug:
                 for i in range(len(t_inputs[1:])):
                     size_fn = lw_args([batch])
@@ -364,22 +385,13 @@ def get_vbatch_gemm_run_fn(bs_var, skip_m_k = False, no_scale=False):
 
             ms, ks, ns = read_and_chunk_gemm_dims(batch_size, num_batches, args.data_file)
 
-            # print('Yo1')
-            # sys.stdout.flush()
             if args.target == 'cuda':
                 shape = get_shape(t_inputs_tensors[1], rmap)
                 # np_array = np.random.normal(size=shape, loc=0, scale=4)
 
-            # print('Yo2')
-            # sys.stdout.flush()
-
             t_inputs = [batch_size] + [create_tvm_array(i, "float32", ctx, rmap=rmap, lw_args={}) for i in t_inputs_tensors[1:]]
-            # t_inputs = [batch_size] + [tvm.nd.array(np_array, ctx) for i in t_inputs_tensors[1:]]
-            # t_inputs = [batch_size] + [tvm.nd.empty(shape, 'float32', ctx) for i in t_inputs_tensors[1:]]
             time = 0
             for i in range(len(ms)):
-                # print('Yo')
-                # sys.stdout.flush()
                 gc.collect()
                 if not no_scale:
                     mb = np.ceil(ms[i] / args.tile_size).astype('int32')
@@ -397,8 +409,6 @@ def get_vbatch_gemm_run_fn(bs_var, skip_m_k = False, no_scale=False):
                 inputs = t_inputs + l_inputs + host_i_inputs + dev_i_inputs
                 this_time = execute(args.target, built, inputs, ctx, args.debug)
                 time += this_time
-                # print(' ', this_time)
-                # sys.stdout.flush()
                 gc.collect()
 
 
@@ -435,7 +445,8 @@ def run_trmm(built, i_inputs_tensors, t_inputs_tensors, lw_args, args, pad_sum=N
     return t_inputs
 
 def lower_or_build(name, s, inputs, args, prep_code_mode='with_prep_code', binds=None,
-                   size_fn={}, pad_sum=None, substitutes=None, run_function=run2, hoist_loads=False):
+                   size_fn={}, pad_sum=None, substitutes=None, run_function=run2, hoist_loads=False,
+                   substitute_after_hfuse=False):
     import tvm
     prep_code_mode = 'only_prep_code' if args.only_prep_code else prep_code_mode
     with tvm.build_config(prep_code_mode=prep_code_mode,
@@ -443,7 +454,7 @@ def lower_or_build(name, s, inputs, args, prep_code_mode='with_prep_code', binds
                           hoist_loads=hoist_loads,
                           disable_assert=args.disable_assert if hasattr(args, 'disable_assert') else False):
         if args.gen_lib:
-            fadd, i_bufs = tvm.build(s, inputs, args.target, binds=binds)
+            fadd, i_bufs = tvm.build(s, inputs, args.target, binds=binds, substitute_after_hfuse=substitute_after_hfuse)
             variant = ''
             if hasattr(args, 'sched'): variant = str(args.sched)
             if hasattr(args, 'padding_mode'): variant = '_' + str(args.padding_mode)
@@ -456,11 +467,13 @@ def lower_or_build(name, s, inputs, args, prep_code_mode='with_prep_code', binds
             return None, None
         else:
             if args.debug_code == 'ir':
-                lowered = tvm.lower(s, inputs, args.target, simple_mode=True, binds=binds, substitutes=substitutes)
+                lowered = tvm.lower(s, inputs, args.target, simple_mode=True,
+                                    binds=binds, substitutes=substitutes,
+                                    substitute_after_hfuse=substitute_after_hfuse)
                 print(lowered)
                 return None, None
             elif args.debug_code == 'code':
-                fadd, _ = tvm.build(s, inputs, args.target, binds=binds)
+                fadd, _ = tvm.build(s, inputs, args.target, binds=binds, substitute_after_hfuse=substitute_after_hfuse)
                 if args.target == 'cuda':
                     print('-----GPU code-----\n' + fadd.imported_modules[0].get_source())
                 else:
@@ -468,6 +481,6 @@ def lower_or_build(name, s, inputs, args, prep_code_mode='with_prep_code', binds
                 return None, None
             else:
                 assert args.debug_code is None
-                fadd, i_bufs = tvm.build(s, inputs, args.target, binds=binds, substitutes=substitutes)
-                # fadd = tvm.runtime.module.load_module('/home/ppf/rnn_compilers/ragged_tensors/incubator-tvm/build/attn_v.so')
+                fadd, i_bufs = tvm.build(s, inputs, args.target, binds=binds, substitutes=substitutes,
+                                         substitute_after_hfuse=substitute_after_hfuse)
                 return run_function(fadd, i_bufs, inputs[1], size_fn, args, pad_sum=pad_sum)
