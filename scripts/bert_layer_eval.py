@@ -5,9 +5,10 @@ from common import run_cmd, INF, get_out_files, log, run_linearization
 import argparse
 
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
-PYTORCH_RUNNER_CPU = SCRIPT_DIR + '/../bert_layer/pytorch/layer_cpu.py'
+# PYTORCH_RUNNER_CPU = SCRIPT_DIR + '/../bert_layer/pytorch/layer_cpu.py'
+PYTORCH_RUNNER_CPU = SCRIPT_DIR + '/../bert_layer/pytorch/layer_cpu_micro_batch.py'
 PYTORCH_RUNNER_GPU = SCRIPT_DIR + '/../bert_layer/pytorch/layer.py'
-TF_RUNNER = SCRIPT_DIR + '/../bert_layer/tf/layer.py'
+TF_RUNNER = SCRIPT_DIR + '/../bert_layer/tf/layer_micro_batch.py'
 TVM_GPU_EXE_RUNNER = SCRIPT_DIR + '/../bert_layer/tvm/masked_mha.py'
 TVM_CPU_EXE_RUNNER = SCRIPT_DIR + '/../bert_layer/tvm/masked_mha_blasized.py'
 TVM_MEM_RUNNER = SCRIPT_DIR + '/../bert_layer/tvm/training_memory.py'
@@ -26,38 +27,51 @@ def generate_tvm_libs(dataset, target, args):
            '1' if args.prep_overhead else '0']
     print(' '.join(cmd))
     out, err = run_cmd(cmd)
-    print(out, err)
+    # print(out, err)
 
-def run_pytorch(b_size, dataset, n_batch, err_file, args):
-    print(args.target, args.target == "cpu")
-    if args.target == "cpu": runner = PYTORCH_RUNNER_CPU
-    else: runner = PYTORCH_RUNNER_GPU
 
-    log(args, ' Batch size %d' % (b_size))
-    cmd = [PYTHON, runner, '--target', target, '--batch-size', str(b_size),
-           '--max-batches', str(n_batch), '--dataset', dataset]
-    if args.mem: cmd += ['--mem']
-    if args.target == "cpu": cmd += ['--masked-mha']
+def get_pt_runner(noub):
+    def run_pytorch(b_size, dataset, n_batch, err_file, args):
+        print(args.target, args.target == "cpu")
+        if args.target == "cpu": runner = PYTORCH_RUNNER_CPU
+        else: runner = PYTORCH_RUNNER_GPU
 
-    print(' '.join(cmd))
-    out, err = run_cmd(cmd)
-    if err: print(err, file = err_file)
+        log(args, ' Batch size %d' % (b_size))
+        cmd = [PYTHON, runner, '--target', target, '--batch-size', str(b_size),
+               '--max-batches', str(n_batch), '--dataset', dataset]
 
-    if args.mem: return com.extract_mem(out)
-    else: return com.extract_times(out, 1)[0]
+        if noub: cmd += ["--no-ub"]
+        if args.mem: cmd += ['--mem']
+        if args.target == "cpu": cmd += ['--masked-mha']
 
-def run_tf(b_size, dataset, n_batch, err_file, args):
-    print(args.target, args.target == "cpu")
-    runner = TF_RUNNER
+        print(' '.join(cmd))
+        out, err = run_cmd(cmd)
+        if err: print(err, file = err_file)
 
-    log(args, ' Batch size %d' % (b_size))
-    cmd = [PYTHON, runner, '--batch-size', str(b_size), '--max-batches', str(n_batch), '--dataset', dataset]
+        if args.mem: return com.extract_mem(out)
+        else:
+            times = com.extract_times(out, 2)
+            print(times)
+            return times
+    return run_pytorch
 
-    print(' '.join(cmd))
-    out, err = run_cmd(cmd)
-    if err: print(err, file = err_file)
+def get_tf_runner(noub):
+    def run_tf(b_size, dataset, n_batch, err_file, args):
+        print(args.target, args.target == "cpu")
+        runner = TF_RUNNER
 
-    return com.extract_times(out, 1)[0]
+        log(args, ' Batch size %d' % (b_size))
+        cmd = [PYTHON, runner, '--batch-size', str(b_size), '--max-batches', str(n_batch), '--dataset', dataset]
+        if noub: cmd += ["--no-ub"]
+
+        print(' '.join(cmd))
+        out, err = run_cmd(cmd)
+        if err: print(err, file = err_file)
+
+        times = com.extract_times(out, 2)
+        print(times)
+        return times
+    return run_tf
 
 def get_ftrans_runner(no_pad):
     def run_ftrans(b_size, dataset, n_batch, err_file, args):
@@ -98,7 +112,7 @@ def get_cora_runner(balance):
         if err: print(err, file = err_file)
 
         if args.mem: return com.extract_mem(out)
-        else: return com.extract_times(out, 1)[0]
+        else: return (com.extract_times(out, 1)[0], b_size)
     return run_cora
 
 def get_cora_memory_runner(dense):
@@ -124,22 +138,26 @@ parser.add_argument('--stdout', dest='stdout', default=False, action='store_true
 parser.add_argument('--append', dest='append', default=False, action='store_true')
 args = parser.parse_args()
 
-# batch_sizes = [1, 2, 4, 8, 16, 32, 64, 128]
-# batch_sizes = [2]
 batch_sizes = [32, 64, 128]
 targets = [args.target] if args.target else ['cuda']
 # datasets = com.cluster_datasets_by_max_len() if args.dataset is None else {com.get_dataset_max_len(args.dataset) : [args.dataset]}
-# datasets = {512:['race', 'wiki_512'],384:['squadv2'],128:['wiki_128','mnli','xnli'],112:['mrpc'],48:['cola']}
 # datasets = {384:['squadv2'],128:['wiki_128','mnli','xnli'],112:['mrpc'],48:['cola']}
-# datasets = {512:['race', 'wiki_512']}
+# datasets = {512:['race', 'wiki_512'],384:['squadv2'],128:['wiki_128','mnli','xnli'],112:['mrpc'],48:['cola']}
+# datasets = {48:['cola'],112:['mrpc'],128:['wiki_128','mnli','xnli'],384:['squadv2'],512:['race', 'wiki_512']}
+# datasets = {384:['squadv2'],128:['wiki_128','mnli','xnli'],112:['mrpc'],48:['cola']}
 datasets = {48:['cola'],112:['mrpc'],128:['wiki_128','mnli','xnli'],384:['squadv2'],512:['race', 'wiki_512']}
+# datasets = {512:['race', 'wiki_512'],384:['squadv2'],128:['wiki_128','mnli','xnli'],112:['mrpc'],48:['cola']}
+# datasets = {48:['cola'],512:['race']}
+datasets = {384:['squadv2'],512:['wiki_512']}
 
 
 if args.target == "cpu":
     framework_funs = {
-        # 'pytorch': lambda b_sizes, *args: com.batchify(b_sizes, run_pytorch, *args),
-        'tf': lambda b_sizes, *args: com.batchify(b_sizes, run_tf, *args),
-        # 'cora': lambda b_sizes, *args: com.batchify(b_sizes, get_cora_runner(False), *args),
+        # 'pytorch': lambda b_sizes, *args: com.batchify(b_sizes, get_pt_runner(False), *args),
+        # 'pytorch-noub': lambda b_sizes, *args: com.batchify(b_sizes, get_pt_runner(True), *args),
+        # 'tf': lambda b_sizes, *args: com.batchify(b_sizes, run_tf, *args),
+        # 'tf-noub': lambda b_sizes, *args: com.batchify(b_sizes, get_tf_runner(True), *args),
+        'cora': lambda b_sizes, *args: com.batchify(b_sizes, get_cora_runner(False), *args),
     }
 else:
     if args.prep_overhead:
@@ -166,7 +184,7 @@ if args.mem: out_prefix += '_mem'
 
 results_out, results_err = get_out_files(args, out_prefix, 'a' if args.append else 'w')
 header = 'Target,Dataset,Batch Size'
-for framework, func in framework_funs.items(): header += ',' + framework + ' (ms)'
+for framework, func in framework_funs.items(): header += ',' + framework + ' (ms)' + ',' + framework + ' ubs'
 print(header, file = results_out)
 
 for target in targets:
@@ -182,8 +200,8 @@ for target in targets:
             for b_size in batch_sizes:
                 out_str = '%s,%s,%d' % (target, dataset, b_size)
                 for framework, framework_exe_times in exe_times.items():
-                    out_str += ',%g' % framework_exe_times[b_size]
-                print(out_str, file = results_out)
+                    out_str += ',%g,%d' % tuple(framework_exe_times[b_size])
+                print(out_str, file = results_out, flush = True)
 
 if not args.stdout:
     results_out.close()

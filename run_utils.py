@@ -39,7 +39,7 @@ MODULE_DIR = os.path.dirname(os.path.realpath(__file__)) + '/bert_layer/tvm/genl
 DATA_DIR = os.path.dirname(os.path.realpath(__file__)) + '/data/'
 
 def get_arm_target():
-    return "llvm -mcpu=cortex-a76 -device=arm_cpu -mtriple=aarch64-linux-gnu -mattr=+v8.2a,+fullfp16,+fp-armv8,+dotprod,+crc,+crypto,+neon"
+    return "llvm -mcpu=neoverse-n1 -device=arm_cpu -mtriple=aarch64-linux-gnu -mattr=+v8.2a,+fullfp16,+fp-armv8,+dotprod,+crc,+crypto,+neon"
 
 def get_cmd_parser(no_options=False):
     parser = argparse.ArgumentParser()
@@ -140,9 +140,16 @@ def create_tvm_array(t, dtype, ctx, rmap={}, lw_args=None):
     # np_array = np.random.default_rng().random(shape, dtype=np.float32)
     np_array = np.random.normal(size=shape).astype(dtype)
     # np_array = np.full(shape, 0.1, dtype)
+
+    # return tvm.nd.numpyasarray(np_array)[0]
+
     tvm_array = tvm.nd.array(np_array, ctx)
     del np_array
     return tvm_array
+
+
+
+
     # return tvm.nd.array(np.random.sample(size=shape), ctx)
 
 def get_ctx(target):
@@ -317,6 +324,7 @@ def get_bert_layer_run_fn(bs_var, sum_var=None, sum_factor=None):
 
             batches = get_nlp_batches(batch_size, num_batches, args.dataset)
             batches = [sorted(batch, reverse=True) for batch in batches]
+            # batches = [sorted(batch, reverse=False) for batch in batches]
             if pad_sum: batches = append_padded_sum(batches, pad_sum)
 
             time = 0
@@ -453,6 +461,7 @@ def lower_or_build(name, s, inputs, args, prep_code_mode='with_prep_code', binds
                           hoist_lets_above_parallel_loop=hoist_lets_above_parallel_loop):
         if args.gen_lib:
             fadd, i_bufs = tvm.build(s, inputs, args.target, binds=binds)
+            print(args.target, type(fadd))
             variant = ''
             if hasattr(args, 'sched'): variant = str(args.sched)
             if hasattr(args, 'padding_mode'): variant = '_' + str(args.padding_mode)

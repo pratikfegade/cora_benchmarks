@@ -1,3 +1,4 @@
+import gc
 import os
 import sys
 import numpy as np
@@ -14,8 +15,8 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--target', nargs='?', default='llvm')
 parser.add_argument('--dtype', dest='dtype', nargs='?', default='float32')
 parser.add_argument('--max-batches', dest='max_batches', default=200, type=int)
-parser.add_argument('--witers', dest='witers', default=75, type=int)
-parser.add_argument('--iters', dest='iters', default=75, type=int)
+parser.add_argument('--witers', dest='witers', default=20, type=int)
+parser.add_argument('--iters', dest='iters', default=40, type=int)
 parser.add_argument('--batch-size', dest='batch_size', default=32, type=int)
 parser.add_argument('--dense-storage', dest='dense_storage', default=False, action='store_true')
 parser.add_argument('--average', dest='average', default=False, action='store_true')
@@ -70,7 +71,8 @@ ops_order = [
 
 # l_inputs: Allocate tensors
 batches = run_utils.get_nlp_batches(args.batch_size, args.max_batches, args.dataset)
-batches = run_utils.reverse_sort_batches(batches)
+if args.dataset not in ['race', 'squadv2']:
+    batches = run_utils.reverse_sort_batches(batches)
 if args.average:
     for i in range(len(batches)):
         avg = np.mean(batches[i])
@@ -99,13 +101,12 @@ if args.per_op:
         time_dict[op.name] = []
 batch_size_ = BATCH_SIZE + 1
 optimal_variants = None
-for batch in batches:
-    sum1 = run_utils.prefix_sum(batch_size_, lambda i: batch[i])
-    sum16 = run_utils.prefix_sum(batch_size_, lambda i: utils.ceilmult(batch[i], 16))
-    sum32 = run_utils.prefix_sum(batch_size_, lambda i: utils.ceilmult(batch[i], 32))
-    sum64 = run_utils.prefix_sum(batch_size_, lambda i: utils.ceilmult(batch[i], 64))
-    sum264 = run_utils.prefix_sum(batch_size_, lambda i: utils.ceilmult(batch[i], 64) * utils.ceilmult(batch[i], 64))
+if len(batches[-1]) != batch_size_:
+    batches.pop()
+print([len(i) for i in batches])
 
+
+if True:
     # t_inputs: Allocate tensors
     pre_linear_in_qkv = run_utils.create_tvm_array((batch_size_ * MAX_LEN, MODEL_DIM), "float32", dev_ctx)
     pre_linear_out = run_utils.create_tvm_array((3, batch_size_ * MAX_LEN, NUM_HEADS * HEAD_SIZE), "float32", dev_ctx)
@@ -130,6 +131,9 @@ for batch in batches:
     post_linear_in_a = rem_pad_o.create_view((batch_size_ * MAX_LEN, NUM_HEADS * HEAD_SIZE))
     post_linear_in_a2 = pre_linear_in_qkv.create_view((batch_size_, MAX_LEN, MODEL_DIM))
     post_linear_out = run_utils.create_tvm_array((batch_size_ * MAX_LEN, MODEL_DIM), "float32", dev_ctx)
+    # post_linear_out = pre_linear_out.create_view((batch_size_ * MAX_LEN, MODEL_DIM))
+
+    gc.collect()
 
     ops['pre_linear'].tensor_inputs = [pre_linear_in_qkv, pre_linear_in_w, pre_linear_in_b, pre_linear_out]
     ops['add_pad'].tensor_inputs = [add_pad_a, add_pad_o]
@@ -138,6 +142,14 @@ for batch in batches:
     ops['attn_v'].tensor_inputs = [attn_v_in_v, attn_v_in_attn, attn_v_out]
     ops['rem_pad'].tensor_inputs = [rem_pad_a, rem_pad_o]
     ops['post_linear'].tensor_inputs = [post_linear_in_a, post_linear_in_w, post_linear_in_b, post_linear_out]
+
+for batch in batches:
+    sum1 = run_utils.prefix_sum(batch_size_, lambda i: batch[i])
+    sum16 = run_utils.prefix_sum(batch_size_, lambda i: utils.ceilmult(batch[i], 16))
+    sum32 = run_utils.prefix_sum(batch_size_, lambda i: utils.ceilmult(batch[i], 32))
+    sum64 = run_utils.prefix_sum(batch_size_, lambda i: utils.ceilmult(batch[i], 64))
+    sum264 = run_utils.prefix_sum(batch_size_, lambda i: utils.ceilmult(batch[i], 64) *
+                                  utils.ceilmult(batch[i], 64))
 
     l_inputs = [tvm.nd.array(batch, cpu_ctx)]
 
@@ -176,6 +188,8 @@ for batch in batches:
         times.append((end - start) / args.iters)
 
         for op in ops_order: op.reset()
+
+    gc.collect()
 
 if args.per_op:
     for op in ops_order:

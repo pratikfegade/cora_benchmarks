@@ -94,11 +94,10 @@ if args.sched == 1:
     O_local_m_c_o_o_o, O_local_m_c_o_o_i = s[O_local].split(O_local_m_c_o_o_i, factor=8)
 
     O_local_n_c_o_i, O_local_n_c_i = s[O_local].split(O_local_n_c, factor=8)
-    O_local_n_c_o_o_i, O_local_n_c_o_i = s[O_local].split(O_local_n_c_o_i, factor=1)
 
     O_local_k_o, O_local_k_i = s[O_local].split(O_local_k, factor=64)
     O_local_k_i_o, O_local_k_i_i = s[O_local].split(O_local_k_i, factor=16)
-    s[O_local].reorder(O_local_b_c, O_local_m_c_o_o_o, O_local_n_c_o_o_i, O_local_m_c_o_o_i, O_local_k_o, O_local_m_c_o_i, O_local_n_c_o_i, O_local_k_i_o, O_local_k_i_i, O_local_m_c_i, O_local_n_c_i)
+    s[O_local].reorder(O_local_b_c, O_local_m_c_o_o_o, O_local_n_c_o_i, O_local_m_c_o_o_i, O_local_k_o, O_local_m_c_o_i, O_local_k_i_o, O_local_k_i_i, O_local_m_c_i, O_local_n_c_i)
 
     s[O_local].unroll(O_local_k_i_i)
     s[O_local].unroll(O_local_n_c_i)
@@ -108,9 +107,10 @@ if args.sched == 1:
     xo, xi = s[O].split(x, factor = 64)
     yo, yi = s[O].split(y, factor = 64)
     s[O].reorder(b, xo, yo, h, xi, yi)
-    f1 = s[O].fuse(xo, yo)
-    f2 = s[O].fuse(b, f1)
-    s[O].parallel(f2)
+    f1 = s[O].fuse(b, xo)
+    f1 = s[O].fuse(f1, yo)
+    f1 = s[O].fuse(f1, h)
+    s[O].parallel(f1)
 
     O_m, O_n = xi, yi
 

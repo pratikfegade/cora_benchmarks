@@ -36,7 +36,8 @@ if args.no_raggedness:
     def len_ufw(name, pad): return Ufw(name, "l", (pad, MAX_LEN), [], [], lambda : lambda : utils.ceilmult(MAX_LEN, pad))
 else:
     def len_ufw(name, pad): return Ufw(name, "l", (pad, MAX_LEN), [bd], [lens], lambda lens: lambda b: utils.ceilmult(lens[b], pad))
-lufw1 = len_ufw('s', 16)
+reduce_tile = 4
+lufw1 = len_ufw('s', reduce_tile)
 lufwp = len_ufw('s', 64)
 sufwp = len_ufw('s', 64)
 
@@ -74,27 +75,24 @@ if True:
     O_local, = s.cache_write([O], "local")
 
     Al = s.cache_read(A, "local", [O_local], layouts='dense')
+    Vl = s.cache_read(V, "local", [O_local], layouts='dense')
 
     O_local_b_c, O_local_m_c, O_local_h_c, O_local_n_c, O_local_k = tuple(O_local.op.axis) + tuple(O_local.op.reduce_axis)
     O_local_m_c_o_i, O_local_m_c_i = s[O_local].split(O_local_m_c, factor=4)
-    O_local_n_c_o_i, O_local_n_c_i = s[O_local].split(O_local_n_c, factor=4)
-    O_local_k_o, O_local_k_i = s[O_local].split(O_local_k, factor=16)
+    O_local_n_c_o_i, O_local_n_c_i = s[O_local].split(O_local_n_c, factor=8)
+    O_local_k_o, O_local_k_i = s[O_local].split(O_local_k, factor=reduce_tile)
 
     s[O_local].reorder(O_local_b_c, O_local_k_o, O_local_m_c_o_i, O_local_n_c_o_i, O_local_k_i, O_local_m_c_i, O_local_n_c_i)
     s[Al].compute_at(s[O_local], O_local_k_o)
+    s[Vl].compute_at(s[O_local], O_local_k_o)
 
     b, x, h, y = s[O].leaf_iter_vars[0:4]
     xo, xi = s[O].split(x, factor = 64)
     yo, yi = s[O].split(y, factor = 64)
     s[O].reorder(b, xo, yo, h, xi, yi)
     f1 = s[O].fuse(xo, yo)
-    f2 = s[O].fuse(b, f1)
-    s[O].parallel(f2)
-
-    s[O_local].unroll(O_local_k_i)
-    s[O_local].unroll(O_local_m_c_i)
-    s[O_local].unroll(O_local_n_c_i)
-    # s[O_local].peel(O_local_k_o)
+    f1 = s[O].fuse(b, f1)
+    s[O].parallel(f1)
 
     O_m, O_n = xi, yi
     O_m_o_i, O_m_i = s[O].split(O_m, factor=16)
@@ -102,6 +100,8 @@ if True:
     s[O].reorder(O_m_o_i, O_n_o_i, O_m_i, O_n_i)
     s[O_local].compute_at(s[O], O_n_o_i)
 
+    s[O_local].unroll(O_local_k_i)
+    s[O_local].unroll(O_local_m_c_i)
     s[O_local].vectorize(O_local_n_c_i)
     s[O].vectorize(O_n_i)
 

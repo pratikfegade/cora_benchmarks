@@ -32,8 +32,8 @@ if args.no_raggedness:
     def len_ufw(name, pad): return Ufw(name, "l", (pad, MAX_LEN), [], [], lambda : lambda : MAX_LEN)
 else:
     def len_ufw(name, pad): return Ufw(name, "l", (pad, MAX_LEN), [bd], [lens], lambda lens: lambda b: utils.ceilmult(lens[b], pad))
-if args.dataset in ['mrpc', 'cola']: ufactor=16
-else: ufactor=32
+if args.dataset in ['mrpc', 'cola']: ufactor,par_factor=16,32
+else: ufactor,par_factor=32,64
 assert ufactor >= 16 and ufactor <= 64
 lufw1 = len_ufw('s1_1', 1)
 lufw32 = len_ufw('s2_32', ufactor)
@@ -65,7 +65,8 @@ Amax = te.ragged_compute((BATCH_SIZE, MAX_LEN, NUM_HEADS), [bd, s1, md], loop_uf
 loop_ufs=[ls[0], ls[2], ls[1], ls[3]]
 Aexp = te.ragged_compute((BATCH_SIZE, MAX_LEN, NUM_HEADS, MAX_LEN), [bd, s1, md, s2], loop_ufs,
                          lambda ds: tvm.exp((A[ds[bd], ds[s1], ds[md], ds[s2]] -
-                                             Amax[ds[bd], ds[s1], ds[md]]) * scale), name = 'Aexp')
+                         # lambda ds: tvm.fast_exp((A[ds[bd], ds[s1], ds[md], ds[s2]] -
+                                                  Amax[ds[bd], ds[s1], ds[md]]) * scale), name = 'Aexp')
 
 loop_ufs=[ls[0], ls[2], ls[1]]
 Asum = te.ragged_compute((BATCH_SIZE, MAX_LEN, NUM_HEADS), [bd, s1, md], loop_ufs,
@@ -81,8 +82,9 @@ s = tvm.create_schedule([O.op])
 
 if True:
     b, l1, h, l2 = s[O].leaf_iter_vars
-    f = s[O].fuse(b, l1, padding=32)
-    fo, fi = s[O].split(f, factor=32)
+    f = s[O].fuse(b, l1, padding=par_factor)
+    fo, fi = s[O].split(f, factor=par_factor)
+    s[O].reorder(fi, fo)
     s[O].parallel(fi)
 
     vo, vi = s[O].split(l2, factor=ufactor)
@@ -101,10 +103,15 @@ if True:
     vo, vi = s[Asum].split(s[Asum].leaf_iter_vars[3], factor=ufactor)
     s[Asum].unroll(vi)
 
-    s[Al].compute_at(s[O], fi)
-    s[Asum].compute_at(s[O], fi)
-    s[Aexp].compute_at(s[O], fi)
-    s[Amax].compute_at(s[O], fi)
+    # s[Al].compute_at(s[O], fi)
+    # s[Asum].compute_at(s[O], fi)
+    # s[Aexp].compute_at(s[O], fi)
+    # s[Amax].compute_at(s[O], fi)
+
+    s[Al].compute_at(s[O], h)
+    s[Asum].compute_at(s[O], h)
+    s[Aexp].compute_at(s[O], h)
+    s[Amax].compute_at(s[O], h)
 
     inputs = [[lens], [BS_VAR, A, O]]
 else:
@@ -124,7 +131,7 @@ def size_fn(l_inputs):
 
 prep_code_mode = 'no_prep_code' if args.no_raggedness else 'with_prep_code'
 name = os.path.splitext(os.path.basename(os.path.realpath(__file__)))[0]
-out, batches = run_utils.lower_or_build(name, s, inputs, args, size_fn=size_fn, pad_sum=32,
+out, batches = run_utils.lower_or_build(name, s, inputs, args, size_fn=size_fn, pad_sum=par_factor,
                                         run_function=run_utils.get_bert_layer_run_fn(BS_VAR),
                                         prep_code_mode=prep_code_mode)
 
