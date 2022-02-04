@@ -85,10 +85,10 @@ TODO: Subtracting prelude overheads from CUDA results
 
 - Section 7.4: CoRa Overheads
 -- Prelude overheads
-   1.
+   1. Run python3 scripts/prelude_overheads_breakdown_eval.py --stdout --max-batches 50. Output will be generated in results/prelude_overheads_breakdown_results_cuda.csv.
 
 -- Partial padding overheads (Figure A.8)
-   1.
+   1. Run python3 intro_study/flops.py --max-batches 50 --out-file results/intro_flops.csv.
 
 -- Ragged tensor overheads and load hoisting (Figure A.9)
    1. Run python3 scripts/ragged_overheads_eval.py --target cuda --stdout --max-batches 1. Output will be generated in results/ragged_overheads_results_cuda.csv.
