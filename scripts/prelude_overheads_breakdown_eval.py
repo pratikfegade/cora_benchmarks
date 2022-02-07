@@ -5,14 +5,12 @@ from common import run_cmd, INF, get_out_files, log, run_linearization
 import argparse
 
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
-MEM_RUNNER = SCRIPT_DIR + '/../lowering_mem_eval/mem'
+MEM_RUNNER = SCRIPT_DIR + '/../prelude_overheads_breakdown/prelude_overheads'
 
 def execute(b_size, op, dataset, n_batch, err_file, args):
     log(args, ' Batch size %d' % (b_size))
     cmd = [MEM_RUNNER, str(b_size), str(n_batch), com.get_dataset_file(dataset), op]
-    # print(' '.join(cmd))
     out, err = run_cmd(cmd)
-    print(out)
     ftime, ttime, ctime = com.extract_times(out, 3)
     fmem, tmem = com.extract_mem(out, 2)
     return (fmem, ftime, tmem, ttime, ctime)
@@ -25,15 +23,12 @@ parser.add_argument('--stdout', dest='stdout', default=False, action='store_true
 parser.add_argument('--append', dest='append', default=False, action='store_true')
 args = parser.parse_args()
 
-# batch_sizes = [1, 2, 4, 8, 16, 32, 64, 128]
-# batch_sizes = [8]
 b_sizes = [32, 64, 128]
 args.target = 'cuda'
-# datasets = com.get_all_datasets() if args.dataset is None else [args.dataset]
 datasets = ['race', 'cola']
 
 ops = ['csf_vanilla', 'cora_vanilla', 'csf_opt', 'cora_opt']
-out_prefix = 'lowering_mem'
+out_prefix = 'prelude_overheads_breakdown'
 
 results_out, results_err = get_out_files(args, out_prefix, 'a' if args.append else 'w')
 header = (
