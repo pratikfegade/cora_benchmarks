@@ -9,22 +9,38 @@ GPU Evaluation
     - Make sure that nvcc is on the PATH
 *** CoRa's dependencies: Z3 4.8.8.0, LLVM 9.0.0, cmake >= 3.5, G++ >= 5.0
 
-* Setting up CoRa
-  1. Set up dependencies
-     a. CoRa is built on top of TVM, which requires the following dependencies: numpy, pytest, attrs, decorator, scipy.
-     b. Building CoRa also requires CUDA and Z3 to be discoverable by cmake i.e. installed in standard locations.
-     c. One can download a prebuilt copy of LLVM-9.0.0 from the LLVM download page (https://releases.llvm.org/download.html). the pre-built version for Ubuntu 18.04 should work.
+​1. Setting up the docker container
+  1.Start from docker container: nvcr.io/nvidia/tensorflow:20.12-tf1-py3
+  2. Install Z3 4.8.8 from prebuilt download here (https://github.com/Z3Prover/z3/releases). Download the file z3-4.8.8-x64-ubuntu-16.04.zip and move the contents of lib/ and include/ in this download to /usr/lib and /usr/include accordingly
+  3. Install cuDNN 8.2.1 (for CUDA 11.x) by using the tar file installation method described here (https://docs.nvidia.com/deeplearning/cudnn/install-guide/index.html#installlinux-tar)
+  4. Install libtinfo-dev, libxml2-dev (apt install libtinfo-dev libxml2-dev)
+  5. Download pre-built llvm 9.0.0 for Ubuntu 19.04 from the LLVM download page (https://releases.llvm.org/download.html). Let the path to the root of the downloaded llvm be LLVM_PATH
 
-  1. Clone the repo: https://github.com/pratikfegade/incubator-tvm, and switch to the ragged_tensors branch
-  2. In the repo, create a build folder, and copy the file incubator-tvm/config.cmake to the build folder
-  4. Update the variable USE_LLVM to point to the llvm-config binary in the downloaded llvm version.
-  3. Compile CoRa, either using make, or ninja:
-     a. Compile using make: In the build folder, run `cmake ..; make -j8 tvm`
-     b. Compile using ninja: In the build folder, run `cmake -G Ninja ..; ninja tvm`
-     Building CoRa should generate a shared file called libtvm.so in the build folder
-  4. Set your PYTHONPATH to include the python incubator-tvm/python directory.
+2. Building and setting up CoRA
+   1. Clone the repo https://github.com/pratikfegade/cora with all its submodules (git clone --recurse-submodules -j8 https://github.com/pratikfegade/cora). Make sure you're on the ragged_tensors branch Let the root of CoRa be CORA_ROOT
+   2. In the file cora/config.cmake.gpu, set the variable USE_LLVM to <LLVM_PATH>/bin/llvm-config
+   3. Build CoRa like so:
+        mkdir build
+        cp config.cmake.gpu build/config.cmake
+        cd build
+        cmake ..
+        make -j8 tvm
+    4. Finally, the compiled shared library libtvm.so should be present in the build directory
+    5. Make sure that your PYTHONPATH contains ${CORA_ROOT}/python before moving on to the experiments
 
-* All paths below are relative to the root of the benchmarks repository
+3. Installing PyTorch
+    1. Install PyTorch 1.9.0+cu111 like so: pip3 install torch==1.9.0+cu111 torchvision==0.10.0+cu111 torchaudio==0.9.0 -f https://download.pytorch.org/whl/torch_stable.html
+
+4. Building FasterTransformer
+    1. Clone the cora_benchmarks repository like so: git clone https://github.com/pratikfegade/cora_benchmarks
+    2. Build faster_transformer like so:
+        cd cora_benchmarks/bert_layer/faster_transformer
+        mkdir build
+        cd build
+        cmake -DSM=xx -DCMAKE_BUILD_TYPE=Release .. where xx is the compute capability of the GPU (70 for the V100)
+        make -j8
+
+* All paths below are relative to the root of the cora_benchmarks repository
 
 - Section 7.1: Matrix Multiplication
 -- Variable-Sized Batched GEMM (vgemm)
