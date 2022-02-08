@@ -59,9 +59,13 @@ parser.add_argument('--target', nargs='?', default=None)
 parser.add_argument('--out-dir', dest='out_dir', nargs='?', default='perf_results')
 parser.add_argument('--stdout', dest='stdout', default=False, action='store_true')
 parser.add_argument('--append', dest='append', default=False, action='store_true')
+parser.add_argument('--full-evaluation', dest='full_evaluation', default=False, action='store_true')
 args = parser.parse_args()
 
-m_sizes = [128, 512, 2048, 8192]
+if args.full_evaluation:
+    m_sizes = [128, 512, 2048, 8192]
+else:
+    m_sizes = [128, 512]
 
 targets = [args.target] if args.target else ['cuda']
 

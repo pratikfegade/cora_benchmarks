@@ -33,12 +33,18 @@ parser.add_argument('--target', nargs='?', default=None)
 parser.add_argument('--out-dir', dest='out_dir', nargs='?', default='perf_results')
 parser.add_argument('--stdout', dest='stdout', default=False, action='store_true')
 parser.add_argument('--append', dest='append', default=False, action='store_true')
+parser.add_argument('--full-evaluation', dest='full_evaluation', default=False, action='store_true')
 args = parser.parse_args()
 
 ops = ['Sq']
-op_m_sizes = {
-    'Sq': [512, 1024, 2048, 4096, 8192],
-}
+if args.full_evaluation:
+    op_m_sizes = {
+        'Sq': [512, 1024, 2048, 4096, 8192],
+    }
+else:
+    op_m_sizes = {
+        'Sq': [512, 1024, 2048],
+    }
 
 def get_op_n_size(op, m):
     if op == 'Sq': return m_size

@@ -108,12 +108,17 @@ parser.add_argument('--gen-libs', dest='gen_libs', default=False, action='store_
 parser.add_argument('--mem', dest='mem', default=False, action='store_true')
 parser.add_argument('--stdout', dest='stdout', default=False, action='store_true')
 parser.add_argument('--append', dest='append', default=False, action='store_true')
+parser.add_argument('--full-evaluation', dest='full_evaluation', default=False, action='store_true')
 args = parser.parse_args()
 
-# batch_sizes = [32, 64, 128]
+batch_sizes = [32, 64, 128]
 targets = [args.target] if args.target else ['cuda']
 datasets = com.cluster_datasets_by_max_len() if args.dataset is None else {com.get_dataset_max_len(args.dataset) : [args.dataset]}
-# datasets = {512:['race', 'wiki_512'],384:['squadv2'],128:['wiki_128','mnli','xnli'],112:['mrpc'],48:['cola']}
+# Datasets: Dictionary from maximum sequence length to datasets
+if args.full_evaluation:
+    datasets = {512:['race', 'wiki_512'],384:['squadv2'],128:['wiki_128','mnli','xnli'],112:['mrpc'],48:['cola']}
+else:
+    datasets = {128:['mnli'],48:['cola']}
 
 if args.target == "cpu":
     framework_funs = {
