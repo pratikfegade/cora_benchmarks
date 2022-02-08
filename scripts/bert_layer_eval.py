@@ -136,28 +136,38 @@ parser.add_argument('--gen-libs', dest='gen_libs', default=False, action='store_
 parser.add_argument('--mem', dest='mem', default=False, action='store_true')
 parser.add_argument('--stdout', dest='stdout', default=False, action='store_true')
 parser.add_argument('--append', dest='append', default=False, action='store_true')
+parser.add_argument('--full-evaluation', dest='full_evaluation', default=False, action='store_true')
+parser.add_argument('--pt-cora', dest='pt_cora', default=False, action='store_true')
 args = parser.parse_args()
 
 batch_sizes = [32, 64, 128]
 targets = [args.target] if args.target else ['cuda']
 # datasets = com.cluster_datasets_by_max_len() if args.dataset is None else {com.get_dataset_max_len(args.dataset) : [args.dataset]}
-# datasets = {384:['squadv2'],128:['wiki_128','mnli','xnli'],112:['mrpc'],48:['cola']}
-# datasets = {512:['race', 'wiki_512'],384:['squadv2'],128:['wiki_128','mnli','xnli'],112:['mrpc'],48:['cola']}
-# datasets = {48:['cola'],112:['mrpc'],128:['wiki_128','mnli','xnli'],384:['squadv2'],512:['race', 'wiki_512']}
-# datasets = {384:['squadv2'],128:['wiki_128','mnli','xnli'],112:['mrpc'],48:['cola']}
-datasets = {48:['cola'],112:['mrpc'],128:['wiki_128','mnli','xnli'],384:['squadv2'],512:['race', 'wiki_512']}
-# datasets = {512:['race', 'wiki_512'],384:['squadv2'],128:['wiki_128','mnli','xnli'],112:['mrpc'],48:['cola']}
-# datasets = {48:['cola'],512:['race']}
-datasets = {384:['squadv2'],512:['wiki_512']}
+if args.full_evaluation:
+    datasets = {512:['race', 'wiki_512'],384:['squadv2'],128:['wiki_128','mnli','xnli'],112:['mrpc'],48:['cola']}
+else:
+    datasets = {128:['mnli'],48:['cola']}
 
 
 if args.target == "cpu":
-    framework_funs = {
-        # 'pytorch': lambda b_sizes, *args: com.batchify(b_sizes, get_pt_runner(False), *args),
-        # 'pytorch-noub': lambda b_sizes, *args: com.batchify(b_sizes, get_pt_runner(True), *args),
-        # 'tf': lambda b_sizes, *args: com.batchify(b_sizes, run_tf, *args),
-        # 'tf-noub': lambda b_sizes, *args: com.batchify(b_sizes, get_tf_runner(True), *args),
-        'cora': lambda b_sizes, *args: com.batchify(b_sizes, get_cora_runner(False), *args),
+    if args.pt_cora:
+        framework_funs = {
+            'pytorch': lambda b_sizes, *args: com.batchify(b_sizes, get_pt_runner(False), *args),
+            'pytorch-noub': lambda b_sizes, *args: com.batchify(b_sizes, get_pt_runner(True), *args),
+            'cora': lambda b_sizes, *args: com.batchify(b_sizes, get_cora_runner(False), *args),
+        }
+    elif args.tf:
+        framework_funs = {
+            'tf': lambda b_sizes, *args: com.batchify(b_sizes, run_tf, *args),
+            'tf-noub': lambda b_sizes, *args: com.batchify(b_sizes, get_tf_runner(True), *args),
+        }
+    else:
+        framework_funs = {
+            'pytorch': lambda b_sizes, *args: com.batchify(b_sizes, get_pt_runner(False), *args),
+            'pytorch-noub': lambda b_sizes, *args: com.batchify(b_sizes, get_pt_runner(True), *args),
+            'tf': lambda b_sizes, *args: com.batchify(b_sizes, run_tf, *args),
+            'tf-noub': lambda b_sizes, *args: com.batchify(b_sizes, get_tf_runner(True), *args),
+            'cora': lambda b_sizes, *args: com.batchify(b_sizes, get_cora_runner(False), *args),
     }
 else:
     if args.prep_overhead:
