@@ -58,10 +58,13 @@ parser.add_argument('--max-batches', dest='max_batches', default=1, type=int)
 parser.add_argument('--prep-overhead', dest='prep_overhead', default=False, action='store_true')
 parser.add_argument('--stdout', dest='stdout', default=False, action='store_true')
 parser.add_argument('--append', dest='append', default=False, action='store_true')
+parser.add_argument('--full-evaluation', dest='full_evaluation', default=False, action='store_true')
 args = parser.parse_args()
 
-# b_sizes = [2, 4, 8, 16, 32, 64, 128, 256, 512]
-b_sizes = [2, 4, 8, 16, 32, 64]
+if args.full_evaluation:
+    b_sizes = [2, 4, 8, 16, 32, 64, 128, 256, 512]
+else:
+    b_sizes = [2, 4, 8, 16, 32, 64]
 targets = [args.target] if args.target else ['cuda']
 
 if args.prep_overhead:
