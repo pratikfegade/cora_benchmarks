@@ -15,6 +15,7 @@ parser.add_argument('--nt', dest='nt', default=8, type=int)
 parser.add_argument('--kt', dest='kt', default=4, type=int)
 parser.add_argument('--masked-mha', dest='masked_mha', default=False, action='store_true')
 parser.add_argument('--hfuse', dest='hfuse', default=False, action='store_true')
+parser.add_argument('--split2', dest='split2', default=False, action='store_true')
 args = parser.parse_args()
 
 args.target = run_utils.get_arm_target()
@@ -114,9 +115,9 @@ def schedule_op(S, O, tile_x, tile_y, suffix):
     f1 = s[O].fuse(xo, yo)
     f1 = s[O].fuse(b, f1)
 
-    # 64-core ARM
+    # 64-core
     f1 = s[O].fuse(f1, h)
-    # 64-core ARM
+    # 64-core
 
     s[O].parallel(f1)
 
@@ -136,19 +137,40 @@ def schedule_op(S, O, tile_x, tile_y, suffix):
     s.reorder_tensor_dimensions(Ks, 2, 3)
     s.reorder_tensor_dimensions(Ks, 3, 4)
 
-G1, G2 = s.split_for_bin_packing([S], O, {O.op.axis[1]: lb_uf}, include_inputs=True)
-S1, O1 = G1
-S2, O2 = G2
-schedule_op(S1, O1, 64, 64, '1')
-schedule_op(S2, O2, 32, 64, '2')
+if args.split2:
+    G1, G2, G3, G4 = s.split_for_bin_packing([S], O, {O.op.axis[1]: lb_uf, O.op.axis[3]: lb_uf}, include_inputs=True)
+    S1, O1 = G1
+    S2, O2 = G2
+    S3, O3 = G3
+    S4, O4 = G4
+    schedule_op(S1, O1, 64, 64, '1')
+    schedule_op(S2, O2, 32, 64, '2')
+    schedule_op(S3, O3, 64, 32, '3')
+    schedule_op(S4, O4, 32, 32, '4')
 
-if args.hfuse:
-    s.hfuse([(s[O1].op, s[O1].leaf_iter_vars[0]),
-             (s[O2].op, s[O2].leaf_iter_vars[0])])
+    if args.hfuse:
+        s.hfuse([(s[O1].op, s[O1].leaf_iter_vars[0]),
+                 (s[O2].op, s[O2].leaf_iter_vars[0]),
+                 (s[O3].op, s[O3].leaf_iter_vars[0]),
+                 (s[O4].op, s[O4].leaf_iter_vars[0]),])
+else:
+    G1, G2 = s.split_for_bin_packing([S], O, {O.op.axis[1]: lb_uf}, include_inputs=True)
+    S1, O1 = G1
+    S2, O2 = G2
+    schedule_op(S1, O1, 64, 64, '1')
+    schedule_op(S2, O2, 32, 64, '2')
+
+    if args.hfuse:
+        s.hfuse([(s[O1].op, s[O1].leaf_iter_vars[0]),
+                 (s[O2].op, s[O2].leaf_iter_vars[0])])
 
 bO = tvm.tir.decl_buffer(output_layout, name="bO")
 inputs = [[lens], [BS_VAR, Q, K, bO]]
-binds = {O1:bO, O2:bO}
+
+if args.split2:
+    binds = {O1:bO, O2:bO, O3:bO, O4:bO}
+else:
+    binds = {O1:bO, O2:bO}
 
 def size_fn(l_inputs):
     lens = l_inputs[0]
