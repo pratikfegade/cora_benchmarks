@@ -17,11 +17,14 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--target', nargs='?', default='llvm')
 parser.add_argument('--dtype', dest='dtype', nargs='?', default='float32')
 parser.add_argument('--max-batches', dest='max_batches', default=10, type=int)
+parser.add_argument('--num-threads', dest='num_threads', default=10, type=int)
+parser.add_argument('--scalability', dest='scalability', default=False, action='store_true')
 parser.add_argument('--batch-size', dest='batch_size', default=32, type=int)
 parser.add_argument('--profile', dest='profile', default=False, action='store_true')
 parser.add_argument('--mem', dest='mem', default=False, action='store_true')
 parser.add_argument('--masked-mha', dest='masked_mha', default=False, action='store_true')
 parser.add_argument('--debug', dest='debug', default=False, action='store_true')
+parser.add_argument('--no-ub', dest='no_ub', default=False, action='store_true')
 parser.add_argument('--dataset', nargs='?', default='random_384_512')
 args = parser.parse_args()
 
@@ -118,56 +121,84 @@ device = torch.device('cpu')
 batch_size = args.batch_size
 
 batches = run_utils.get_nlp_batches(batch_size, args.max_batches, args.dataset)
+if len(batches[-1]) != batch_size: batches.pop()
 
-iters = 1 if args.mem or args.debug else 200
+num_threads = args.num_threads if args.scalability else 64
+print('#Threads', num_threads)
+torch.set_num_threads(num_threads)
 
-callable_to_profile = None
-torch.set_num_threads(8)
-def run_for_batches():
+def run_for_a_batch(batch, iters):
+    batch_size = len(batch)
+    max_len = int(np.amax(batch))
+    print(batch_size, max_len, batch)
+    attn_mask = np.full((batch_size, max_len, max_len), 0.0, dtype='float32')
+    if args.masked_mha:
+        # for i in range(batch_size):
+            # for j in range(max_len):
+                # if j >= batch[i]:
+                    # attn_mask[i][j] = np.full((max_len,), -float('inf'), dtype='float32')
+                # else:
+                    # attn_mask[i][j][j+1:] = np.full((max_len - j - 1,), -float('inf'), dtype='float32')
+        attn_mask = torch.from_numpy(attn_mask).to(device)
+        encoder = MaskedMHA(device, max_len, batch_size, num_heads, head_size, model_size)
+    else:
+        # for i in range(batch_size):
+        #     for j in range(max_len):
+        #         if j >= batch[i]:
+        #             attn_mask[i][j] = np.full((max_len,), -float('inf'), dtype='float32')
+        #         else:
+        #             attn_mask[i][j][j+1:] = np.full((max_len - j - 1,), -float('inf'), dtype='float32')
+        attn_mask = torch.from_numpy(attn_mask).to(device)
+        encoder = Encoder(device, max_len, batch_size, num_heads, head_size, model_size, ff_size, args.debug)
+
+    if args.debug:
+        inp = get_np_tensor((batch_size * max_len, model_size), device, True)
+        ret = encoder.forward(inp, attn_mask)
+        # print(np.mean(ret.cpu().numpy()))
+        return 1
+    else:
+        traced_encoder = torch.jit.script(encoder)
+        inp = get_np_tensor((batch_size * max_len, model_size), device, True)
+        timer = benchmark.Timer(stmt='f(x, y)',
+                                globals={'x': inp, 'y': attn_mask, 'f': traced_encoder},
+                                num_threads=num_threads)
+        return timer.timeit(iters).mean * 1000.0
+
+def run_for_batches(ubs, iters):
     batch_times = []
     for batch in batches:
-        max_len = int(np.amax(batch))
+        bs = batch_size
+        batch = np.sort(batch)
+        micro_batches = np.split(batch, bs // ubs)
 
-        attn_mask = np.full((batch_size, max_len, max_len), 0.0, dtype='float32')
-        if args.masked_mha:
-            for i in range(batch_size):
-                for j in range(max_len):
-                    if j >= batch[i]:
-                        attn_mask[i][j] = np.full((max_len,), -float('inf'), dtype='float32')
-                    else:
-                        attn_mask[i][j][j+1:] = np.full((max_len - j - 1,), -float('inf'), dtype='float32')
-            attn_mask = torch.from_numpy(attn_mask).to(device)
-            encoder = MaskedMHA(device, max_len, batch_size, num_heads, head_size, model_size)
-            traced_encoder = torch.jit.script(encoder)
-            inp = get_np_tensor((args.batch_size * max_len, model_size), device, True)
-        else:
-            for i in range(batch_size):
-                for j in range(max_len):
-                    if j >= batch[i]:
-                        attn_mask[i][j] = np.full((max_len,), -float('inf'), dtype='float32')
-                    else:
-                        attn_mask[i][j][j+1:] = np.full((max_len - j - 1,), -float('inf'), dtype='float32')
-            attn_mask = torch.from_numpy(attn_mask).to(device)
-            encoder = Encoder(device, max_len, batch_size, num_heads, head_size, model_size, ff_size, args.debug)
+        print(ubs, bs, len(micro_batches))
+        batch_time = 0
+        for micro_batch in micro_batches:
+            batch_time += run_for_a_batch(micro_batch, iters)
+        batch_times.append(batch_time)
 
-        if args.debug:
-            inp = get_np_tensor((args.batch_size * max_len, model_size), device, True)
-            ret = encoder.forward(inp, attn_mask)
-            print(np.mean(ret.cpu().numpy()))
-        else:
-            traced_encoder = torch.jit.script(encoder)
-            inp = get_np_tensor((args.batch_size * max_len, model_size), device, True)
-            timer = benchmark.Timer(stmt='f(x, y)',
-                                    globals={'x': inp, 'y': attn_mask, 'f': traced_encoder},
-                                    num_threads=8)
-            batch_times.append(timer.timeit(iters).mean * 1000.0)
+    return sum(batch_times) / len(batches)
 
-    return batch_times
-
+iters = 1 if args.mem or args.debug else 40
 with torch.no_grad():
     if not args.profile:
-        batch_times = run_for_batches()
-        print('RESULTS', sum(batch_times) / len(batches), sep=',')
+        if args.no_ub:
+            time = run_for_batches(batch_size, iters)
+            print('RESULTS', time, batch_size, sep=',')
+        else:
+            min_time = float('inf')
+            min_ubs = -1
+            for ubs in [2, 4, 8, 16, 32, 64, 128]:
+                if ubs > batch_size:
+                    break
+                ubs_time = run_for_batches(ubs, 5)
+                print(ubs, ubs_time)
+                if ubs_time < min_time:
+                    min_time = ubs_time
+                    min_ubs = ubs
+
+            time = run_for_batches(min_ubs, iters)
+            print('RESULTS', time, min_ubs, sep=',')
     else:
         with profile(activities=[ProfilerActivity.CUDA], record_shapes=True) as prof:
             run_for_batches()

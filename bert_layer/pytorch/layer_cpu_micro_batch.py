@@ -17,6 +17,8 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--target', nargs='?', default='llvm')
 parser.add_argument('--dtype', dest='dtype', nargs='?', default='float32')
 parser.add_argument('--max-batches', dest='max_batches', default=10, type=int)
+parser.add_argument('--num-threads', dest='num_threads', default=10, type=int)
+parser.add_argument('--scalability', dest='scalability', default=False, action='store_true')
 parser.add_argument('--batch-size', dest='batch_size', default=32, type=int)
 parser.add_argument('--profile', dest='profile', default=False, action='store_true')
 parser.add_argument('--mem', dest='mem', default=False, action='store_true')
@@ -121,7 +123,9 @@ batch_size = args.batch_size
 batches = run_utils.get_nlp_batches(batch_size, args.max_batches, args.dataset)
 if len(batches[-1]) != batch_size: batches.pop()
 
-torch.set_num_threads(64)
+num_threads = args.num_threads if args.scalability else 64
+print('#Threads', num_threads)
+torch.set_num_threads(num_threads)
 
 def run_for_a_batch(batch, iters):
     batch_size = len(batch)
@@ -157,7 +161,7 @@ def run_for_a_batch(batch, iters):
         inp = get_np_tensor((batch_size * max_len, model_size), device, True)
         timer = benchmark.Timer(stmt='f(x, y)',
                                 globals={'x': inp, 'y': attn_mask, 'f': traced_encoder},
-                                num_threads=64)
+                                num_threads=num_threads)
         return timer.timeit(iters).mean * 1000.0
 
 def run_for_batches(ubs, iters):

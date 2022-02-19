@@ -92,6 +92,11 @@ def schedule_op(O, tile, suffix):
     s[O].reorder(b, xo, yo, h, xi, yi)
     f1 = s[O].fuse(xo, yo)
     f2 = s[O].fuse(b, f1)
+
+    # 64-core ARM
+    f2 = s[O].fuse(f2, h)
+    # 64-core ARM
+
     s[O].parallel(f2)
 
     s[O_local].unroll(O_local_k_i)
